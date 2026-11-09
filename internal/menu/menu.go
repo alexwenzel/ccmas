@@ -23,21 +23,32 @@ type Item struct {
 type Menu struct {
 	Title string
 	Items []Item
+	// Intro wird einmal beim Start des Hauptmenüs aufgerufen (optional).
+	Intro func(out io.Writer)
+	// Style formatiert die Titelzeile des Haupt- und aller Untermenüs (optional).
+	Style func(out io.Writer, line string) string
 }
 
 // Run zeigt das Menü, bis die Eingabe endet oder "0" im Hauptmenü gewählt wird.
 func (m *Menu) Run(in io.Reader, out io.Writer) {
-	m.run(bufio.NewScanner(in), out, true)
+	if m.Intro != nil {
+		m.Intro(out)
+	}
+	m.run(bufio.NewScanner(in), out, true, m.Style)
 }
 
 // run gibt false zurück, wenn die Eingabe zu Ende ist (dann bricht alles ab).
-func (m *Menu) run(in *bufio.Scanner, out io.Writer, top bool) bool {
+func (m *Menu) run(in *bufio.Scanner, out io.Writer, top bool, style func(io.Writer, string) string) bool {
 	back := "Zurück"
 	if top {
 		back = "Beenden"
 	}
 	for {
-		fmt.Fprintf(out, "\n=== %s ===\n", m.Title)
+		title := "=== " + m.Title + " ==="
+		if style != nil {
+			title = style(out, title)
+		}
+		fmt.Fprintf(out, "\n%s\n", title)
 		for i, it := range m.Items {
 			fmt.Fprintf(out, "  %d) %s\n", i+1, it.Label)
 		}
@@ -58,7 +69,7 @@ func (m *Menu) run(in *bufio.Scanner, out io.Writer, top bool) bool {
 			if it.Action != nil {
 				it.Action(in, out)
 			}
-			if it.Sub != nil && !it.Sub.run(in, out, false) {
+			if it.Sub != nil && !it.Sub.run(in, out, false, style) {
 				return false
 			}
 		}

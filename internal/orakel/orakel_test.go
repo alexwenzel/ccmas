@@ -68,7 +68,22 @@ func TestMainMenuEndToEnd(t *testing.T) {
 	var out strings.Builder
 	// Büro-Überleben → Kaffee-Rechner → 3 Stunden Schlaf → zurück → beenden
 	NewMainMenu(newRand()).Run(strings.NewReader("3\n1\n3\n0\n0\n"), &out)
-	for _, want := range []string{"Büro-Orakel", "Büro-Überleben", "6 Tasse(n) Kaffee"} {
+	for _, want := range []string{"Büro-Orakel", "Büro-Überleben", "6 Tasse(n) Kaffee", "█", ".---."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("Ausgabe enthält %q nicht:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "\x1b") {
+		t.Errorf("Escape-Code in Nicht-Terminal-Ausgabe:\n%q", out.String())
+	}
+}
+
+func TestEffectsMenuEntries(t *testing.T) {
+	// Jeder Menüpunkt einmal: Orakel (3), Glücksspiel (3), Überleben (Bingo, Witz)
+	input := "1\n1\n2\n3\n0\n2\n1\n2\n3\n0\n3\n2\n3\n0\n0\n"
+	var out strings.Builder
+	NewMainMenu(newRand()).Run(strings.NewReader(input), &out)
+	for _, want := range []string{"→ ", "┌", "FREI", "Ba-dum-tss!"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("Ausgabe enthält %q nicht:\n%s", want, out.String())
 		}

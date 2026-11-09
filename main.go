@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/alexwenzel/ccmas/internal/fx"
 	"github.com/alexwenzel/ccmas/internal/orakel"
 )
 
@@ -23,5 +24,6 @@ func main() {
 
 	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 	orakel.NewMainMenu(r).Run(os.Stdin, os.Stdout)
-	fmt.Println("Tschüss!")
+	fmt.Print(fx.Wave)
+	fmt.Println(fx.Rainbow(os.Stdout, "Tschüss!", 0))
 }
