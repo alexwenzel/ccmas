@@ -29,4 +29,13 @@ go vet ./...
 
 `.claude/skills/ccmas-<name>/` ist der führende Bestand der CCMAS-Skills. Eine identische Kopie liegt im Vault unter `Eigene Projekte/ccmas/Skills/`; jede Änderung an beiden Orten nachziehen (Regeldatei, Abschnitt 8.3). In diesem Repo gelten die `ccmas-`-Skills, nicht die gleichnamigen Konto-Skills ohne Präfix.
 
+## Subagenten
+
+`.claude/agents/` legt die Worker mit festen Parametern fest; der Orchestrator (Hauptsitzung) delegiert dorthin:
+
+| Agent | Modell / Effort | Rolle |
+|---|---|---|
+| `ccmas-worker` | sonnet / high | Ein Ticket im vorbereiteten Worktree umsetzen, testen, committen; kein Push, kein Merge, kein Asana/Vault |
+| `ccmas-reviewer` | sonnet / high | Unabhängiges, nur lesendes Review des committeten Stands vor dem Push |
+
 Worktrees für parallele Features (`ccmas-feature-parallel`) liegen unter `.claude/worktrees/` und werden nicht eingecheckt.
