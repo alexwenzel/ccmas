@@ -1,0 +1,12 @@
+{
+  "profile_id": "reviewer-default",
+  "version": 3,
+  "role": "reviewer",
+  "runtime": "claude",
+  "model": "model-a",
+  "effort": "max",
+  "skill_ids": [
+    "ccmas-feature-parallel"
+  ],
+  "policy_profile": "default"
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "project_id": "ccmas",
+  "code_dir": "/work/code/ccmas",
+  "execution_dir": "/work/exec/ccmas",
+  "repository": "alexwenzel/ccmas",
+  "base_branch": "develop",
+  "vault": {
+    "id": "vault-main",
+    "project_area": "Eigene Projekte/ccmas"
+  },
+  "asana_project_gid": "1220359723506992"
+}

@@ -1,0 +1,13 @@
+{
+  "protocol_version": "1",
+  "project_id": "proj-1",
+  "execution_id": "exec-1\n",
+  "attempt": 1,
+  "correlation_id": "corr-1",
+  "type": "activity",
+  "timestamp": "2026-11-10T12:00:00Z",
+  "payload": {
+    "kind": "assistant_text",
+    "summary": "Liest die Spezifikation."
+  }
+}

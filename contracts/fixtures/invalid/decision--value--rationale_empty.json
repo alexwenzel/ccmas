@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "decision_id": "dec-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "target": {
+    "kind": "work_order",
+    "id": "wo-1"
+  },
+  "action": "implementation",
+  "preconditions": [
+    {
+      "kind": "capacity_available"
+    }
+  ],
+  "rationale": "",
+  "selection": {
+    "role": "implementer",
+    "skill_ids": [
+      "ccmas-feature-parallel"
+    ],
+    "model": "model-a",
+    "effort": "high"
+  }
+}

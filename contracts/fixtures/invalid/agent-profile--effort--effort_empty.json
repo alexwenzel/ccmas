@@ -1,0 +1,12 @@
+{
+  "profile_id": "impl-default",
+  "version": 3,
+  "role": "implementer",
+  "runtime": "claude",
+  "model": "model-a",
+  "effort": "",
+  "skill_ids": [
+    "ccmas-feature-parallel"
+  ],
+  "policy_profile": "default"
+}

@@ -8,6 +8,7 @@ license = "GPL-3.0-or-later"
 dependencies = [
     # Offizielles Claude Agent SDK (PyPI), exakt gepinnt. Siehe docs/architecture/ccmas-design.md.
     "claude-agent-sdk==0.2.180",
+    "jsonschema==4.26.0",
 ]
 
 [dependency-groups]

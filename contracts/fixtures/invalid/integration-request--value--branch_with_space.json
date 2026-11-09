@@ -1,0 +1,13 @@
+{
+  "request_id": "int-1",
+  "decision_id": "dec-1",
+  "work_order_id": "wo-1",
+  "mode": "pr",
+  "base_branch": "develop",
+  "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "branch": "feature x",
+  "pr_number": 12,
+  "review_report_id": "rep-1",
+  "concept_version": "1.2.0",
+  "created_at": "2026-11-10T13:00:00Z"
+}
