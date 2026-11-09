@@ -138,3 +138,31 @@ fabric.properties
 
 # Claude Code worktrees (ccmas-feature-parallel)
 .claude/worktrees/
+
+### CCMAS
+# Python-Umgebung und Caches (Runner unter runners/claude_sdk/)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Lokale, personenbezogene Konfiguration: nie einchecken. Versionierte Beispiele
+# liegen unter config/ bzw. als .env.example (beides bleibt getrackt).
+.ccmas/
+*.local.*
+.env.*
+!.env.example
+
+# Laufzeitdaten (SQLite-Zustand, Logs, Ausführungsbereich/Agenten-Worktrees).
+# Sie liegen im Betrieb außerhalb des Repos; die Muster fangen Versehen im Arbeitsbaum ab.
+/var/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log

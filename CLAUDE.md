@@ -21,8 +21,10 @@ Dort stehen auch Asana-Projekt, GIDs, Felder und Workflow. Spezifikation: Seite 
 ```bash
 make test     # go test ./...
 make race     # go test -race ./...
-make build    # bin/orakel
+make build    # bin/ccmas
 go vet ./...
+make py-test  # Python-Runner-Tests (uv run --frozen pytest)
+make check    # test, race, vet, build, py-test
 ```
 
 ## Projektlokale Skills

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (test, race, vet, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Tests
+        run: make test
+      - name: Race-Tests
+        run: make race
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: make build
+
+  python:
+    name: Python-Runner (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runners/claude_sdk
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.13.7"
+      - name: Gelockte Umgebung herstellen
+        run: uv sync --frozen
+      - name: Tests
+        run: uv run --frozen pytest -q
