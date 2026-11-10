@@ -88,9 +88,22 @@ func ParseReviewReport(raw []byte) (ReviewReport, error) {
 	return v, nil
 }
 
+// ParseSkillSnapshot prüft und dekodiert die snapshot.json eines Skill-Snapshots samt
+// ihrer strukturellen Invarianten (SkillSnapshot.Check).
+func ParseSkillSnapshot(raw []byte) (SkillSnapshot, error) {
+	var v SkillSnapshot
+	if err := parseInto(TargetSkillSnapshot, raw, &v); err != nil {
+		return SkillSnapshot{}, err
+	}
+	if err := v.Check(); err != nil {
+		return SkillSnapshot{}, err
+	}
+	return v, nil
+}
+
 // Parse prüft und dekodiert ein Dokument des Ziels t und liefert den typisierten Wert:
 // RunCommand, RunEvent, ProjectConfig, AgentProfile, WorkOrder, Decision,
-// IntegrationRequest oder ReviewReport.
+// IntegrationRequest, ReviewReport oder SkillSnapshot.
 func Parse(t Target, raw []byte) (any, error) {
 	switch t {
 	case TargetToRunner:
@@ -109,6 +122,8 @@ func Parse(t Target, raw []byte) (any, error) {
 		return ParseIntegrationRequest(raw)
 	case TargetReviewReport:
 		return ParseReviewReport(raw)
+	case TargetSkillSnapshot:
+		return ParseSkillSnapshot(raw)
 	}
 	return nil, newError(CatValue, "", "unbekanntes Ziel %q", t)
 }

@@ -9,6 +9,7 @@ import asyncio
 import io
 import json
 import os
+import shutil
 import stat
 import threading
 from pathlib import Path
@@ -64,6 +65,54 @@ def start_line(cwd: str, claude_binary: str, **over: Any) -> str:
     }
     payload.update(over)
     return envelope("start", payload)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+EXAMPLE_SNAPSHOT = REPO_ROOT / "contracts" / "fixtures" / "skill-snapshots" / "example"
+"""Gemeinsames Beispiel eines Skill-Snapshots, von Go erzeugt (`TestExampleSnapshotFixture`): Rolle `concept`, zwei Skills."""
+EXAMPLE_SNAPSHOT_ID = "sha256:86d0863c2d5453dc486b3701f9f7c018733b482965ad822ea2b66de8accaeab2"
+EXAMPLE_SKILLS = ("ccmas-demo-know", "ccmas-demo-track")
+EXAMPLE_ROLE = "concept"
+
+
+def make_writable(path: Path) -> None:
+    """Hebt den Schreibschutz eines Snapshot-Baums auf (Verzeichnisse 0555, Dateien 0444), damit Tests ihn verändern
+    oder löschen können."""
+    for dirpath, dirnames, filenames in os.walk(path):
+        os.chmod(dirpath, 0o755)
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            if not os.path.islink(full):
+                os.chmod(full, 0o644)
+
+
+def copy_example_snapshot(dest: Path) -> Path:
+    """Kopiert das Beispiel-Snapshot nach `dest` (Symlinks bleiben Symlinks) und gibt den Pfad zurück."""
+    shutil.copytree(EXAMPLE_SNAPSHOT, dest, symlinks=True)
+    make_writable(dest)
+    return dest
+
+
+def skill_start_line(cwd: str, claude_binary: str, snapshot: Path | str | None, *, snapshot_id: str = EXAMPLE_SNAPSHOT_ID,
+                     skill_ids: list[str] | None = None, role: str = EXAMPLE_ROLE, **over: Any) -> str:
+    """Startkommando mit Skill-Snapshot (Standard: das Beispiel-Snapshot, seine Rolle und alle seine Skills)."""
+    fields: dict[str, Any] = {"role": role, "skill_ids": list(EXAMPLE_SKILLS) if skill_ids is None else skill_ids}
+    if snapshot is not None:
+        fields["skill_snapshot"] = {"snapshot_id": snapshot_id, "path": str(snapshot)}
+    fields.update(over)
+    return start_line(cwd, claude_binary, **fields)
+
+
+def init_with_skills(snapshot: Path | str | None, skills: list[str] | None, *, plugin_name: str = "ccmas",
+                     plugin_path: str | None = None, other: list[str] | None = None, **kw: Any) -> SystemMessage:
+    """Init-Frame, wie die CLI ihn für ein geladenes Plugin meldet: `plugins` mit Pfad und `skills` mit Plugin-Präfix, dazu
+    mitgelieferte Einträge ohne Präfix und zwei fremde Plugins (wie im echten Frame). `skills=None` lässt das Plugin weg."""
+    plugins = [{"name": "fremd-a", "path": "/opt/fremd/a", "source": "builtin"}, {"name": "fremd-b", "path": "/opt/fremd/b"}]
+    names = ["verify", "code-review", *(other or [])]
+    if skills is not None:
+        names += skills
+        plugins.append({"name": plugin_name, "path": plugin_path or str(snapshot)})
+    return init_message(extra={"plugins": plugins, "skills": names}, **kw)
 
 
 def command_line(type_: str, **payload: Any) -> str:
@@ -237,6 +286,8 @@ def init_message(*, api_key_source: str = "none", version: str = "2.1.311", capa
         "claude_code_version": version,
         "capabilities": ["interrupt_receipt_v1"] if capabilities is None else capabilities,
         "tools": [],
+        "plugins": [],  # der echte Frame enthält immer beide Listen; der Runner prüft sie fail-closed
+        "skills": [],
     }
     data.update(extra or {})
     return SystemMessage(subtype="init", data=data)

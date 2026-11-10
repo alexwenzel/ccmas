@@ -1,6 +1,6 @@
-# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17)
+# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35)
 
-Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**. Führend ist die Spezifikation
+Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu. Führend ist die Spezifikation
 „Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
 (Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
@@ -22,6 +22,7 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
 | Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
 | Fremde Quellen (Projektdateien, Connectors, Plugins, Skills) | Im Runner-Lauf (`setting_sources=[]`) laden weder Hook, Projekt-Skill noch Benutzer-Skills/-Plugins aus dem Konfigurationsverzeichnis; `mcp_servers` ist 0; Positivkontrolle mit Quelle `project` zeigt Hook und Skill (Belege `live-roundtrip.jsonl`, `live-structured-output.jsonl`, Abschnitt 5) | Wirkung von `disableClaudeAiConnectors` (Anzahl ist auch ohne die Einstellung 0), Nachladen von Connectors nach dem Init-Frame, Herkunft von 3 Plugins mit Pfad außerhalb des Konfigurationsverzeichnisses, `CLAUDE.md` (Positivkontrolle nicht deterministisch: Marker erschien in einem Positivlauf nicht, im Review-Lauf schon; Abschnitt 5) | – |
+| Skills in der Sitzung (CC-35) | Genau die Skills eines von Go geschriebenen, vom Runner nachgerechneten Snapshots sind geladen und aufrufbar (Plugin `ccmas`, `ccmas:<id>`); ein Skill außerhalb der Allowlist wird vom Skill-Werkzeug abgewiesen (Beleg `live-skill-snapshot.jsonl`, Abschnitt 9) | Ressourcen-Dateien neben `SKILL.md` (Lesezugriff nicht freigeschaltet), Sitzung ohne Snapshot live (nur mit Fake-Client belegt: `skills=[]`, kein `Skill`-Werkzeug), Lauf mit `scoped_write`, Agents und Task-Werkzeug | – |
 | Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen, Lesen unter `~/.claude` | **Unbeaufsichtigter Modus:** nicht freigegeben (`scoped_write` ist ein Prüfprofil; Profil `autonomous` wird abgelehnt) |
 | Diagnosen ohne Konto | Abschnitt 6 (Tests ohne Konto-Zugriff) | Abo-Limit gegen die echte CLI (nur mit Fake-Client belegt) | – |
 | Remote Control | nur Dokumentation und `--help` gelesen (Abschnitt 7) | SDK-Sitzungen in Remote Control | – |
@@ -31,7 +32,8 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 
 Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/`): `__main__.py` (Prozess-Einstieg),
 `entrypoint.py` (JSON-Lines-Protokoll), `runtime.py` (Vorprüfung und SDK-Sitzung), `environment.py` (Umgebung),
-`policy.py` (Policy-Profile), `diagnostics.py` (Fehlerarten, Schwärzung). Tests: `runners/claude_sdk/tests/`
+`policy.py` (Policy-Profile), `diagnostics.py` (Fehlerarten, Schwärzung), `skill_snapshot.py` (Prüfung des Skill-Snapshots,
+seit CC-35). Tests: `runners/claude_sdk/tests/`
 (`test_runtime_smoke.py`, `test_runtime_units.py`, Hilfen in `support.py`).
 
 - **Eingang:** `python -m claude_sdk_runner [--max-turns N]`. stdin liefert `start` (`RunSpec`), danach `answer`,
@@ -53,7 +55,7 @@ Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/
 - **Kontrollierte Umgebung beim SDK-Start:** Das echte SDK erbt `os.environ`. Der Runner startet deshalb nie einen
   echten `ClaudeSDKClient`, wenn `main(..., environ=<Mapping>)` ein anderes Mapping als `os.environ` bekam (terminaler
   `internal_error` nach der Vorprüfung, ohne Sitzung). Tests mit Fake-Client dürfen ein Dict übergeben.
-- **Vorprüfung** (Reihenfolge): Umgebung bereinigen, Policy, Binary (absolut, ausführbar, nicht die gebündelte
+- **Vorprüfung** (Reihenfolge): Umgebung bereinigen, Policy, **Skill-Snapshot** (seit CC-35, Abschnitt 9), Binary (absolut, ausführbar, nicht die gebündelte
   CLI), SDK-Pin, `claude -v` (Mindestversion 2.1.311), **Versionssperre** (siehe unten), `claude auth status` (nur
   `loggedIn`, `authMethod`, `apiProvider` werden gelesen). Kein Modellaufruf. Im Init-Frame prüft der Runner
   `apiKeySource == none`, die Fähigkeit `interrupt_receipt_v1` und die CLI-Version.
@@ -85,14 +87,16 @@ Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/
   `_build_command`). Runner-Sitzungen laufen damit ohne den Standardprompt von Claude Code; ob und wie ein eigener Prompt
   gesetzt wird, ist eine Wahl für **M02**. Der wirksame Prompt wurde nicht geprüft.
 - **Wirksame Konfiguration:** `session_started` trägt die optionalen Felder `permission_mode`, `claude_binary`,
-  `auth_source` (Vertragserweiterung in CC-17, siehe `contracts.md`).
+  `auth_source` (Vertragserweiterung in CC-17) sowie bei einem Skill-Snapshot `skill_snapshot_id` und `skills`
+  (CC-35, siehe `contracts.md`).
 - **Grenzen:** `max_runtime_seconds` gilt für Verbindungsaufbau, Anfrage und Antworten zusammen. Bei Ablauf: Interrupt
   (nur bei bereiter Sitzung, höchstens 10 s), dann terminaler `error` `max_runtime_exceeded`. Das Schließen der Sitzung
   (Disconnect, beendet den CLI-Prozess) hat eine eigene Grenze von 10 s (`runtime.CLOSE_TIMEOUT`) und ändert das
   Ergebnis nie; ein Fehler dabei wird nur protokolliert. Der schlechteste Fall liegt also bei
   `max_runtime_seconds` + 20 s. Wird ein hängender `__aenter__` abgebrochen, räumt der SDK-Client den gestarteten
   Prozess selbst auf (`connect()` ruft bei jedem Abbruch `disconnect()` auf); diese SDK-interne Aufräumzeit hat der
-  Runner nicht begrenzt. `skill_ids` werden noch nicht angewendet (nicht terminaler `error` `skills_not_applied`).
+  Runner nicht begrenzt. `skill_ids` werden seit CC-35 aus einem geprüften Snapshot angewendet (Abschnitt 9); die
+  frühere Warnung `skills_not_applied` gibt es nicht mehr.
 
 Prüfbefehle:
 
@@ -101,6 +105,7 @@ cd runners/claude_sdk
 uv run --frozen pytest tests/test_runtime_smoke.py -q                                      # ohne Konto, ohne Netzwerk
 CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q -s        # echte Läufe (Abo-Kontingent), -s zeigt die Session-IDs
 CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=<Ziel> uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # mit Belegen
+CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=<Ziel> uv run --frozen pytest -q -m live -k skill -s  # Skill-Läufe (CC-35, 2 Sitzungen)
 ```
 
 Die Live-Tests laufen nie in CI und nie in `make py-test`. Roundtrip, Interrupt und Scope-Probe starten den Runner als
@@ -213,6 +218,10 @@ darin. Die Dateien liegen unter `docs/architecture/evidence/` (alle vom 2026-11-
 | `live-interrupt.jsonl` | `2dfe34da-7748-4734-b5d1-e80608de04d7` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled`, Dauer bis zum Ergebnis 0,7 s (Kopfzeile). Positivkontrolle und „Kindprozess beendet“ sind nur vom Test geprüft |
 | `live-scope-probe.jsonl` | `225a80b7-3490-4afc-b10e-08911f21158f` | Scope-Probe über den Runner (Abschnitt 5): 11 Werkzeugaufrufe, 2 erlaubt, 9 als `failed` gemeldet (darunter beide `Read`-Versuche an der Lesegrenze). Der Dateistand ist nur vom Test geprüft |
 | `live-structured-output.jsonl` | `2755b1ab-0890-4d16-bd63-9b35b3a64d93` | Probe-Skript (kein Runner): Positivkontrolle der Quellen-Probe mit `setting_sources=["project"]` (Abschnitt 5) und strukturierte Ausgabe (Abschnitt 8); eine Datensatzzeile statt Protokollereignissen |
+
+Seit CC-35 kommt `live-skill-snapshot.jsonl` hinzu (zwei Läufe über den Runner mit einem von Go geschriebenen Skill-Snapshot,
+Session-IDs in Abschnitt 9). Anders als die übrigen Belege nennt er Skill-Namen: den des Test-Probe-Skills und die in der Aufforderung
+genannten mitgelieferten Skills; Konto-, E-Mail- und persönliche Pfadangaben enthält er nicht.
 
 **Stand der Läufe:** Der erste Lauf der Live-Suite in der Abschlussrunde bestand `test_live_interrupt…`,
 `test_scope_probe` und `test_live_positive_control_and_structured_output`; `test_live_sdk_roundtrip` scheiterte am
@@ -337,8 +346,9 @@ eingeschränkt: der Marker erschien in diesem Positivlauf nicht (siehe Einschrä
   lädt Claude Code nicht, wenn `--setting-sources` `user` auslässt. Die Messwerte oben stützen das (vorhandene
   synchronisierte Skills und Plugins wurden nicht geladen). Deshalb werden `syncClaudeAiSkills`/`syncClaudeAiPlugins` nicht
   auf `false` gesetzt, siehe oben.
-- **Mitgelieferte Skills/Agents/Commands** (19, 5, 55) sind geladen; ob sie in einer Sitzung mit der Positivliste in
-  `tools` nutzbar sind (kein `Skill`-, kein `Task`-Werkzeug), wurde nicht geprüft.
+- **Mitgelieferte Skills/Agents/Commands** (19, 5, 55) stehen im Init-Frame. Skills: mit der Allowlist aus CC-35 nicht
+  über das Skill-Werkzeug aufrufbar (Abschnitt 9); Agents und das Task-Werkzeug sind weiterhin nicht geprüft (`tools` ist eine
+  Positivliste ohne `Task`).
 
 ### Isolationsurteil
 
@@ -487,6 +497,67 @@ Nachweis lief über ein test-eigenes Probe-Skript (`tests/probe_sources.py`), ni
 sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch und das Zusammenspiel mit Schreibprofilen.
 **Anbindung in M02** (Vertragsänderung dort entscheiden, zum Beispiel für `review_report`).
 
+## 9. Skills in der Sitzung (CC-35)
+
+Frage: Gelangen genau die freigegebenen Skills einer Ausführung, und keine anderen, in die SDK-Sitzung des Runners? Der
+Runner startet mit `setting_sources=[]`; Projekt-, Benutzer- und synchronisierte Skills sind damit aus (Abschnitt 5). Skills
+müssen ausdrücklich eingebracht werden. Aufbau: [`skill-migration.md`](skill-migration.md), „Einbringung in die Laufzeit“;
+Vertrag und Fehlercodes: [`contracts.md`](contracts.md), „Skills im Protokoll“.
+
+**Mechanismus (SDK 0.2.180, Quelltext gelesen, bestätigt die SDK-Doku):** `ClaudeAgentOptions` hat `plugins` (Liste
+`{"type":"local","path":…}`, das SDK übergibt `--plugin-dir`) und `skills` (Liste, `"all"` oder `None`). `skills=[Namen]` hängt je Name
+die Regel `Skill(<name>)` an `--allowedTools` und sendet die Liste im Initialize-Request an die CLI (Filter der Auflistung);
+`skills=None` ändert nichts (CLI-Standard, also **nicht** „aus“), `skills=[]` ist die ausdrückliche Form „kein Skill“. Namen werden vor
+dem Start geprüft: leere Namen, Klammern, Kommas, Steuerzeichen, `*`, Namen mit Suffix `:*` oder ` *`, führender `/` und Leerzeichen am
+Rand lösen eine Ausnahme aus; `plugin:skill` ist ausdrücklich zulässig. Laut SDK-Doku ist das ein **Kontextfilter, keine Sandbox**:
+die Dateien nicht gelisteter Skills bleiben auf der Platte und über Read/Bash erreichbar. Bei einer expliziten `tools`-Liste muss das
+Skill-Werkzeug in dieser stehen. Der Init-Frame führt `plugins` (mit `name` und `path`) und `skills`. Abweichende Befunde gegenüber der
+Aufgabenstellung: keine.
+
+**Umsetzung im Runner:**
+
+- Ohne Snapshot (oder mit einem Snapshot ohne Skills): `skills=[]`, keine Plugins, kein `Skill` in `tools`.
+- Mit Snapshot: `plugins=[{"type":"local","path":<realpath>}]`, `skills=["ccmas:<id>", …]`, `tools` = Profil-Werkzeuge plus `Skill`.
+  Die Rechte des Profils (`allowed_tools`, Sandbox, Settings, `dontAsk`) sind unverändert; das Snapshot-Verzeichnis wird nirgends
+  zum Lesen freigegeben. Die Live-Läufe liefen nur mit `readonly`; für beide Profile sind die Optionen mit Fake-Client geprüft.
+- Init-Frame (`runtime.check_skills_loaded`): Plugin `ccmas` mit genau dem aufgelösten Pfad des Snapshots, jeder `ccmas:<id>` in
+  `skills`, kein weiterer `ccmas:`-Eintrag, kein weiteres Plugin namens `ccmas`; fehlende Listen gelten als nicht bestanden. Sonst
+  `skills_not_loaded` über den `_Abort`-Weg. Wie bei `api_billing_detected` ist garantiert, dass der Runner danach nichts mehr
+  verarbeitet und unterbricht, nicht dass die CLI die Anfrage nicht schon entgegengenommen hat.
+- `tool_event.summary` des Skill-Werkzeugs nennt den aufgerufenen Skill-Namen (zum Beispiel `ccmas:ccmas-skillprobe`), nie Inhalte.
+
+**Live-Nachweis** (`tests/test_live_skills.py`, Beleg `live-skill-snapshot.jsonl`; CLI 2.1.311, SDK 0.2.180, Modell
+`claude-haiku-5-5`, Effort `low`, Profil `readonly`, `--max-turns 6`, Allowlist-Umgebung). Der Test-Katalog mit Probe-Skill
+(`ccmas-skillprobe`, Markierung nur in seinem Inhalt) und einem zweiten Skill (`ccmas-skillother`, nicht im Snapshot) entsteht zur
+Laufzeit im Temp-Verzeichnis, nicht im Repository; der Snapshot stammt von der echten Go-CLI (`ccmas skills snapshot`), die Hashes im
+Test-Manifest berechnet das Python-Modul.
+
+| Lauf | Session | Ergebnis |
+| --- | --- | --- |
+| a) Snapshot-Skill läuft | `8f8205af-7229-4b5e-964f-e2d17e203230` | `session_started.skills` = `["ccmas-skillprobe"]`, `skill_snapshot_id` = Kennung aus Go; Skill-Werkzeug `started` und `finished` für `ccmas:ccmas-skillprobe`; die Markierung steht im `result` (`succeeded`); genau ein terminales Ergebnis. Die Markierung erscheint nicht im Log (stderr). |
+| b) Nicht gelisteter Skill | `368ed56c-ca36-4b70-9f55-d4e3e0d22eb6` | Drei Aufrufe, alle `failed`, keiner erfolgreich: `code-review` (mitgeliefert): „Skill code-review is not in this session's skills allowlist“; `verify` (mitgeliefert): „… cannot be used with Skill tool due to disable-model-invocation“ (eine Eigenschaft dieses Skills, kein Beleg für die Allowlist); `ccmas-skillother` (im Katalog, nicht im Snapshot): „Unknown skill“. Der Inhalt des nicht freigegebenen Skills kam nie an. |
+
+Init-Frame in beiden Läufen: `mcp_servers` 0, `plugins` 4 (die 3 bekannten plus das Plugin des Snapshots), `skills` 20 (die 19
+mitgelieferten plus der Probe-Skill), `agents` 5, `slash_commands` 56, `plugins_in_config_dir` 0. Die mitgelieferten Skills stehen also
+weiter im Init-Frame, sind aber über das Skill-Werkzeug nicht aufrufbar, solange `skills` gesetzt ist; die Prüfung des Runners
+betrachtet deshalb nur `ccmas:`-Einträge. Das Plugin trägt im Init-Frame den Namen `ccmas` und den aufgelösten Pfad (sonst wäre die
+Prüfung des Runners nicht bestanden). In CC-35 liefen insgesamt **4 echte Sitzungen**: zwei Entwicklungsläufe (a:
+`7bff06ea-2de2-4137-84a3-a771c09cf1ce`, b: `e267e18d-353a-4ee7-b6a3-8f38e1c6d438`, gleiches Ergebnis) und die beiden Abschlussläufe
+oben, deren Beleg eingecheckt ist.
+
+**Nicht nachgewiesen:**
+
+- **Ressourcen neben `SKILL.md`** (Skripte, Dokumente): Der Probe-Skill besteht nur aus `SKILL.md`. Dateien daneben müsste das Modell mit
+  `Read`/`Bash` lesen; die Lesegrenze (`blockReadsOutsideWorkingDirectories`, Sandbox) erlaubt das Snapshot-Verzeichnis nicht, und der
+  Runner schaltet es nicht frei. Ob ein Skill mit Ressourcen so nutzbar ist, ist offen; ein Freischalten ändert die Berechtigungsgrenzen
+  und braucht die Freigabe des Projektinhabers.
+- **Sitzung ohne Snapshot live:** `skills=[]` und das Fehlen des `Skill`-Werkzeugs sind nur mit Fake-Client belegt; dass die CLI dann
+  wirklich keinen Skill aufrufbar macht, wurde nicht live geprüft.
+- **Profil `scoped_write` mit Skills**, Wirkung der Allowlist auf Agents und das Task-Werkzeug: nicht geprüft.
+- **Veränderung nach der Prüfung:** Zwischen Prüfung und Lesen durch die CLI schützt nur das Schreibschutz-Layout des Snapshots.
+- **Herkunft der 3 weiteren Plugins** (M04, Punkt 1) bleibt offen; sie tragen nicht den Namen `ccmas` (sonst wäre die Prüfung
+  fehlgeschlagen).
+
 ## Offene Punkte für M04 (CC-40) und folgende
 
 1. **Plugins unbekannter Herkunft (Abschnitt 5, „Fremde Quellen“):** Der Init-Frame nennt 3 Plugins mit Pfad außerhalb des
@@ -501,8 +572,9 @@ sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch 
    zu prüfen.
 4. **`CLAUDE.md` und mitgelieferte Skills/Agents (Abschnitt 5, „Fremde Quellen“):** Die Positivkontrolle für `CLAUDE.md` ist
    nicht deterministisch (Modellverhalten, siehe Einschränkungen); die Negativaussage im Runner-Lauf bleibt schwächer als
-   die für Hook und Skill. Außerdem offen: ob die mitgelieferten Skills/Agents (19/5) in einer Sitzung mit Positivliste in
-   `tools` nutzbar sind.
+   die für Hook und Skill. Mitgelieferte Skills (19) sind mit der Allowlist aus CC-35 über das Skill-Werkzeug nicht aufrufbar
+   (Abschnitt 9, Lauf b: `code-review` mit Allowlist-Meldung, `verify` mit `disable-model-invocation`); offen bleibt, ob die
+   mitgelieferten Agents (5) in einer Sitzung mit Positivliste in `tools` nutzbar sind.
 5. **`skill_names` in der Init-Zeile auf stderr (Abschnitt „Der Runner in diesem Stand“):** Würde je eine Benutzer- oder
    Projektquelle geladen, stünden persönliche Skill-Namen im Log, auch in Test-Fehlermeldungen über `proc.stderr`. Die
    Namen nur hinter einem Diagnose-Schalter ausgeben.
@@ -541,7 +613,9 @@ sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch 
 16. **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
 17. **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
 18. **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
-19. **Skills** (`skill_ids`) werden noch nicht angewendet.
+19. **Skills (Abschnitt 9):** `skill_ids` werden aus einem geprüften Snapshot angewendet. Offen: Lesezugriff auf Ressourcen neben
+    `SKILL.md` (nicht freigeschaltet, Freigabe des Projektinhabers nötig), Live-Beleg für eine Sitzung ohne Snapshot, Lauf mit
+    `scoped_write`, der Go-Adapter, der `RunSpec.skill_snapshot` setzt (CC-46), und das Verhalten der Allowlist gegenüber Agents.
 20. **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt als Hintergrund dokumentiert; der Betrieb ist durch die Entscheidung
     des Projektinhabers vom 10.11.2026 angenommen und blockiert M02 bis M04 nicht. Zu beobachten bleibt die Aussage „for now“ der
     Support-Seite.

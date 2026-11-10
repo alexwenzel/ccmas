@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// plannedGroups sind die Gruppen aus „Vollständige CLI-Steuerung“ der Spezifikation.
+// plannedGroups sind die Gruppen aus „Vollständige CLI-Steuerung“ der Spezifikation, die
+// noch nicht implementiert sind. skills ist seit CC-35 verfügbar (siehe skills_test.go).
 var plannedGroups = []string{
-	"init", "status", "start", "stop", "ui", "project", "skills", "rules",
+	"init", "status", "start", "stop", "ui", "project", "rules",
 	"agent", "profile", "task", "feature", "milestone", "question", "review",
 	"merge", "processes", "events", "remote",
 }
@@ -33,8 +34,10 @@ func TestRootHelp(t *testing.T) {
 				t.Errorf("%v: Hilfe nennt Gruppe %q nicht:\n%s", args, g, out)
 			}
 		}
-		if !strings.Contains(out, "version") {
-			t.Errorf("%v: Hilfe nennt version nicht", args)
+		for _, name := range []string{"version", "skills"} {
+			if !containsWord(out, name) {
+				t.Errorf("%v: Hilfe nennt %s nicht", args, name)
+			}
 		}
 	}
 }
@@ -44,10 +47,21 @@ func TestRootHelpMarksPlannedGroups(t *testing.T) {
 	if !strings.Contains(out, "noch nicht verfügbar") {
 		t.Errorf("Hilfe kennzeichnet geplante Gruppen nicht:\n%s", out)
 	}
-	// version ist implementiert und darf nicht als geplant gelten.
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "version ") && strings.Contains(line, "geplant") {
-			t.Errorf("version ist als geplant gekennzeichnet: %q", line)
+	// version und skills sind implementiert und dürfen nicht als geplant gelten: sie stehen
+	// vor dem Abschnitt der geplanten Gruppen.
+	planned := strings.Index(out, "Geplante Befehlsgruppen")
+	if planned < 0 {
+		t.Fatalf("Abschnitt der geplanten Gruppen fehlt:\n%s", out)
+	}
+	for _, name := range []string{"version", "skills"} {
+		i := strings.Index(out, "\n  "+name+" ")
+		if i < 0 || i > planned {
+			t.Errorf("%s steht nicht im Abschnitt der verfügbaren Befehle:\n%s", name, out)
+		}
+	}
+	for _, g := range plannedGroups {
+		if i := strings.Index(out, "\n  "+g+" "); i < planned {
+			t.Errorf("geplante Gruppe %s steht nicht im Abschnitt der geplanten Gruppen", g)
 		}
 	}
 }

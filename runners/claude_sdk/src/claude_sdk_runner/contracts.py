@@ -38,6 +38,7 @@ TARGETS: dict[str, tuple[str, str]] = {
     "decision": ("decision-v1.schema.json", "decision"),
     "integration-request": ("decision-v1.schema.json", "integration_request"),
     "review-report": ("runner-v1.schema.json", "review_report"),
+    "skill-snapshot": ("skill-snapshot-v1.schema.json", "skill_snapshot"),
 }
 
 _MAX_NESTING_NOTE = "Verschachtelung zu tief"

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ccmas.invalid/contracts/skill-snapshot-v1.schema.json",
+  "title": "CCMAS Skill-Snapshot (v1)",
+  "description": "Inhalt der Datei snapshot.json eines unveränderlichen Skill-Snapshots. Der Snapshot hält fest, welche Skills in welchem Stand (Versionen, Datei- und Verzeichnis-Prüfsummen) einer Ausführung bereitgestellt wurden. Hash-Definitionen und Layout stehen in docs/architecture/skill-migration.md. Das Dokument enthält keine absoluten Pfade und keine persönlichen Daten; Herkunftsangaben sind vault-relativ.",
+  "$defs": {
+    "sha256_hex": {
+      "description": "SHA-256 als 64 Hexziffern in Kleinbuchstaben.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "not": { "pattern": "\\n" }
+    },
+    "snapshot_id": {
+      "description": "Kennung des Snapshots: sha256: gefolgt vom SHA-256 über Rolle und Skill-Auswahl (siehe docs/architecture/skill-migration.md).",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": { "pattern": "\\n" }
+    },
+    "skill_file": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "common-v1.schema.json#/$defs/rel_path" },
+        "sha256": { "$ref": "#/$defs/sha256_hex" }
+      }
+    },
+    "skill_source": {
+      "description": "Herkunft des Skills: vault-relativer Pfad des Originalpakets und dessen Prüfsumme (nur Inventarangabe).",
+      "type": "object",
+      "required": ["package", "package_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "package": { "$ref": "common-v1.schema.json#/$defs/rel_path" },
+        "package_sha256": { "$ref": "#/$defs/sha256_hex" }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "required": ["id", "version", "tree_sha256", "files", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "version": { "$ref": "common-v1.schema.json#/$defs/positive_int" },
+        "tree_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/skill_file" }
+        },
+        "source": { "$ref": "#/$defs/skill_source" }
+      }
+    },
+    "skill_snapshot": {
+      "type": "object",
+      "required": ["schema_version", "snapshot_id", "role", "created_at", "manifest_sha256", "skills"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": 1, "x-error-class": "version" },
+        "snapshot_id": { "$ref": "#/$defs/snapshot_id" },
+        "role": { "$ref": "common-v1.schema.json#/$defs/role" },
+        "created_at": { "$ref": "common-v1.schema.json#/$defs/timestamp" },
+        "manifest_sha256": {
+          "description": "SHA-256 der Manifest-Datei, aus der der Snapshot aufgelöst wurde (Herkunftsangabe, nicht Teil der snapshot_id).",
+          "$ref": "#/$defs/sha256_hex"
+        },
+        "skills": {
+          "description": "Aufsteigend nach id sortiert, ohne Wiederholung. Sortierung und Eindeutigkeit prüft Go (SkillSnapshot.Check).",
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/skill" }
+        }
+      }
+    }
+  }
+}

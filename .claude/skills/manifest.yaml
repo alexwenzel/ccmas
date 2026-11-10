@@ -1,0 +1,178 @@
+# Manifest des führenden CCMAS-Skillbestands (schema_version 1).
+#
+# Format, Statusbedeutung und Hash-Definitionen: docs/architecture/skill-migration.md.
+# Prüfen mit `ccmas skills validate`. Jede Änderung an einer Skill-Datei erhöht `version`
+# und zieht die Hashes hier nach (Datei: sha256 der Bytes; tree_sha256: sha256 über die
+# sortierten Zeilen "<sha256>  <pfad>"). `source.package` ist vault-relativ und nur eine
+# Inventarangabe; Go liest zur Laufzeit nie den Vault. `external_writes` ist ebenfalls nur
+# Inventar für die späteren Adapter, keine Berechtigung.
+schema_version: 1
+skills:
+  - id: ccmas-concept-ticket
+    version: 1
+    status: approved
+    category: concept
+    roles: [concept]
+    default_for: [concept]
+    external_writes: [asana, vault]
+    tree_sha256: dbfd6ee975eefdb519d0ab8bb8d4de01c0b7ead1fe610b750978fe3bfa2fa007
+    files:
+      - path: SKILL.md
+        sha256: 3e4414f01e50635306b40b1afd3bf927fab84fa7143963924b9d7af4c978ef9b
+    source:
+      package: Fachwissen/Claude/Skills/concept-ticket.skill
+      package_sha256: f1b1be418cf8c21e7ba8eaaaf60ef3f10d089a2d5cf7b1f4b38a1f853e835370
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+  - id: ccmas-obsidian-seite
+    version: 1
+    status: approved
+    category: knowledge
+    roles: [concept, documentation]
+    default_for: [concept, documentation]
+    external_writes: [vault]
+    tree_sha256: 1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7
+    files:
+      - path: SKILL.md
+        sha256: c7c2df354992b5fe798d75f3449c4a18b86645c257a2d0f8cdad8cc08b183ed5
+      - path: scripts/linkcheck.py
+        sha256: 30f1bd06167fc97f4f053cab2376ca84f0e7011b6fbc74469e1ef14ea5449916
+    source:
+      package: Fachwissen/Claude/Skills/obsidian-seite.skill
+      package_sha256: 2ee3df6d1a0ca4ebf55e4371fb1aea84b5c4a50faf82321e647a472e35c1cfeb
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. scripts/linkcheck.py ist identisch zum Original."
+  - id: ccmas-asana-ticket
+    version: 1
+    status: approved
+    category: tracking
+    roles: [supervisor, concept, completion, question_handler]
+    default_for: []
+    external_writes: [asana]
+    tree_sha256: fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556
+    files:
+      - path: SKILL.md
+        sha256: fbc3c368357c80fd16ddb466bcc6465f7bafb54cd1a2655a9b0546f5d4e975b9
+    source:
+      package: Fachwissen/Claude/Skills/asana-ticket.skill
+      package_sha256: 21e776b0eefeb62d606677bdbf9a5f5a52b0356f2de772f48fb928428aca0c1d
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+  - id: ccmas-regeln-pflegen
+    version: 1
+    status: approved
+    category: rules
+    roles: [documentation]
+    default_for: []
+    external_writes: [vault]
+    tree_sha256: 8986c0c0b04be22d478d9c270c44d90a6a1648ee5efd65c0290a6366e5d512fd
+    files:
+      - path: SKILL.md
+        sha256: 0a212ce5a62c2c1002d2798b576345233d6afec5be83aef88d4191db7a43764d
+    source:
+      package: Fachwissen/Claude/Skills/regeln-pflegen.skill
+      package_sha256: 65ad4b898feb8ccb9ba1ad66e13ca2deb20fedf03e1e484abbb223afde043ccf
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+  - id: ccmas-projekt-anlegen
+    version: 1
+    status: pending_adaptation
+    adaptation: "M07: Zuschnitt auf lokale Projektzuordnung (Spezifikation, Erforderliche Anpassungen)"
+    category: setup
+    roles: [project_setup]
+    default_for: []
+    external_writes: [asana, vault]
+    tree_sha256: 7385b9f448ec150e60749af2b8bb46edfd82ab372bdf305e6fd6fd29b03d5bf0
+    files:
+      - path: SKILL.md
+        sha256: bfe99dd74074b80600660d34a5802f71c225ae71d59b043751ec0187992b7815
+    source:
+      package: Fachwissen/Claude/Skills/projekt-anlegen.skill
+      package_sha256: 3b32e2c2e85c20d81c767a6612c1f44cc2ade88d7fc66b1921e0167d0afc5870
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich abschließender Zeilenumbruch ergänzt."
+  - id: ccmas-neue-aufgabe-nehmen
+    version: 1
+    status: pending_adaptation
+    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    category: planning
+    roles: [supervisor]
+    default_for: []
+    external_writes: [asana, vault]
+    tree_sha256: c6c4138891c148fa20d2d09cbfe73b8a25753d424678887d279ab546e93bb9b2
+    files:
+      - path: SKILL.md
+        sha256: 3dbd22460f642315194e4ff121a5614a655316e83b5c8f60d013680921edd769
+    source:
+      package: Fachwissen/Claude/Skills/neue-aufgabe-nehmen.skill
+      package_sha256: 99bd7156304ba401654f2ac8a817694dddcaa97d53031d4adc4a8b73eecb480c
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt."
+  - id: ccmas-morgen-briefing
+    version: 1
+    status: pending_adaptation
+    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    category: planning
+    roles: [supervisor]
+    default_for: []
+    external_writes: []
+    tree_sha256: 1b95c0137ffad7ae2508ab7982e22594b4208c030651e1b43ae6f190d783a92b
+    files:
+      - path: SKILL.md
+        sha256: e1d076e028dd0075702cf46f6e85ad88afd6a2f0e4cc3096cfecc010aefe1fca
+    source:
+      package: Fachwissen/Claude/Skills/morgen-briefing.skill
+      package_sha256: 93d77eca8a170c239a9c5bcc408fb615f11ccff200902a6b767f6c6125949a64
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+  - id: ccmas-feature-parallel
+    version: 1
+    status: pending_adaptation
+    adaptation: "CC-33: zentrale Delegation statt Fan-out, Review vor Push"
+    category: delivery
+    roles: [implementer]
+    default_for: []
+    external_writes: [git, github]
+    tree_sha256: 8313c4da97ac7af4b0ab6cecd65bc41379fb79ab8f4ef465960d04b7692f6659
+    files:
+      - path: SKILL.md
+        sha256: 2c9e649d99da8861eb5bf180a00f1b27ca07f8dd3574c17d2ad3a134e1431200
+    source:
+      package: Fachwissen/Claude/Skills/feature-parallel.skill
+      package_sha256: 83a4d21dc72efa6e3453e100a675ebc7b89357e8ff0bed0f6dbc7993a555dbf3
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt."
+  - id: ccmas-meilenstein-abschluss
+    version: 1
+    status: pending_adaptation
+    adaptation: "CC-33: PR-/Auto-Modus, Feature-Abschluss, keine GitHub-Milestones und Termine"
+    category: completion
+    roles: [completion]
+    default_for: []
+    external_writes: [asana, vault]
+    tree_sha256: 7df5af38caab7aa6e1c31f6bce850c1f0f30fce25476685119de087b463cd61d
+    files:
+      - path: SKILL.md
+        sha256: 7266ba2bd57d506ae9c96cdc9f7bfe4ee45386e1260a0eb13de0b3a98a4d10f8
+    source:
+      package: Fachwissen/Claude/Skills/meilenstein-abschluss.skill
+      package_sha256: 168cdc363814ea7444a97b2c0df8ad0722dc9cf2aea5c212d895fc2ef873dc87
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+  - id: ccmas-antworten-abholen
+    version: 1
+    status: pending_adaptation
+    adaptation: "CC-33: Fragenweiterleitung über die Zentrale, PR-/Auto-Modus"
+    category: questions
+    roles: [question_handler]
+    default_for: []
+    external_writes: [asana, vault]
+    tree_sha256: 7f79a37040ed2e7688e38fe219024b62b4bcbc1a4a9e6e582c1f10b760037cbc
+    files:
+      - path: SKILL.md
+        sha256: 66176a0293521d14f5124ca1a399095e799a1bed07eb88a218ed664f4bbff5fc
+    source:
+      package: Fachwissen/Claude/Skills/antworten-abholen.skill
+      package_sha256: 2870c248baf8b1e13ec8730dcfbee0c89c38b3e54e63a368198b583386ce0f72
+      derived: "2026-11-09"
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."

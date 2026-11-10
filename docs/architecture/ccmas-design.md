@@ -13,8 +13,8 @@ organisiert die Arbeit zwischen Obsidian, Asana und Code; unabhängige Agenten k
 und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMAS läuft lokal, die Claude-Modelle
 rechnen beim Anbieter.
 
-Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01). Vorhanden sind die CLI-Hülle
-(`version`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
+Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35). Vorhanden sind die CLI-Hülle
+(`version`, `skills`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
 `runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
 ## Festgelegte Produktentscheidungen
@@ -42,16 +42,23 @@ Zielstruktur laut Spezifikation („CCMAS-Softwarestruktur“); vorhanden ist bi
 ```text
 cmd/ccmas/            Einstieg (dünn)                                   vorhanden
 internal/cli/         Befehlsbaum, Ausgabe, Exit-Codes                 vorhanden
+internal/domain/      Gemeinsame Verträge, Zustände, Prüflogik          vorhanden
+internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhanden
 internal/orchestrator/ supervisor/ workers/ git/ integrations/
          monitoring/ persistence/ api/ tui/                             geplant
-runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (nur Gerüst)
-config/ contracts/ prompts/ rules/ scripts/ tests/                      geplant
+runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
+contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
+config/ prompts/ rules/ scripts/ tests/                                 geplant
 .claude/skills/       Führender CCMAS-Skillbestand (ccmas-<name>)       vorhanden
+                      samt manifest.yaml; der Platzhalter skills/ entfällt
 docs/architecture/    dieser Snapshot                                   vorhanden
 ```
 
 Go-Modul: `github.com/alexwenzel/ccmas`, Go-Direktive `1.27.3`. Die CLI nutzt
-`github.com/spf13/cobra` (gepinnt in `go.mod`/`go.sum`).
+`github.com/spf13/cobra`, der Skill-Katalog `go.yaml.in/yaml/v3` (strikt dekodiert), beide gepinnt in `go.mod`/`go.sum`.
+
+Der Skill-Bestand (Manifest, Statusbedeutung, Hash-Definitionen, Snapshot-Layout, Ablauf bei Änderungen) ist in
+[`skill-migration.md`](skill-migration.md) beschrieben.
 
 ## CLI-Gruppen und Exit-Codes
 
@@ -62,7 +69,8 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 | `init`, `status` | Einrichten und Prüfen |
 | `start`, `stop`, `ui` | Dienst und Anzeige steuern |
 | `project` | Projektzuordnung, Arbeitsorte, Integrationen |
-| `skills`, `rules` | Bestand prüfen, importieren, Zuordnung verwalten |
+| `skills` | Bestand prüfen, anzeigen und als Snapshot bereitstellen (**verfügbar** seit CC-35; Import und Zuordnung folgen) |
+| `rules` | Regeln prüfen, importieren, Zuordnung verwalten |
 | `agent`, `profile` | Rollen, Modelle, Effort, Limits |
 | `task`, `feature`, `milestone` | Aufträge planen, starten, pausieren, fortsetzen, abbrechen |
 | `question` | Offene Fragen lesen und beantworten |
@@ -71,8 +79,10 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 | `remote` | Fernsteuerung verwalten |
 
 **Heute implementiert:** `ccmas version` (`ccmas <version>`, mit `--json` ein JSON-Objekt mit `version`),
-`ccmas --version`, `ccmas --help` und `ccmas help [befehl]`. Alle Gruppen oben sind in der Hilfe unter
-„Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt. Ihr Aufruf täuscht kein Verhalten vor.
+`ccmas --version`, `ccmas --help` und `ccmas help [befehl]` sowie, seit CC-35, `ccmas skills list|show|validate|snapshot`
+(Ausgabe wahlweise als `--json`; Details, Root-Auflösung und Exit-Codes in [`skill-migration.md`](skill-migration.md)).
+Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
+Ihr Aufruf täuscht kein Verhalten vor.
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`
 gesetzt (`make build` nimmt `git describe`), Standard ist `dev`.
@@ -82,7 +92,7 @@ gesetzt (`make build` nimmt `git describe`), Standard ist `dev`.
 | Code | Konstante | Bedeutung |
 | --- | --- | --- |
 | 0 | `ExitOK` | Erfolg (auch `--help`, `version`) |
-| 1 | `ExitError` | Laufzeitfehler bei gültig aufgerufenem Befehl |
+| 1 | `ExitError` | Laufzeitfehler oder Prüfbefund bei gültig aufgerufenem Befehl (zum Beispiel `skills validate` mit Befunden) |
 | 2 | `ExitUsage` | Bedienfehler: unbekannter Befehl, unbekanntes Flag, unerwartetes Argument |
 | 3 | `ExitNotAvailable` | Befehlsgruppe ist vorgesehen, aber noch nicht verfügbar |
 
@@ -96,7 +106,7 @@ sind bis dahin die Festlegung dieses Repositorys.
 startet je Agentenausführung einen eigenen Runner mit explizitem Arbeitsverzeichnis, Argumenten und kontrollierter
 Umgebung. Der Runner ruft das offizielle Claude Agent SDK auf und verbindet Sitzungen, Ereignisse, Fragen,
 Ergebnisse und Abbruch mit Go. Er ist keine zweite Aufgabenverwaltung: Limits, SQLite, Worktree-Locks und externe
-Schreibaktionen bleiben in Go. Der Runner-Einstieg (`python -m claude_sdk_runner`) setzt das Protokoll in einem ersten Umfang um (Start, Ereignisse, Interrupt, genau ein terminales Ergebnis); Fragen, Teilnachrichten und vollständige Steuerung folgen in M04. Die Profile `readonly` und `scoped_write` sind Prüfprofile; ein unbeaufsichtigter Modus ist nicht freigegeben (Isolationsarchitektur für M04: innere Grenze in der CLI plus Spike eines äußeren `sandbox-exec`-Profils). Nachweise, Diagnosen, Isolationsbefund und Remote-Vorprüfung: [`runtime-capabilities.md`](runtime-capabilities.md).
+Schreibaktionen bleiben in Go. Der Runner-Einstieg (`python -m claude_sdk_runner`) setzt das Protokoll in einem ersten Umfang um (Start, Ereignisse, Interrupt, genau ein terminales Ergebnis); Fragen, Teilnachrichten und vollständige Steuerung folgen in M04. Skills gelangen nur über einen von Go geschriebenen, vom Runner nachgerechneten und im Init-Frame bestätigten Snapshot (CC-35, [`skill-migration.md`](skill-migration.md)) in eine Sitzung. Die Profile `readonly` und `scoped_write` sind Prüfprofile; ein unbeaufsichtigter Modus ist nicht freigegeben (Isolationsarchitektur für M04: innere Grenze in der CLI plus Spike eines äußeren `sandbox-exec`-Profils). Nachweise, Diagnosen, Isolationsbefund und Remote-Vorprüfung: [`runtime-capabilities.md`](runtime-capabilities.md).
 
 ### Gepinnte Abhängigkeiten und Kompatibilität
 

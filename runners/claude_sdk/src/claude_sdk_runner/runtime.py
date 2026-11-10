@@ -39,6 +39,7 @@ from . import diagnostics as dx
 from .diagnostics import RuntimeDiagnostic, fit, redact
 from .environment import ScrubResult, prepare_environment
 from .policy import WRITING_PROFILES, Policy, build_policy
+from .skill_snapshot import PLUGIN_NAME, VerifiedSnapshot, verify_for_spec
 
 EXPECTED_SDK_VERSION = "0.2.180"
 """Gepinnte SDK-Version (pyproject.toml, uv.lock); Abweichung ist eine Inkompatibilität."""
@@ -75,6 +76,8 @@ class Preflight:
     auth_source: str
     scrubbed: list[str]
     untested_version: bool
+    skill_snapshot: VerifiedSnapshot | None = None
+    """Geprüfter Skill-Snapshot des Auftrags (`None` ohne `skill_snapshot`, dann sind keine Skills aufrufbar)."""
 
 
 def _run_cli(binary: str, args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -109,6 +112,8 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
     if scrub is None:
         scrub = prepare_environment(environ)
     pol = build_policy(spec["policy_profile"], spec["cwd"])
+    # Skills nur aus einem geprüften Snapshot: Hashes, Verzeichnisbestand, Kennung, Rolle und Skill-IDs (ohne Modellaufruf).
+    snapshot = verify_for_spec(spec)
     binary = spec["claude_binary"]
     check_binary(binary)
     if claude_agent_sdk.__version__ != EXPECTED_SDK_VERSION:
@@ -147,7 +152,7 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
         raise RuntimeDiagnostic(dx.NOT_LOGGED_IN, "Kein Login im lokalen Claude-Binary. Bitte dort `/login` mit dem claude.ai-Konto ausführen; es gibt keinen API-Fallback.")
     if method != "claude.ai" or provider != "firstParty":
         raise RuntimeDiagnostic(dx.NOT_SUBSCRIPTION_LOGIN, "Der aktive Weg ist nicht die claude.ai-Anmeldung. Es gibt keinen Wechsel zu API-Abrechnung.")
-    pre = Preflight(binary, version_text, "claude_ai", scrub.removed, version_text != VERIFIED_CLI_VERSION)
+    pre = Preflight(binary, version_text, "claude_ai", scrub.removed, version_text != VERIFIED_CLI_VERSION, snapshot)
     return pre, pol
 
 
@@ -201,6 +206,44 @@ def _safe_id(value: str) -> str:
     return cleaned if cleaned[0].isalnum() else "t" + cleaned
 
 
+def check_skills_loaded(data: dict[str, Any], snapshot: VerifiedSnapshot | None) -> list[str]:
+    """Prüft im Init-Frame, dass genau die Skills des Snapshots aus dem Plugin mit dessen Pfad geladen sind.
+
+    Erwartet wird: das Plugin `ccmas` mit genau dem aufgelösten Pfad des Snapshots ist geladen (kein weiteres Plugin
+    dieses Namens), jeder `ccmas:<id>` des Snapshots steht in `skills`, und es gibt keinen weiteren `ccmas:`-Eintrag. Ohne
+    Snapshot (oder ohne Skills darin) darf weder ein Plugin `ccmas` noch ein `ccmas:`-Skill geladen sein. Mitgelieferte Skills
+    der CLI ohne Präfix gehören nicht dazu (das Skill-Werkzeug weist sie über die Allowlist ab, siehe
+    runtime-capabilities.md). Fehlt `plugins` oder `skills` im Frame, gilt die Prüfung als nicht bestanden (fail-closed).
+
+    Liefert die geladenen Skill-IDs ohne Präfix (aufsteigend); bei einer Abweichung `_Abort(skills_not_loaded)`."""
+    expected = set(snapshot.skill_ids) if snapshot else set()
+    plugins, skills = data.get("plugins"), data.get("skills")
+    if not isinstance(plugins, list) or not isinstance(skills, list):
+        raise _Abort(dx.SKILLS_NOT_LOADED, "Der Init-Frame der CLI enthält keine Angaben zu Plugins und Skills; die Skills "
+                     "der Sitzung lassen sich nicht prüfen.")
+    problems: list[str] = []
+    named = [p for p in plugins if isinstance(p, dict) and p.get("name") == PLUGIN_NAME]
+    if snapshot is not None and expected:
+        at_path = [p for p in named if isinstance(p.get("path"), str) and os.path.realpath(p["path"]) == snapshot.path]
+        if not at_path:
+            errors = [str(e.get("type")) for e in data.get("plugin_errors") or [] if isinstance(e, dict)][:3]
+            hint = f" (plugin_errors: {', '.join(errors)})" if errors else ""
+            problems.append(f"Das Plugin {PLUGIN_NAME} mit dem Pfad des Snapshots ist nicht geladen{hint}")
+        if len(named) > len(at_path):
+            problems.append(f"Ein weiteres Plugin namens {PLUGIN_NAME} mit anderem Pfad ist geladen")
+    elif named:
+        problems.append(f"Ein Plugin namens {PLUGIN_NAME} ist geladen, obwohl der Auftrag keine Skills hat")
+    prefix = PLUGIN_NAME + ":"
+    loaded = {s[len(prefix):] for s in skills if isinstance(s, str) and s.startswith(prefix)}
+    if expected - loaded:
+        problems.append("Nicht geladen: " + ", ".join(sorted(expected - loaded)))
+    if loaded - expected:
+        problems.append("Nicht freigegeben, aber geladen: " + ", ".join(sorted(loaded - expected)))
+    if problems:
+        raise _Abort(dx.SKILLS_NOT_LOADED, "Die Skills der Sitzung entsprechen nicht dem Snapshot: " + "; ".join(problems) + ". Lauf abgebrochen.")
+    return sorted(loaded)
+
+
 class Session:
     """Eine SDK-Sitzung für genau einen Versuch. Meldet Ereignisse an `sink` und endet mit genau einem terminalen Ergebnis."""
 
@@ -250,13 +293,26 @@ class Session:
     # --- Lauf --------------------------------------------------------------------------------------------
 
     def _options(self) -> ClaudeAgentOptions:
+        snapshot = self.pre.skill_snapshot
+        tools = list(self.pol.tools)
+        plugins: list[Any] = []
+        skills: list[str] = []  # ausdrücklich leer: ohne Snapshot ist kein Skill aufrufbar (nicht `None` = CLI-Standard)
+        if snapshot is not None and snapshot.skill_ids:
+            # Das Plugin im Snapshot und eine Allowlist genau dieser Skills; das Skill-Werkzeug muss in `tools` stehen. Die
+            # Rechte des Profils (allowed_tools, Sandbox, Settings) bleiben unverändert, insbesondere gibt es keinen
+            # Lesezugriff auf das Snapshot-Verzeichnis; das SDK ergänzt nur die Regeln `Skill(<name>)` für die Allowlist.
+            tools.append("Skill")
+            plugins = [{"type": "local", "path": snapshot.path}]
+            skills = snapshot.qualified_skills
         return ClaudeAgentOptions(
             cli_path=self.pre.claude_binary,
             cwd=self.pol.cwd,
             model=self.spec["model"],
             effort=self.spec["effort"],
             permission_mode=self.pol.permission_mode,
-            tools=list(self.pol.tools),
+            tools=tools,
+            plugins=plugins,
+            skills=skills,
             allowed_tools=list(self.pol.allowed_tools),
             disallowed_tools=list(self.pol.disallowed_tools),
             sandbox=self.pol.sandbox,  # type: ignore[arg-type]
@@ -271,8 +327,6 @@ class Session:
         try:
             if self.pre.untested_version:
                 self._warn(dx.CLI_VERSION_UNTESTED, f"CLI {self.pre.claude_version} ist nicht die nachgewiesene Version {VERIFIED_CLI_VERSION}.")
-            if self.spec.get("skill_ids"):
-                self._warn("skills_not_applied", "skill_ids werden in diesem Stand nicht angewendet (Skill-Zuordnung folgt in M02/M04).")
             await self._run_session()
             if not self.sink.terminal_sent:
                 raise RuntimeDiagnostic(dx.SESSION_FAILED, "Die Sitzung endete ohne Ergebnis.")
@@ -382,6 +436,8 @@ class Session:
         version = str(data.get("claude_code_version", ""))
         if version != self.pre.claude_version:
             raise _Abort(dx.SDK_CLI_INCOMPATIBLE, f"Die gestartete CLI ({fit(version, 30)}) weicht von der geprüften ({self.pre.claude_version}) ab.")
+        # Genau die Skills des Snapshots, sonst Abbruch, bevor ein Werkzeug laufen kann.
+        loaded_skills = check_skills_loaded(data, self.pre.skill_snapshot)
         payload: dict[str, Any] = {
             "session_id": str(data["session_id"]),
             "model": str(data["model"]),
@@ -393,6 +449,9 @@ class Session:
         }
         if data.get("permissionMode"):
             payload["permission_mode"] = str(data["permissionMode"])
+        if self.pre.skill_snapshot is not None:
+            payload["skill_snapshot_id"] = self.pre.skill_snapshot.snapshot_id
+            payload["skills"] = loaded_skills
         self.sink.send("session_started", payload)
 
     def _on_assistant(self, msg: AssistantMessage) -> None:
@@ -428,6 +487,8 @@ class Session:
     def _summarize(self, name: str, tool_input: dict[str, Any]) -> str | None:
         if name == "Bash":
             return fit(str(tool_input.get("command", "")), 200)
+        if name == "Skill":  # nur der Skill-Name (`ccmas:<id>`), nie ein Inhalt
+            return fit(str(tool_input.get("skill", "")), 200)
         path = tool_input.get("file_path") or tool_input.get("path")
         if path:
             home = os.path.expanduser("~")

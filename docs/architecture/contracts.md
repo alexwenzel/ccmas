@@ -21,8 +21,8 @@ Ablageorte die Umgebungsvariable `CCMAS_CONTRACTS_DIR`). Das Python-Paket enthä
 Typdefinition, die vom Schema abweichen könnte.
 
 Alle weiteren Pakete (Orchestrator, Persistenz, Monitoring, CLI, TUI, …) verwenden ausschließlich die
-Typen aus `internal/domain` und definieren keine eigenen Varianten. `internal/cli` nutzt sie derzeit noch
-nicht.
+Typen aus `internal/domain` und definieren keine eigenen Varianten. `internal/cli` nutzt sie derzeit nur für die
+Rollen von `ccmas skills`.
 
 Bibliotheken: Go `github.com/santhosh-tekuri/jsonschema/v6` v6.0.3, Python `jsonschema` 4.26.0 (exakt
 gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als normale Laufzeitabhängigkeit).
@@ -36,6 +36,7 @@ gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als n
 | `runner-v1.schema.json` | Runner-Umschlag beider Richtungen, alle Payloads, `ReviewReport` |
 | `decision-v1.schema.json` | `Decision`, `IntegrationRequest` |
 | `project-v1.schema.json` | `ProjectConfig`, `AgentProfile`, `WorkOrder` |
+| `skill-snapshot-v1.schema.json` | `snapshot.json` eines Skill-Snapshots (`SkillSnapshot`, seit CC-35) |
 
 Die `$id`-Kennungen (`https://ccmas.invalid/contracts/…`) sind reine Namen; `.invalid` ist nicht auflösbar.
 Go verbietet das Laden von Schemas außerhalb der eingebetteten Dateien.
@@ -76,10 +77,10 @@ Go → Python: `start`, `answer`, `interrupt`, `stop`. Python → Go: `session_s
 
 | Typ | Payload (Go-Typ) | Felder (Pflicht fett) |
 | --- | --- | --- |
-| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id |
+| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id, skill_snapshot (ab CC-35, siehe unten) |
 | `answer` | `Answer` | **answer_id, question_id, text, created_at**; delivery_confirmed_at (wird nie mitgesendet; Go lehnt es beim Senden ab) |
 | `interrupt`, `stop` | `InterruptPayload`, `StopPayload` | **reason** (`user_request`, `timeout`, `shutdown`, `superseded`) |
-| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
+| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); skill_snapshot_id, skills (ab CC-35, optional, siehe unten); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
 | `activity` | `Activity` | **kind** (`assistant_text`, `thinking`, `waiting`, `idle`), **summary** (≤ 512 Zeichen); keine Fortschrittsprozente |
 | `tool_event` | `ToolEvent` | **tool_use_id, tool, phase** (`started`, `finished`, `failed`); summary |
 | `question` | `QuestionPayload` | **question_id, question, context**; recommendation |
@@ -175,6 +176,44 @@ dieselben Namen und Prüfmethoden (`Check`):
   Ausführungszustand, Auftragszustand und den Prozess; `Check` weist widersprüchliche Kombinationen ab
   (zum Beispiel aktiver Agent ohne laufende Ausführung).
 
+## Skill-Snapshot (`skill-snapshot-v1`, seit CC-35)
+
+`snapshot.json` im Wurzelverzeichnis eines unveränderlichen Skill-Snapshots (Layout, Hash-Definitionen, Ablauf:
+[`skill-migration.md`](skill-migration.md)). Pflichtfelder: `schema_version` (=1), `snapshot_id`
+(`sha256:` + 64 Hexziffern), `role`, `created_at`, `manifest_sha256`, `skills[]` (höchstens 64, aufsteigend nach
+`id`, ohne Wiederholung) mit `id`, `version` (≥ 1), `tree_sha256`, `files[]` (1–256; `path` relativ und kanonisch,
+`sha256`, aufsteigend nach Pfad) und `source` (`package` vault-relativ, `package_sha256`). Keine absoluten Pfade und
+keine persönlichen Daten. Das Schema prüft Form und Formate; Sortierung und Eindeutigkeit prüft Go
+(`SkillSnapshot.Check`); die Hashes (Dateien, `tree_sha256`, `snapshot_id`) rechnet `skills.VerifySnapshotDir` gegen das
+Verzeichnis nach, ebenso der Python-Runner vor jedem Sitzungsstart (`skill_snapshot.py`, W35.2). Ziel der Fixtures: `skill-snapshot`. Die vollständige Beispiel-
+Verzeichnisstruktur liegt unter `contracts/fixtures/skill-snapshots/example/` und wird vom Go-Test
+`TestExampleSnapshotFixture` aus einem Test-Katalog neu erzeugt und Byte für Byte verglichen.
+
+### Skills im Protokoll (ab CC-35, v1-kompatibel)
+
+Drei neue **optionale** Felder; kein bisher gültiges Dokument wird ungültig, es gibt keine neuen Pflichtfelder.
+
+| Nachricht | Feld | Inhalt |
+| --- | --- | --- |
+| `start` | `skill_snapshot` | Objekt `{snapshot_id, path}`: Kennung (`sha256:` + 64 Hexziffern, Muster aus `skill-snapshot-v1`) und absoluter, kanonischer Pfad des Snapshot-Verzeichnisses (`abs_path`); beide Pflicht, keine weiteren Felder |
+| `session_started` | `skill_snapshot_id` | Snapshot, aus dem die Sitzung ihre Skills lädt |
+| `session_started` | `skills` | Skill-IDs **ohne Plugin-Präfix**, die die CLI laut Init-Meldung wirksam geladen hat (`skill_ids`-Form: höchstens 64, eindeutig); eine leere Liste heißt „keine Skills geladen“ |
+
+Beide `session_started`-Felder stehen nur, wenn der Auftrag einen Snapshot trug. In Go ist `Skills` ein `[]string` mit
+`omitempty`; eine leere Liste und ein fehlendes Feld sind dort nicht zu unterscheiden (die Bedeutung ist in beiden Fällen
+„keine Skills“). Welche Kombinationen zulässig sind, regelt nicht das Schema, sondern der Runner in seiner Vorprüfung
+(ohne Modellaufruf, jeweils **terminaler** `error`, Art `runtime`):
+
+| Code | Auslöser |
+| --- | --- |
+| `skill_snapshot_missing` | `skill_ids` ist nicht leer, aber es gibt keinen `skill_snapshot` (die frühere Warnung `skills_not_applied` entfällt) |
+| `skill_snapshot_invalid` | Snapshot-Verzeichnis oder `snapshot.json` fehlt, ist nicht lesbar, ist ein Symlink oder verletzt `skill-snapshot-v1` (inklusive Sortierung und Eindeutigkeit wie `SkillSnapshot.Check`) |
+| `skill_snapshot_mismatch` | Das Verzeichnis weicht von der `snapshot.json` ab (Datei-Hash, `tree_sha256`, `snapshot_id`; fehlende oder zusätzliche Dateien und Verzeichnisse; Symlinks und Sonderdateien; falscher Verzeichnisname; geänderte `plugin.json`), oder der Snapshot passt nicht zum Auftrag (`snapshot_id`, Rolle, Menge der Skill-IDs) |
+| `skills_not_loaded` | Im Init-Frame fehlt das Plugin `ccmas` mit dem Pfad des Snapshots, ein `ccmas:<id>` fehlt, ein nicht freigegebener `ccmas:`-Eintrag oder ein weiteres Plugin namens `ccmas` ist da, oder `plugins`/`skills` fehlen im Frame; Abbruch über den Weg von `api_billing_detected`, bevor ein Werkzeug läuft |
+
+Meldungen sind deutsch, nennen Skill und Pfad **innerhalb** des Snapshots (`skills/<id>/<datei>`) und enthalten nie
+Dateiinhalte oder Hashwerte. Ablauf in der Sitzung: [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt „Skills in der Sitzung (CC-35)“.
+
 ## Zustandsmodell (Akzeptanzkriterium 3)
 
 Vier Ebenen mit je **eigenem Go-Typ** (kein gemeinsames String-Alias): `AgentAvailability`,
@@ -250,6 +289,8 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | Nachrichtenfolge, terminales Ergebnis, veraltete Versuche | – | ja (`ExecutionTracker`) | – |
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
+| Skill-Snapshot: Sortierung und Eindeutigkeit (`SkillSnapshot.Check`), Hashes gegen das Verzeichnis (`skills.VerifySnapshotDir`) | nur Form und Formate | ja | ja (`skill_snapshot.verify_snapshot_dir`, seit W35.2) |
+| `skill_ids` ohne `skill_snapshot`; Snapshot ↔ Auftrag (Kennung, Rolle, Skill-IDs); geladene Skills ↔ Snapshot (Init-Frame) | – | – (Go übergibt den Snapshot, siehe CC-46) | ja (`skill_snapshot.verify_for_spec`, `runtime.check_skills_loaded`) |
 
 Der Python-Runner prüft eingehende Kommandos und kann seine ausgehenden Meldungen vor dem Senden mit
 `contracts.validate("from-runner", …)` prüfen. Die Reihenfolge der Meldungen und alle Zustände verantwortet Go.
@@ -261,7 +302,7 @@ Pfade sind POSIX-Pfade (v1 gilt für macOS und Linux); Windows-Pfade sind nicht 
 `contracts/fixtures/valid/<ziel>--<name>.json` muss akzeptiert werden,
 `contracts/fixtures/invalid/<ziel>--<fehlerklasse>--<name>.json` muss mit **genau dieser Fehlerklasse** (und
 keiner weiteren) abgewiesen werden. Ziele: `to-runner`, `from-runner`, `project-config`, `agent-profile`,
-`work-order`, `decision`, `integration-request`, `review-report`. Go (`TestContractFixtures`) und Python
+`work-order`, `decision`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
 (`test_contract_fixtures`) lesen dieselben Dateien; keine Seite hat eigene Fixtures für dieselbe Regel. Ein
 neues Verhalten wird durch eine neue Fixture beider Seiten belegt. Ungültige Fixtures enthalten genau einen
 Verstoß. Fixtures sind Testdaten und enthalten keine Produktdaten; Beispielaufgaben stehen nur dort.
