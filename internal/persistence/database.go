@@ -68,8 +68,11 @@ func initDriver() { strictOnce.Do(func() { sqlite.StrictPragmas(true) }) }
 
 // Open öffnet die Datenbank unter dem absoluten, kanonischen Pfad. Fehlt das Verzeichnis, wird es mit 0700
 // angelegt; fehlt die Datei, wird sie vor dem ersten Öffnen mit 0600 angelegt (die Dateien -wal und -shm erben
-// diese Rechte). Eine vorhandene Datei bleibt unverändert. Jede Verbindung trägt busy_timeout, foreign_keys,
-// journal_mode=WAL und synchronous=FULL über den DSN; der Schreibpool beginnt Transaktionen mit IMMEDIATE.
+// diese Rechte) und sofort auf journal_mode=WAL gestellt. Eine vorhandene Datei bleibt unverändert, auch ihr
+// journal_mode: Open schreibt dort nichts. Erst Migrate stellt sie nach bestandener Plan- und Historienprüfung auf WAL
+// um; bis dahin verweigern Update und View eine Datei, die nicht im WAL-Modus ist (schema_outdated). Jede Verbindung
+// trägt busy_timeout, foreign_keys und synchronous=FULL über den DSN (WAL ist ein Merkmal der Datei und gilt damit
+// für alle Verbindungen); der Schreibpool beginnt Transaktionen mit IMMEDIATE.
 func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	o := options{clock: time.Now, readConns: defaultReadConns, busy: defaultBusyTimeout}
 	for _, opt := range opts {
@@ -95,7 +98,8 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	// Mehrere Anweisungen in einem _pragma sind nie nötig. Der Schalter gilt prozessweit; der Dienst nutzt den
 	// Treiber nur über dieses Paket.
 	initDriver()
-	if err := prepareFile(path); err != nil {
+	created, err := prepareFile(path)
+	if err != nil {
 		return nil, err
 	}
 
@@ -105,10 +109,17 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	}
 	w.SetMaxOpenConns(1)
 	w.SetMaxIdleConns(1)
-	// Die erste Verbindung schaltet auf WAL; erst danach öffnen die Leser.
+	// Der Ping schreibt nichts: Die DSN enthält kein journal_mode. Nur eine von Open neu angelegte (leere) Datei
+	// wird sofort auf WAL gestellt; erst danach öffnen die Leser.
 	if err := w.PingContext(ctx); err != nil {
 		_ = w.Close()
 		return nil, mapErr(err)
+	}
+	if created {
+		if err := setWAL(ctx, w); err != nil {
+			_ = w.Close()
+			return nil, err
+		}
 	}
 	r, err := sql.Open("sqlite", readerDSN(path, o.busy))
 	if err != nil {
@@ -140,39 +151,54 @@ func checkDBPath(path string) error {
 	return nil
 }
 
-// prepareFile legt Verzeichnis (0700) und Datei (0600) an, falls sie fehlen.
-func prepareFile(path string) error {
+// prepareFile legt Verzeichnis (0700) und Datei (0600) an, falls sie fehlen. created meldet, dass diese Funktion
+// die Datei angelegt hat (sie ist dann leer und gehört sicher zu uns).
+func prepareFile(path string) (created bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return wrapf(CodeInternal, err, "Verzeichnis der Datenbank")
+		return false, wrapf(CodeInternal, err, "Verzeichnis der Datenbank")
 	}
 	st, err := os.Stat(path)
 	switch {
 	case err == nil:
 		if !st.Mode().IsRegular() {
-			return invalidf("Datenbankpfad %q ist keine reguläre Datei", path)
+			return false, invalidf("Datenbankpfad %q ist keine reguläre Datei", path)
 		}
-		return nil
+		return false, nil
 	case !errors.Is(err, os.ErrNotExist):
-		return wrapf(CodeInternal, err, "Datenbankdatei")
+		return false, wrapf(CodeInternal, err, "Datenbankdatei")
 	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return nil // ein anderer Prozess war schneller
+			return false, nil // ein anderer Prozess war schneller
 		}
-		return wrapf(CodeInternal, err, "Datenbankdatei anlegen")
+		return false, wrapf(CodeInternal, err, "Datenbankdatei anlegen")
 	}
-	return f.Close()
+	return true, f.Close()
+}
+
+// setWAL stellt die Datei auf journal_mode=WAL (ein Merkmal der Datei, es gilt für alle Verbindungen) und prüft das
+// Ergebnis. Es schreibt in die Datei und darf nur für eine eigene Datei aufgerufen werden: nach Open für eine neu
+// angelegte, in Migrate nach bestandener Plan- und Historienprüfung.
+func setWAL(ctx context.Context, db *sql.DB) error {
+	var mode string
+	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode = WAL").Scan(&mode); err != nil {
+		return mapErr(err)
+	}
+	if !strings.EqualFold(mode, "wal") {
+		return errf(CodeInternal, "journal_mode WAL ließ sich nicht einstellen (die Datenbank meldet %q)", mode)
+	}
+	return nil
 }
 
 func pragma(q url.Values, p string) { q.Add("_pragma", p) }
 
-// writerDSN: Schreibpool, Transaktionen mit IMMEDIATE, vollständige Dauerhaftigkeit.
+// writerDSN: Schreibpool, Transaktionen mit IMMEDIATE, vollständige Dauerhaftigkeit. journal_mode steht bewusst nicht
+// darin: Es würde schon beim Öffnen in die Datei schreiben, auch bei einer fremden oder zu neuen Datenbank.
 func writerDSN(path string, busy time.Duration) string {
 	q := url.Values{}
 	pragma(q, fmt.Sprintf("busy_timeout(%d)", busy.Milliseconds()))
 	pragma(q, "foreign_keys(1)")
-	pragma(q, "journal_mode(WAL)")
 	pragma(q, "synchronous(FULL)")
 	q.Set("_txlock", "immediate")
 	return path + "?" + q.Encode()
@@ -238,6 +264,15 @@ func (s *Store) checkSchema(ctx context.Context, q querier) error {
 		return errf(CodeSchemaTooNew, "Datenbank hat Schemaversion %d, diese Software kennt höchstens %d", v, s.latest)
 	case v < s.latest:
 		return errf(CodeSchemaOutdated, "Datenbank hat Schemaversion %d, nötig ist %d: Migrate aufrufen", v, s.latest)
+	}
+	// Eine vorhandene Datei, die nicht im WAL-Modus ist, hat Migrate noch nicht gesehen (bei einer von dieser Software
+	// migrierten Datei ist das unerreichbar): nicht benutzen.
+	var mode string
+	if err := q.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		return mapErr(err)
+	}
+	if !strings.EqualFold(mode, "wal") {
+		return errf(CodeSchemaOutdated, "Datenbank steht im journal_mode %q, nötig ist WAL: Migrate aufrufen", mode)
 	}
 	return nil
 }

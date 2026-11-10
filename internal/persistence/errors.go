@@ -26,6 +26,9 @@ const (
 	CodeChecksumMismatch Code = "migration_checksum_mismatch"
 	// CodeHistoryMismatch: Die angewandten Migrationen sind kein Präfix der bekannten (migration_history_mismatch).
 	CodeHistoryMismatch Code = "migration_history_mismatch"
+	// CodeForeignDatabase: Die Datei ist eine fremde Datenbank: Sie enthält Objekte (Tabellen), aber keine Migrationshistorie
+	// (schema_migrations). Kein Schreibzugriff, keine Migration.
+	CodeForeignDatabase Code = "foreign_database"
 	// CodeNotFound: Die Entität gibt es nicht.
 	CodeNotFound Code = "not_found"
 	// CodeConflict: Die Entität gibt es schon mit anderem Inhalt, oder der erwartete Ist-Zustand stimmt nicht.

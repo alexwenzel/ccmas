@@ -490,7 +490,7 @@ var (
 	caseForeignDB = findingCase{func(t *testing.T, e *statusEnv) {
 		must0(t, os.MkdirAll(filepath.Dir(e.db()), 0o700))
 		rawExec(t, e.db(), "CREATE TABLE fremd (a INTEGER)")
-	}, "migration_history_mismatch", "present"}
+	}, "foreign_database", "present"}
 	// Die Fremdschlüssel sind in der rohen Verbindung aus: das Ziel der Aufträge verschwindet.
 	caseForeignKey = findingCase{func(t *testing.T, e *statusEnv) {
 		e.seeded()

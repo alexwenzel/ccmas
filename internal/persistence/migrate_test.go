@@ -189,7 +189,7 @@ func TestMigrationHistoryMismatch(t *testing.T) {
 		s := openStore(t, path, withMigrations(base))
 		_, err := s.w.ExecContext(ctxT(t), "CREATE TABLE fremd (x INTEGER)")
 		must(t, err)
-		wantCode(t, s.Migrate(ctxT(t)), CodeHistoryMismatch)
+		wantCode(t, s.Migrate(ctxT(t)), CodeForeignDatabase)
 	})
 }
 

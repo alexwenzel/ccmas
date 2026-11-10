@@ -42,7 +42,9 @@ const (
 	FindingSchemaTooNew     = string(CodeSchemaTooNew)
 	FindingChecksumMismatch = string(CodeChecksumMismatch)
 	FindingHistoryMismatch  = string(CodeHistoryMismatch)
-	FindingBusy             = string(CodeBusy)
+	// FindingForeignDatabase: Tabellen, aber keine Migrationshistorie (schema_migrations): eine fremde Datenbank.
+	FindingForeignDatabase = string(CodeForeignDatabase)
+	FindingBusy            = string(CodeBusy)
 	// FindingQuickCheck: PRAGMA quick_check meldet Schäden.
 	FindingQuickCheck = "quick_check_failed"
 	// FindingForeignKeys: PRAGMA foreign_key_check meldet Verstöße.

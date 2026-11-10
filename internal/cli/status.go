@@ -68,7 +68,7 @@ func stateLevel(r persistence.Report) (level, scope string) {
 	case !r.Exists:
 		return levelNotPresent, levelReadScopeNone
 	case r.ReadMode == "" || r.HasFinding(persistence.FindingSchemaTooNew) || r.HasFinding(persistence.FindingChecksumMismatch) ||
-		r.HasFinding(persistence.FindingHistoryMismatch) || len(r.Schema.Pending) > 0 || r.Schema.HighestApplied == 0:
+		r.HasFinding(persistence.FindingHistoryMismatch) || r.HasFinding(persistence.FindingForeignDatabase) || len(r.Schema.Pending) > 0 || r.Schema.HighestApplied == 0:
 		return levelFilePresent, levelReadScopeFile
 	case !r.Integrity.Checked || r.Data == nil || r.HasFinding(persistence.FindingQuickCheck) || r.HasFinding(persistence.FindingForeignKeys) ||
 		r.HasFinding(persistence.FindingUnreadable) || r.HasFinding(persistence.FindingBusy):
@@ -100,8 +100,8 @@ func newStatusCommand() *cobra.Command {
 			"<CCMAS-Softwareordner>/.ccmas; die Datenbank liegt fest unter <Ausführungsbereich>/state/ccmas.db. " +
 			"Eine fehlende Datenbank ist kein Fehler (sie wird beim ersten Start des Dienstes angelegt). Ausstehende " +
 			"Migrationen sind ein Hinweis, kein Befund. Befunde: Schemaversion zu neu (schema_too_new), geänderte " +
-			"Migration (migration_checksum_mismatch), abweichende Historie oder fremde Datenbank " +
-			"(migration_history_mismatch), quick_check_failed, foreign_key_violations, unsichere Rechte " +
+			"Migration (migration_checksum_mismatch), abweichende Historie (migration_history_mismatch), fremde Datenbank " +
+			"ohne Migrationshistorie (foreign_database), quick_check_failed, foreign_key_violations, unsichere Rechte " +
 			"(insecure_permissions), unlesbare oder fremde Datei (unreadable) und busy.\n\n" +
 			"Die Stufen folgen der Spezifikation: vorhanden, konfiguriert, angemeldet, funktional nachgewiesen. Für den " +
 			"SQLite-Zustand heißt „funktional nachgewiesen“ nur: Integrität und Grunddaten wurden lesend belegt; der " +

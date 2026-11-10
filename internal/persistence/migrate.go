@@ -91,7 +91,7 @@ const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 type dbState struct {
 	userVersion int
 	hasTable    bool
-	foreign     bool // Tabellen ohne schema_migrations
+	foreign     bool // Objekte (Tabellen) ohne schema_migrations: fremde Datenbank
 	applied     []AppliedMigration
 }
 
@@ -102,14 +102,14 @@ func readState(ctx context.Context, q querier) (dbState, error) {
 		return st, err
 	}
 	st.userVersion = v
-	var tables, hasMig int
-	err = q.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(name = 'schema_migrations'), 0)
-		FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables, &hasMig)
+	var objects, hasMig int
+	err = q.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(type = 'table' AND name = 'schema_migrations'), 0)
+		FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`).Scan(&objects, &hasMig)
 	if err != nil {
 		return st, mapErr(err)
 	}
 	st.hasTable = hasMig > 0
-	st.foreign = tables > 0 && !st.hasTable
+	st.foreign = objects > 0 && !st.hasTable
 	if !st.hasTable {
 		return st, nil
 	}
@@ -133,7 +133,7 @@ func readState(ctx context.Context, q querier) (dbState, error) {
 }
 
 // planMigrations vergleicht die Datenbank mit der bekannten Liste und liefert die ausstehenden Migrationen.
-// Regeln: höhere unbekannte Version -> schema_too_new; angewandte Versionen sind ein Präfix der bekannten
+// Regeln: höhere unbekannte Version -> schema_too_new; Tabellen ohne schema_migrations -> foreign_database; angewandte Versionen sind ein Präfix der bekannten
 // (Version und Name), sonst migration_history_mismatch; geänderte Prüfsumme -> migration_checksum_mismatch;
 // user_version entspricht der höchsten angewandten Version.
 func planMigrations(known []Migration, st dbState) ([]Migration, error) {
@@ -150,7 +150,7 @@ func planMigrations(known []Migration, st dbState) ([]Migration, error) {
 			st.userVersion, maxApplied, maxKnown)
 	}
 	if st.foreign {
-		return nil, errf(CodeHistoryMismatch, "die Datenbank enthält Tabellen, aber keine Migrationshistorie (fremde Datenbank)")
+		return nil, errf(CodeForeignDatabase, "die Datei enthält Tabellen, aber keine Migrationshistorie (schema_migrations): sie gehört nicht zu CCMAS")
 	}
 	for i, a := range st.applied {
 		if i >= len(known) || a.Version != known[i].Version {
@@ -173,8 +173,10 @@ func planMigrations(known []Migration, st dbState) ([]Migration, error) {
 
 // Migrate wendet ausstehende Migrationen an, jede in einer eigenen IMMEDIATE-Transaktion samt ihrem Eintrag in
 // schema_migrations und dem Setzen von user_version. Bereits Angewandtes wird nicht erneut ausgeführt; ein
-// zweiter Aufruf ändert nichts. Vor jedem Schreiben wird die Historie geprüft: eine Datenbank mit höherer
-// Schemaversion (schema_too_new), geänderter Prüfsumme oder abweichender Historie wird nicht angefasst.
+// zweiter Aufruf ändert nichts. Vor jedem Schreiben wird die Datei geprüft: eine Datenbank mit höherer
+// Schemaversion (schema_too_new), eine fremde Datenbank (foreign_database), geänderte Prüfsumme oder abweichende
+// Historie wird nicht angefasst, auch nicht ihr journal_mode. Erst nach bestandener Prüfung und vor dem ersten
+// Schreiben stellt Migrate eine vorhandene Datei auf WAL um (eine von Open neu angelegte ist schon WAL).
 func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.checkOpen(); err != nil {
 		return err
@@ -186,6 +188,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	pending, err := planMigrations(s.migrations, st)
 	if err != nil {
+		return err
+	}
+	// Die Datei gehört zu uns (Plan und Historie sind in Ordnung): jetzt, vor dem ersten Schreiben, auf WAL stellen.
+	if err := setWAL(ctx, s.w); err != nil {
 		return err
 	}
 	for len(pending) > 0 {

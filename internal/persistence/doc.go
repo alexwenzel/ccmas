@@ -6,11 +6,18 @@
 //
 // Der Treiber ist modernc.org/sqlite (reines Go, kein cgo). Open öffnet zwei Pools auf derselben Datei: einen
 // Schreibpool mit genau einer Verbindung, dessen Transaktionen mit BEGIN IMMEDIATE beginnen, und einen getrennten
-// Lesepool (query_only). Jede Verbindung trägt über den DSN busy_timeout, foreign_keys, journal_mode=WAL und
-// synchronous=FULL; mehrere Anweisungen in einem _pragma sind abgeschaltet (sqlite.StrictPragmas). Läuft der
-// busy_timeout ab, meldet das Paket den stabilen Code busy (kein Panic). Das Verzeichnis der Datenbank wird beim
-// Anlegen 0700, die Datei vor dem ersten Öffnen 0600 (die Dateien -wal und -shm erben das); der Pfad ist absolut und
-// kanonisch. Eine vorhandene Datei bleibt unverändert, ihre Prüfung ist Sache der Statusprüfung.
+// Lesepool (query_only). Jede Verbindung trägt über den DSN busy_timeout, foreign_keys und synchronous=FULL;
+// mehrere Anweisungen in einem _pragma sind abgeschaltet (sqlite.StrictPragmas). Läuft der busy_timeout ab, meldet das
+// Paket den stabilen Code busy (kein Panic). Das Verzeichnis der Datenbank wird beim Anlegen 0700, die Datei vor dem
+// ersten Öffnen 0600 (die Dateien -wal und -shm erben das); der Pfad ist absolut und kanonisch.
+//
+// journal_mode=WAL steht bewusst nicht im DSN, weil es schon beim Öffnen in die Datei schriebe, auch bei einer
+// fremden oder zu neuen Datenbank. WAL ist ein Merkmal der Datei und gilt dann für alle Verbindungen beider Pools. Eine
+// von Open neu angelegte Datei stellt Open sofort auf WAL. Eine vorhandene Datei bleibt durch Open unverändert (kein
+// Schreibzugriff, auch nicht auf den journal_mode); erst Migrate stellt sie auf WAL um, und zwar nach bestandener
+// Plan- und Historienprüfung und vor dem ersten Schreiben. Ist eine vorhandene Datei nicht WAL und wurde nicht
+// migriert, verweigern Update und View mit schema_outdated (bei einer von dieser Software migrierten Datei
+// unerreichbar). Ihre Prüfung im Übrigen ist Sache der Statusprüfung.
 //
 // # Migrationen
 //
@@ -19,8 +26,10 @@
 // ihrem Eintrag in schema_migrations(version, name, sha256, applied_at); PRAGMA user_version steht auf der höchsten
 // angewandten Version. Regeln: bekannte Versionen steigen streng (Lücken sind erlaubt); die angewandten bilden ein
 // Präfix der bekannten (sonst migration_history_mismatch); eine geänderte Prüfsumme ist migration_checksum_mismatch;
-// eine höhere unbekannte Version ist schema_too_new, und zwar ohne jeden Schreibzugriff. Es gibt kein Downgrade.
-// Update und View verlangen eine migrierte Datenbank (sonst schema_outdated).
+// eine höhere unbekannte Version ist schema_too_new, und zwar ohne jeden Schreibzugriff. Eine fremde Datenbank
+// (Objekte in sqlite_master, aber keine Tabelle schema_migrations) verweigert Migrate mit foreign_database, ebenfalls
+// ohne jeden Schreibzugriff; die Prüfung auf zu neu geht vor. Es gibt kein Downgrade. Update und View verlangen eine
+// migrierte Datenbank im WAL-Modus (sonst schema_outdated).
 //
 // # Arbeitsauftrag statt Task (Festlegung)
 //
@@ -75,7 +84,7 @@
 // (user_version und schema_migrations, bekannte und ausstehende Migrationen), das Ergebnis von quick_check und
 // foreign_key_check, Grunddaten (Projekte mit Zustandsrevision, Aufträge je Zustand, aktive Ausführungen, offene Fragen,
 // Outbox je Zustand, Zeit des letzten Ereignisses) und Hinweise. Befunde (Finding) sind schema_too_new,
-// migration_checksum_mismatch, migration_history_mismatch (auch bei einer fremden Datenbank ohne Historie),
+// migration_checksum_mismatch, migration_history_mismatch, foreign_database (Tabellen ohne schema_migrations),
 // quick_check_failed, foreign_key_violations, insecure_permissions (Gruppen- oder Weltrechte), unreadable (kaputte oder
 // fremde Datei, Fehler beim Lesen) und busy. Ausstehende Migrationen und ein iCloud-Pfad („Mobile Documents“) sind
 // Hinweise, keine Befunde. Alle Abfragen laufen in einer einzigen Lesetransaktion: der Bericht zeigt einen
@@ -110,6 +119,6 @@
 // # Fehler
 //
 // Alle Fehler sind *Error mit stabilem Code (CodeOf): busy, schema_outdated, schema_too_new,
-// migration_checksum_mismatch, migration_history_mismatch, not_found, conflict, state, invalid, constraint, closed,
+// migration_checksum_mismatch, migration_history_mismatch, foreign_database, not_found, conflict, state, invalid, constraint, closed,
 // internal. Bei invalid und state ist die Ursache ein *domain.ContractError.
 package persistence

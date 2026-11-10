@@ -26,7 +26,8 @@ Die Datenbank liegt fest unter `<Ausführungsbereich>/state/ccmas.db`. Der Ausf�
 `Inspect` lehnen anderes mit `invalid` ab, ebenso `?` und `#`).
 
 - Das Verzeichnis legt `Open` mit 0700 an, die Datei vor dem ersten Öffnen mit 0600; `-wal` und `-shm` erben die Rechte der
-  Datenbank. Eine vorhandene Datei bleibt unverändert, ihre Prüfung ist Sache von `Inspect` und `ccmas status`.
+  Datenbank. Eine vorhandene Datei bleibt durch `Open` unverändert (kein Schreibzugriff, auch nicht auf den `journal_mode`);
+  ihre Prüfung ist Sache von `Inspect` und `ccmas status`.
 - SQLite gehört **nicht in einen synchronisierten Ordner** (iCloud „Mobile Documents“, `com~apple~CloudDocs`):
   `-wal`, `-shm` und Sperren lassen sich nicht synchronisieren, Konfliktkopien beschädigen die Datenbank. `status` weist darauf hin.
 
@@ -37,9 +38,14 @@ Die Datenbank liegt fest unter `<Ausführungsbereich>/state/ccmas.db`. Der Ausf�
 | Pools | **Schreibpool mit genau einer Verbindung**, getrennter **Lesepool** (4 Verbindungen, `query_only(1)`) auf derselben Datei |
 | Transaktionen | Schreibtransaktionen beginnen mit `BEGIN IMMEDIATE` (`_txlock=immediate`): eine gemeinsame Sperre, kein Upgrade-Deadlock |
 | Wartezeit | `busy_timeout` 5 s (Option `WithBusyTimeout`); danach der stabile Code `busy`, kein Panic |
-| Journal | `journal_mode=WAL`: Leser blockieren Schreiber nicht und umgekehrt |
-| Dauerhaftigkeit | `synchronous=FULL` |
-| Integrität | `foreign_keys=1` auf jeder Verbindung |
+| Journal | `journal_mode=WAL` (Leser blockieren Schreiber nicht und umgekehrt), eine Eigenschaft der Datei, **nicht** des DSN: `Open` stellt eine von ihm **neu angelegte** Datei sofort auf WAL; eine **vorhandene** Datei stellt erst `Migrate` um, nach bestandener Plan- und Historienprüfung und vor dem ersten Schreiben. Eine vorhandene, nicht migrierte Datei ohne WAL verweigern `Update`/`View` mit `schema_outdated` (bei einer von dieser Software migrierten Datei unerreichbar) |
+| Dauerhaftigkeit | `synchronous=FULL` (DSN) |
+| Integrität | `foreign_keys=1` auf jeder Verbindung (DSN) |
+
+Warum `journal_mode` nicht im DSN steht: Es würde schon beim ersten Verbindungsaufbau in die Datei schreiben. Eine vorhandene
+Datenbank im Rollback-Modus würde so verändert, auch wenn `Migrate` danach `schema_too_new` oder `foreign_database` meldet.
+So bleiben eine zu neue oder fremde Datei und jede Datei, deren Historie nicht stimmt, **byte-identisch** und ohne `-wal`/`-shm`
+(Test `TestOpenAndFailedMigrateLeaveExistingFileUntouched`).
 
 `Open` migriert nicht. `Update` und `View` verlangen eine migrierte Datenbank (sonst `schema_outdated`). Mutierende Methoden
 gibt es nur auf `*Tx`.
@@ -54,10 +60,13 @@ applied_at)`, `PRAGMA user_version` steht auf der höchsten angewandten Version.
 | --- | --- |
 | Die Datenbank trägt eine höhere Version als die Software kennt: kein Schreibzugriff | `schema_too_new` |
 | Die Prüfsumme einer angewandten Migration weicht von der eingebetteten ab | `migration_checksum_mismatch` |
-| Die angewandten Migrationen sind kein Präfix der bekannten (Version, Name), `user_version` passt nicht zur Historie, Tabellen ohne Historie (fremde Datenbank) | `migration_history_mismatch` |
+| Die angewandten Migrationen sind kein Präfix der bekannten (Version, Name), oder `user_version` passt nicht zur Historie | `migration_history_mismatch` |
+| Fremde Datenbank: Objekte in `sqlite_master`, aber keine Tabelle `schema_migrations` (ohne jeden Schreibzugriff; die Prüfung auf „zu neu“ geht vor) | `foreign_database` |
 | `Update`/`View` auf einer nicht vollständig migrierten Datenbank | `schema_outdated` |
 
-Bekannte Versionen steigen streng (Lücken sind erlaubt). Ein Fehler hinterlässt keine Schreibwirkung.
+Bekannte Versionen steigen streng (Lücken sind erlaubt). Ein Fehler der Prüfung hinterlässt keine Schreibwirkung. Reihenfolge in
+`Migrate`: Zustand lesen, Plan und Historie prüfen, dann (vorhandene Datei) auf WAL umstellen, dann je Migration eine
+IMMEDIATE-Transaktion.
 
 ## Tabellen
 
@@ -169,7 +178,8 @@ dem Snapshot-Bauer (CC-42); dieses Paket liefert die gespeicherten Werte unverä
 | `schema_outdated` | nicht (vollständig) migriert |
 | `schema_too_new` | Schemaversion höher als bekannt; kein Zugriff, kein Downgrade |
 | `migration_checksum_mismatch` | Prüfsumme einer angewandten Migration weicht ab |
-| `migration_history_mismatch` | Historie ist kein Präfix der bekannten Migrationen, oder fremde Datenbank |
+| `migration_history_mismatch` | Historie ist kein Präfix der bekannten Migrationen, oder `user_version` passt nicht dazu |
+| `foreign_database` | Tabellen ohne Migrationshistorie (`schema_migrations`): die Datei gehört nicht zu CCMAS; kein Schreibzugriff |
 | `not_found` | Entität gibt es nicht |
 | `conflict` | gibt es schon mit anderem Inhalt, oder erwarteter Ist-Zustand stimmt nicht |
 | `state` | Übergang ist nach der Übergangstabelle nicht erlaubt (Ursache `*domain.ContractError`) |
@@ -195,8 +205,8 @@ festgeschriebenen Stand, auch bei offenem Schreiber; WAL-Leser blockieren Schrei
 `state_revision`, Aufträge je Zustand, `active_executions`, `open_questions`, Outbox je Zustand; `events`, `last_event_at`),
 `notes` (Hinweise) und `findings` (Befunde).
 
-**Befunde** (`findings[].code`): `schema_too_new`, `migration_checksum_mismatch`, `migration_history_mismatch` (auch bei einer
-fremden Datenbank ohne Historie), `quick_check_failed`, `foreign_key_violations`, `insecure_permissions` (Gruppen- oder
+**Befunde** (`findings[].code`): `schema_too_new`, `migration_checksum_mismatch`, `migration_history_mismatch`, `foreign_database`
+(Tabellen ohne `schema_migrations`), `quick_check_failed`, `foreign_key_violations`, `insecure_permissions` (Gruppen- oder
 Weltrechte an Verzeichnis, Datei, `-wal` oder `-shm`; unter Windows entfällt die Prüfung), `unreadable` (keine SQLite-Datei,
 kaputt, keine reguläre Datei, nicht lesbar), `busy`. **Hinweise, keine Befunde:** ausstehende Migrationen und ein Pfad in einem
 iCloud-Ordner.

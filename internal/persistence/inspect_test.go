@@ -508,7 +508,10 @@ func TestInspectHistoryMismatch(t *testing.T) {
 	foreign := filepath.Join(t.TempDir(), "fremd.db")
 	rawExec(t, foreign, "CREATE TABLE fremd (a INTEGER)", "INSERT INTO fremd VALUES (1)")
 	rep := inspect(t, foreign)
-	wantFinding(t, rep, FindingHistoryMismatch)
+	wantFinding(t, rep, FindingForeignDatabase)
+	if rep.HasFinding(FindingHistoryMismatch) {
+		t.Errorf("fremde Datenbank meldet zusätzlich %s", FindingHistoryMismatch)
+	}
 	if rep.JournalMode != "delete" || rep.ReadMode != ReadImmutable || rep.Data != nil {
 		t.Errorf("fremde Datenbank: Journal %q, Leseweg %q", rep.JournalMode, rep.ReadMode)
 	}
@@ -703,7 +706,7 @@ func TestInspectRollbackJournalFile(t *testing.T) {
 	must(t, os.WriteFile(path+"-journal", nil, 0o600)) // leer: kein heißes Journal
 	before := fileSet(t, dir)
 	rep := inspect(t, path)
-	if rep.ReadMode != ReadReadOnly || rep.JournalMode != "delete" || !rep.HasFinding(FindingHistoryMismatch) {
+	if rep.ReadMode != ReadReadOnly || rep.JournalMode != "delete" || !rep.HasFinding(FindingForeignDatabase) {
 		t.Errorf("Leseweg %q, Journal %q, Befunde %+v", rep.ReadMode, rep.JournalMode, rep.Findings)
 	}
 	if after := fileSet(t, dir); !equalSets(before, after) {
