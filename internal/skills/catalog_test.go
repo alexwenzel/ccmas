@@ -818,7 +818,7 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 	inventory := map[string]want{
 		"ccmas-concept-ticket":        {StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
 		"ccmas-obsidian-seite":        {StatusApproved, CategoryKnowledge, R("concept", "documentation"), R("concept", "documentation"), []string{"vault"}},
-		"ccmas-asana-ticket":          {StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), R("concept"), []string{"asana"}},
+		"ccmas-asana-ticket":          {StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), nil, []string{"asana"}},
 		"ccmas-regeln-pflegen":        {StatusApproved, CategoryRules, R("documentation"), nil, []string{"vault"}},
 		"ccmas-projekt-anlegen":       {StatusPendingAdaptation, CategorySetup, R("project_setup"), nil, []string{"asana", "vault"}},
 		"ccmas-neue-aufgabe-nehmen":   {StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, []string{"asana", "vault"}},
@@ -909,13 +909,18 @@ func TestRepoRoleSelection(t *testing.T) {
 			wantErr(t, err, CodeSkillNotApproved, sk.ID, "")
 		}
 	}
-	// Die Standardausstattung für Konzept entspricht der Entscheidung.
+	// Die Standardausstattung für Konzept entspricht der Spezifikation (Tabelle „Rollen und
+	// Ergebnisse“): concept-ticket und obsidian-seite. asana-ticket ist erlaubt, aber nur auf
+	// ausdrückliche Anforderung.
 	s, err := c.Resolve(domain.RoleConcept, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(s.SkillIDs(), []string{"ccmas-asana-ticket", "ccmas-concept-ticket", "ccmas-obsidian-seite"}) {
+	if !slices.Equal(s.SkillIDs(), []string{"ccmas-concept-ticket", "ccmas-obsidian-seite"}) {
 		t.Errorf("Standard concept = %v", s.SkillIDs())
+	}
+	if _, err := c.Resolve(domain.RoleConcept, []string{"ccmas-concept-ticket", "ccmas-asana-ticket"}); err != nil {
+		t.Errorf("ausdrücklich angeforderter asana-ticket für concept: %v", err)
 	}
 	// regeln-pflegen nur auf ausdrücklichen Auftrag.
 	d, _ := c.Resolve(domain.RoleDocumentation, nil)

@@ -290,7 +290,7 @@ func TestSkillsSnapshot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Snapshot nicht verifizierbar: %v", err)
 		}
-		if m.SnapshotID != id || len(m.Skills) != 3 {
+		if m.SnapshotID != id || len(m.Skills) != 2 {
 			t.Errorf("snapshot.json = %+v", m)
 		}
 		// Gleicher Aufruf noch einmal: wiederverwendet, kein Fehler, kein zweites Verzeichnis.
@@ -298,6 +298,42 @@ func TestSkillsSnapshot(t *testing.T) {
 		entries, _ := os.ReadDir(out)
 		if code != ExitOK || stdout2 != stdout || len(entries) != 1 {
 			t.Errorf("Wiederholung: Exit-Code %d, stdout %q, Einträge %d", code, stdout2, len(entries))
+		}
+	})
+	t.Run("Rolle ohne Standardausstattung, zweimal hintereinander", func(t *testing.T) {
+		// Regressionstest: Ein Snapshot ohne Skills war nicht idempotent schreibbar (Befund 1).
+		out := t.TempDir()
+		t.Cleanup(func() { skills.RemoveSnapshotDir(out) })
+		var first string
+		for i := 1; i <= 2; i++ {
+			code, stdout, errOut := runSkills(t, root, "snapshot", "--role", "reviewer", "--out", out)
+			if code != ExitOK || errOut != "" {
+				t.Fatalf("Aufruf %d: Exit-Code %d, stderr %q", i, code, errOut)
+			}
+			if i == 1 {
+				first = stdout
+			} else if stdout != first {
+				t.Errorf("Aufruf 2 weicht ab:\n%q\n%q", stdout, first)
+			}
+		}
+		var id, path string
+		for _, line := range strings.Split(first, "\n") {
+			if v, ok := strings.CutPrefix(line, "snapshot_id: "); ok {
+				id = v
+			}
+			if v, ok := strings.CutPrefix(line, "pfad: "); ok {
+				path = v
+			}
+		}
+		if path != filepath.Join(out, strings.TrimPrefix(id, "sha256:")) {
+			t.Errorf("Pfad %q passt nicht zur ID %q", path, id)
+		}
+		m, err := skills.VerifySnapshotDir(path)
+		if err != nil || m.SnapshotID != id || len(m.Skills) != 0 {
+			t.Errorf("Verifikation: %+v, %v", m, err)
+		}
+		if entries, _ := os.ReadDir(out); len(entries) != 1 {
+			t.Errorf("Zielverzeichnis enthält %d Einträge", len(entries))
 		}
 	})
 	t.Run("ausdrückliche Auswahl, JSON", func(t *testing.T) {

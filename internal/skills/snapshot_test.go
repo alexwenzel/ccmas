@@ -492,3 +492,78 @@ func TestExampleSnapshotFixture(t *testing.T) {
 		t.Error("snapshot.json endet nicht mit Zeilenende")
 	}
 }
+
+// Eine Rolle ohne freigegebenen Skill ergibt einen gültigen Snapshot ohne Skills. Er muss sich
+// wie jeder andere schreiben, verifizieren und idempotent wiederverwenden lassen
+// (Regressionstest zu Befund 1 der Befundrunde 1).
+func TestSnapshotWithoutSkills(t *testing.T) {
+	f := newCatalogFixture(t, exampleSkills())
+	c := f.mustLoad(fixedClock())
+	snap, out, dir := resolveWrite(t, c, domain.RoleReviewer, nil)
+	if len(snap.SkillIDs()) != 0 {
+		t.Fatalf("Standard reviewer = %v, erwartet leer", snap.SkillIDs())
+	}
+
+	files, dirs := treeFiles(t, dir)
+	var gotFiles []string
+	for p := range files {
+		gotFiles = append(gotFiles, p)
+	}
+	slices.Sort(gotFiles)
+	if want := []string{".claude-plugin/plugin.json", "snapshot.json"}; !slices.Equal(gotFiles, want) {
+		t.Errorf("Dateien = %v, erwartet %v", gotFiles, want)
+	}
+	slices.Sort(dirs)
+	if want := []string{".claude-plugin", "skills"}; !slices.Equal(dirs, want) {
+		t.Errorf("Verzeichnisse = %v, erwartet %v (skills/ wird immer angelegt)", dirs, want)
+	}
+	if runtime.GOOS != "windows" {
+		if mode := statMode(t, filepath.Join(dir, "skills")); mode != 0o555 {
+			t.Errorf("skills/ hat Modus %o, erwartet 555", mode)
+		}
+	}
+	m, err := VerifySnapshotDir(dir)
+	if err != nil {
+		t.Fatalf("Snapshot ohne Skills nicht verifizierbar: %v", err)
+	}
+	if m.SnapshotID != snap.ID() || len(m.Skills) != 0 {
+		t.Errorf("snapshot.json = %+v", m)
+	}
+
+	// Zweites Schreiben (auch eines neu aufgelösten Snapshots): derselbe Pfad, kein Fehler.
+	again, err := snap.Write(out)
+	if err != nil || again != dir {
+		t.Errorf("zweites Schreiben: %s, %v (erwartet %s)", again, err, dir)
+	}
+	snap2, err := f.mustLoad().Resolve(domain.RoleReviewer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := snap2.Write(out); err != nil || again != dir {
+		t.Errorf("Wiederverwendung: %s, %v", again, err)
+	}
+	if entries, _ := os.ReadDir(out); len(entries) != 1 {
+		t.Errorf("Zielverzeichnis enthält %d Einträge", len(entries))
+	}
+
+	// Fehlendes skills/ ist ein Befund, nicht stillschweigend erlaubt.
+	t.Run("skills fehlt", func(t *testing.T) {
+		_, _, d := resolveWrite(t, c, domain.RoleReviewer, nil)
+		_ = os.Chmod(d, 0o755)
+		if err := os.Remove(filepath.Join(d, "skills")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := VerifySnapshotDir(d)
+		wantErr(t, err, CodeSnapshotMismatch, "", "skills")
+	})
+	// Eine fremde Datei in einem leeren skills/ ist ein Befund.
+	t.Run("fremde Datei in leerem skills", func(t *testing.T) {
+		_, _, d := resolveWrite(t, c, domain.RoleReviewer, nil)
+		_ = os.Chmod(filepath.Join(d, "skills"), 0o755)
+		if err := os.WriteFile(filepath.Join(d, "skills", "fremd.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := VerifySnapshotDir(d)
+		wantErr(t, err, CodeSnapshotMismatch, "", "skills/fremd.txt")
+	})
+}

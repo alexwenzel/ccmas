@@ -29,7 +29,7 @@ ergänztem abschließendem Zeilenumbruch; `obsidian-seite/scripts/linkcheck.py` 
 | --- | --- | --- | --- | --- | --- | --- |
 | `ccmas-concept-ticket` | concept | approved | concept | concept | asana, vault | `dbfd6ee975eefdb519d0ab8bb8d4de01c0b7ead1fe610b750978fe3bfa2fa007` |
 | `ccmas-obsidian-seite` | concept, documentation | approved | knowledge | concept, documentation | vault | `1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7` |
-| `ccmas-asana-ticket` | supervisor, concept, completion, question_handler | approved | tracking | concept | asana | `fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556` |
+| `ccmas-asana-ticket` | supervisor, concept, completion, question_handler | approved (für concept nur auf ausdrückliche Anforderung, daher kein Standard) | tracking | – | asana | `fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556` |
 | `ccmas-regeln-pflegen` | documentation | approved (nur auf ausdrücklichen Auftrag, daher kein Standard) | rules | – | vault | `8986c0c0b04be22d478d9c270c44d90a6a1648ee5efd65c0290a6366e5d512fd` |
 | `ccmas-projekt-anlegen` | project_setup | pending: Zuschnitt auf lokale Projektzuordnung (M07) | setup | – | asana, vault | `7385b9f448ec150e60749af2b8bb46edfd82ab372bdf305e6fd6fd29b03d5bf0` |
 | `ccmas-neue-aufgabe-nehmen` | supervisor | pending: Anpassung an die Supervisor-Planung (CC-14) | planning | – | asana, vault | `c6c4138891c148fa20d2d09cbfe73b8a25753d424678887d279ab546e93bb9b2` |
@@ -37,6 +37,10 @@ ergänztem abschließendem Zeilenumbruch; `obsidian-seite/scripts/linkcheck.py` 
 | `ccmas-feature-parallel` | implementer | pending: zentrale Delegation statt Fan-out, Review vor Push (CC-33) | delivery | – | git, github | `8313c4da97ac7af4b0ab6cecd65bc41379fb79ab8f4ef465960d04b7692f6659` |
 | `ccmas-meilenstein-abschluss` | completion | pending: PR-/Auto-Modus, Feature-Abschluss, keine GitHub-Milestones und Termine (CC-33) | completion | – | asana, vault | `7df5af38caab7aa6e1c31f6bce850c1f0f30fce25476685119de087b463cd61d` |
 | `ccmas-antworten-abholen` | question_handler | pending: Fragenweiterleitung über die Zentrale, PR-/Auto-Modus (CC-33) | questions | – | asana, vault | `7f79a37040ed2e7688e38fe219024b62b4bcbc1a4a9e6e582c1f10b760037cbc` |
+
+Die Standardausstattung des Konzept-Agenten besteht nur aus `ccmas-concept-ticket` und `ccmas-obsidian-seite`, weil die
+Spezifikation (Tabelle „Rollen und Ergebnisse“) nur diese beiden nennt; `ccmas-asana-ticket` bleibt für `concept`
+erlaubt (`ccmas-concept-ticket` verweist darauf), wird aber nur auf ausdrückliche Anforderung bereitgestellt.
 
 `external_writes` sagt, in welche Systeme ein Skill nach seinem Inhalt schreiben lässt. Das ist eine
 Inventarangabe für die späteren Adapter und **keine Berechtigung**: Asana-, Vault- und Git-Schreibvorgänge laufen
@@ -149,10 +153,12 @@ prüft den Code; mehrere Befunde sind `skills.Findings`.
 <hex>/
   snapshot.json                  Vertrag skill-snapshot-v1 (contracts/skill-snapshot-v1.schema.json)
   .claude-plugin/plugin.json     {"name":"ccmas"}
-  skills/<id>/…                  alle Dateien des Skills
+  skills/                        immer vorhanden, bei einer Rolle ohne Skills leer
+    <id>/…                       alle Dateien des Skills
 ```
 
-Danach sind Dateien `0444` und Verzeichnisse `0555`. Existiert das Ziel bereits, wird es mit `VerifySnapshotDir`
+Danach sind Dateien `0444` und Verzeichnisse `0555` (auch das leere `skills/`). `VerifySnapshotDir` verlangt
+`skills/` immer und meldet fremde Einträge darin als `snapshot_mismatch`. Existiert das Ziel bereits, wird es mit `VerifySnapshotDir`
 geprüft und wiederverwendet (nie überschrieben); ein abweichendes Verzeichnis ergibt `snapshot_mismatch`.
 `VerifySnapshotDir(path)` rechnet alle Hashes nach (Dateien, `tree_sha256`, `snapshot_id`) und meldet veränderte,
 fehlende und zusätzliche Dateien oder Verzeichnisse sowie Symlinks; trägt das Verzeichnis den Namen einer

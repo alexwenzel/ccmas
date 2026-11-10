@@ -160,7 +160,8 @@ func encodeSnapshotJSON(doc SnapshotManifest) ([]byte, error) {
 
 // Write schreibt den Snapshot atomar nach <dir>/<snapshot_id ohne "sha256:">/ und liefert diesen
 // Pfad. Erst entsteht ein Temp-Verzeichnis im selben Verzeichnis, dann wird umbenannt; danach
-// sind Dateien schreibgeschützt (0444) und Verzeichnisse nicht beschreibbar (0555). Existiert
+// sind Dateien schreibgeschützt (0444) und Verzeichnisse nicht beschreibbar (0555); `skills/` wird
+// immer angelegt, bei einer Rolle ohne Skills leer. Existiert
 // das Ziel schon, wird es mit VerifySnapshotDir geprüft und wiederverwendet; ein vorhandenes
 // Ziel wird nie überschrieben.
 func (s Snapshot) Write(dir string) (string, error) {
@@ -225,6 +226,10 @@ func (s Snapshot) Write(dir string) (string, error) {
 			return err
 		}
 		if err := put(pluginFileRel, []byte(pluginFileData)); err != nil {
+			return err
+		}
+		// skills/ gehört immer zum Layout, auch ohne Skills (Rolle ohne Standardausstattung).
+		if err := mkdir(snapshotSkillDir); err != nil {
 			return err
 		}
 		for _, sk := range s.skills {

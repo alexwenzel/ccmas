@@ -47,7 +47,7 @@ skills:
     status: approved
     category: tracking
     roles: [supervisor, concept, completion, question_handler]
-    default_for: [concept]
+    default_for: []
     external_writes: [asana]
     tree_sha256: fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556
     files:
