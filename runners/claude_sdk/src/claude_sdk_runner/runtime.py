@@ -37,8 +37,8 @@ from claude_agent_sdk import (
 
 from . import diagnostics as dx
 from .diagnostics import RuntimeDiagnostic, fit, redact
-from .environment import prepare_environment
-from .policy import Policy, build_policy
+from .environment import ScrubResult, prepare_environment
+from .policy import WRITING_PROFILES, Policy, build_policy
 
 EXPECTED_SDK_VERSION = "0.2.180"
 """Gepinnte SDK-Version (pyproject.toml, uv.lock); Abweichung ist eine Inkompatibilität."""
@@ -47,13 +47,18 @@ VERIFIED_CLI_VERSION = "2.1.311"
 """Mit dieser CLI-Version wurden die echten Läufe belegt (docs/architecture/evidence/)."""
 
 MINIMUM_CLI_VERSION = (2, 1, 311)
-"""Untergrenze: ältere CLI-Versionen sind nicht nachgewiesen. Neuere sind erlaubt, werden aber als ungetestet gemeldet."""
+"""Untergrenze: ältere CLI-Versionen sind nicht nachgewiesen (`sdk_cli_incompatible`). Neuere Versionen sind ungetestet:
+schreibende Profile (`policy.WRITING_PROFILES`) werden gesperrt, `readonly` läuft mit Warnung `cli_version_untested`."""
 
 REQUIRED_CAPABILITIES = ("interrupt_receipt_v1",)
 """Fähigkeiten, die der Init-Frame der CLI melden muss (Interrupt mit Quittung)."""
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
 _CMD_TIMEOUT = 15
+INTERRUPT_TIMEOUT = 10
+"""Sekunden, die ein Interrupt-Aufruf an die CLI höchstens dauern darf."""
+CLOSE_TIMEOUT = 10
+"""Sekunden für das Schließen der Sitzung (Disconnect beendet den CLI-Prozess); eigene Grenze, nicht Teil von `max_runtime_seconds`."""
 
 
 class EventSink(Protocol):
@@ -94,9 +99,14 @@ def check_binary(path: str) -> None:
         raise RuntimeDiagnostic(dx.CLI_UNAVAILABLE, "Die im SDK-Paket gebündelte CLI ist nicht zulässig; das lokale Binary muss gewählt werden.")
 
 
-def preflight(spec: dict[str, Any], environ: MutableMapping[str, str]) -> tuple[Preflight, Policy]:
-    """Alle Prüfungen vor dem Start. Löst `RuntimeDiagnostic` aus; es wird keine Sitzung und kein Modellaufruf gestartet."""
-    scrubbed = prepare_environment(environ)
+def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: ScrubResult | None = None) -> tuple[Preflight, Policy]:
+    """Alle Prüfungen vor dem Start. Löst `RuntimeDiagnostic` aus; es wird keine Sitzung und kein Modellaufruf gestartet.
+
+    `scrub` ist das Ergebnis einer bereits ausgeführten Bereinigung von `environ` (der Aufrufer meldet entfernte
+    Credential-Variablen schon vor der Vorprüfung); ohne Angabe bereinigt `preflight` selbst.
+    """
+    if scrub is None:
+        scrub = prepare_environment(environ)
     pol = build_policy(spec["policy_profile"], spec["cwd"])
     binary = spec["claude_binary"]
     check_binary(binary)
@@ -117,6 +127,13 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str]) -> tuple[
             f"{'.'.join(map(str, MINIMUM_CLI_VERSION))} (SDK {EXPECTED_SDK_VERSION}).",
         )
     version_text = ".".join(map(str, version))
+    if version_text != VERIFIED_CLI_VERSION and pol.profile in WRITING_PROFILES:
+        # Fail-closed: die Dateisystemgrenze ist nur für die nachgewiesene Version belegt.
+        raise RuntimeDiagnostic(
+            dx.CLI_VERSION_UNTESTED,
+            f"CLI {version_text} ist nicht die nachgewiesene Version {VERIFIED_CLI_VERSION}; das schreibende Profil "
+            f"{pol.profile} ist nur mit der nachgewiesenen Version freigegeben. Das Profil readonly läuft mit Warnung.",
+        )
     a = _run_cli(binary, ["auth", "status"], env)
     try:
         status = json.loads(a.stdout)
@@ -128,7 +145,7 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str]) -> tuple[
         raise RuntimeDiagnostic(dx.NOT_LOGGED_IN, "Kein Login im lokalen Claude-Binary. Bitte dort `/login` mit dem claude.ai-Konto ausführen; es gibt keinen API-Fallback.")
     if method != "claude.ai" or provider != "firstParty":
         raise RuntimeDiagnostic(dx.NOT_SUBSCRIPTION_LOGIN, "Der aktive Weg ist nicht die claude.ai-Anmeldung. Es gibt keinen Wechsel zu API-Abrechnung.")
-    pre = Preflight(binary, version_text, "claude_ai", scrubbed, version_text != VERIFIED_CLI_VERSION)
+    pre = Preflight(binary, version_text, "claude_ai", scrub.removed, version_text != VERIFIED_CLI_VERSION)
     return pre, pol
 
 
@@ -185,7 +202,7 @@ class Session:
             return
         self._interrupt_sent = True
         try:
-            await asyncio.wait_for(self._client.interrupt(), 10)
+            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT)
         except Exception as e:  # noqa: BLE001 - Fehler hier darf den Lauf nicht verdecken
             self.log(f"interrupt fehlgeschlagen: {type(e).__name__}")
 
@@ -212,27 +229,10 @@ class Session:
     async def run(self) -> None:
         try:
             if self.pre.untested_version:
-                self._warn("cli_version_untested", f"CLI {self.pre.claude_version} ist nicht die nachgewiesene Version {VERIFIED_CLI_VERSION}.")
+                self._warn(dx.CLI_VERSION_UNTESTED, f"CLI {self.pre.claude_version} ist nicht die nachgewiesene Version {VERIFIED_CLI_VERSION}.")
             if self.spec.get("skill_ids"):
                 self._warn("skills_not_applied", "skill_ids werden in diesem Stand nicht angewendet (Skill-Zuordnung folgt in M02/M04).")
-            async with self._factory(self._options()) as client:
-                self._client = client
-                await client.query(self.spec["prompt"])
-                # Ein Interrupt/Stop, der früher eintraf, wartet hier und wird jetzt angewendet (nicht wirkungslos).
-                self._ready.set()
-                try:
-                    async with asyncio.timeout(self.spec["max_runtime_seconds"]) as tm:
-                        async for msg in client.receive_response():
-                            try:
-                                self._handle(msg)
-                            except _Abort:
-                                await self._send_interrupt_now(client)
-                                raise
-                except TimeoutError:
-                    if not tm.expired():
-                        raise
-                    await self._send_interrupt_now(client)
-                    raise RuntimeDiagnostic(dx.MAX_RUNTIME, f"Laufzeitgrenze von {self.spec['max_runtime_seconds']} s überschritten; Lauf unterbrochen.") from None
+            await self._run_session()
             if not self.sink.terminal_sent:
                 raise RuntimeDiagnostic(dx.SESSION_FAILED, "Die Sitzung endete ohne Ergebnis.")
         except RuntimeDiagnostic as d:
@@ -245,11 +245,53 @@ class Session:
             for t in self._pending:
                 t.cancel()
 
+    async def _run_session(self) -> None:
+        """Verbinden, Anfrage senden und Antworten lesen; alles innerhalb von `max_runtime_seconds`. Das Schließen
+        (beendet den CLI-Prozess) hat eine eigene Grenze und läuft in jedem Fall, sobald die Sitzung verbunden war.
+
+        Wird `__aenter__` selbst abgebrochen, räumt der SDK-Client den gestarteten Prozess selbst auf."""
+        limit = self.spec["max_runtime_seconds"]
+        client = self._factory(self._options())
+        entered = False
+        try:
+            try:
+                async with asyncio.timeout(limit) as tm:
+                    await client.__aenter__()
+                    entered = True
+                    self._client = client
+                    await client.query(self.spec["prompt"])
+                    # Ein Interrupt/Stop, der früher eintraf, wartet hier und wird jetzt angewendet (nicht wirkungslos).
+                    self._ready.set()
+                    async for msg in client.receive_response():
+                        try:
+                            self._handle(msg)
+                        except _Abort:
+                            await self._send_interrupt_now(client)
+                            raise
+            except TimeoutError:
+                if not tm.expired():
+                    raise
+                if self._ready.is_set():  # nur eine bereite Sitzung kennt einen Interrupt
+                    await self._send_interrupt_now(client)
+                raise RuntimeDiagnostic(dx.MAX_RUNTIME, f"Laufzeitgrenze von {limit} s überschritten; Lauf unterbrochen.") from None
+        finally:
+            if entered:
+                await self._close(client)
+
+    async def _close(self, client: Any) -> None:
+        """Disconnect mit eigener Grenze. Fehler hier ändern das Ergebnis nicht (es gibt höchstens ein terminales)."""
+        try:
+            await asyncio.wait_for(client.__aexit__(None, None, None), CLOSE_TIMEOUT)
+        except TimeoutError:
+            self.log(f"schließen der sitzung nach {CLOSE_TIMEOUT} s abgebrochen")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"schließen der sitzung fehlgeschlagen: {type(e).__name__}")
+
     async def _send_interrupt_now(self, client: Any) -> None:
         if not self._interrupt_sent:
             self._interrupt_sent = True
             try:
-                await asyncio.wait_for(client.interrupt(), 10)
+                await asyncio.wait_for(client.interrupt(), INTERRUPT_TIMEOUT)
             except Exception as e:  # noqa: BLE001
                 self.log(f"interrupt fehlgeschlagen: {type(e).__name__}")
 

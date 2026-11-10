@@ -21,6 +21,8 @@ from typing import Any
 from .diagnostics import INVALID_CWD, ISOLATION_NOT_PROVEN, UNKNOWN_POLICY, RuntimeDiagnostic
 
 PROFILES = ("readonly", "scoped_write")
+WRITING_PROFILES = frozenset({"scoped_write"})
+"""Profile mit Schreibrechten: nur mit der nachgewiesenen CLI-Version freigegeben (fail-closed)."""
 
 _AUTONOMOUS_GAPS = [
     "Commit und Push aus der Sandbox sind nicht nachgewiesen (das .git eines Worktrees liegt außerhalb des Arbeitsverzeichnisses).",

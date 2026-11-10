@@ -10,7 +10,8 @@ import re
 
 NOT_LOGGED_IN = "not_logged_in"
 NOT_SUBSCRIPTION_LOGIN = "not_subscription_login"
-API_CREDENTIALS = "api_credentials_in_environment"
+API_CREDENTIALS_REMOVED = "api_credentials_removed"
+CLI_VERSION_UNTESTED = "cli_version_untested"
 API_BILLING = "api_billing_detected"
 SDK_CLI_INCOMPATIBLE = "sdk_cli_incompatible"
 CLI_UNAVAILABLE = "cli_unavailable"

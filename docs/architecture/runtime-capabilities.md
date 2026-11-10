@@ -31,36 +31,63 @@ Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/
 `policy.py` (Policy-Profile), `diagnostics.py` (Fehlerarten, Schwärzung). Tests: `runners/claude_sdk/tests/`
 (`test_runtime_smoke.py`, `test_runtime_units.py`, Hilfen in `support.py`).
 
-- **Eingang:** `python -m claude_sdk_runner`. stdin liefert `start` (`RunSpec`), danach `answer`, `interrupt`, `stop`;
-  jede Zeile wird mit `claude_sdk_runner.contracts` gegen `to-runner` geprüft (höchstens 1 MiB je Zeile). Ein
-  ungültiger Start liefert nichts auf stdout und Exit-Code 2.
+- **Eingang:** `python -m claude_sdk_runner [--max-turns N]`. stdin liefert `start` (`RunSpec`), danach `answer`,
+  `interrupt`, `stop`; jede Zeile wird mit `claude_sdk_runner.contracts` gegen `to-runner` geprüft (höchstens 1 MiB je
+  Zeile). `--max-turns` (ganze Zahl von 1 bis 200) begrenzt die Runden der Sitzung und damit die Kosten, zum Beispiel
+  in Live-Tests. Ein ungültiger Start oder ein ungültiges Argument liefert nichts auf stdout und Exit-Code 2.
 - **Ausgang:** nur gültige Ereignisse auf stdout (jede Zeile wird vor dem Schreiben gegen `from-runner` geprüft),
   redigierte und begrenzte Logs auf stderr; Prompts werden nie protokolliert. Exit-Code 0 nach einem terminalen
   Ergebnis (auch terminalem `error`), 1 bei Ende ohne Ergebnis (Absturz, entscheidet Go).
 - **Genau ein terminales Ergebnis:** `ProtocolSink` verweigert ein zweites terminales Ergebnis und jedes Ereignis
   danach.
-- **Vorprüfung** vor jedem Start (kein Modellaufruf): Umgebung, Policy, Binary (absolut, ausführbar, nicht die
-  gebündelte CLI), SDK-Pin, `claude -v` (Mindestversion 2.1.311), `claude auth status` (nur `loggedIn`, `authMethod`,
-  `apiProvider` werden gelesen). Im Init-Frame prüft der Runner `apiKeySource == none`, die Fähigkeit
-  `interrupt_receipt_v1` und die CLI-Version.
+- **Umgebung (Entscheidung vom 10.11.2026):** Der Runner **entfernt** Variablen, die den Login übersteuern oder auf
+  API-/Provider-Abrechnung umleiten (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
+  `CLAUDE_CODE_USE_*`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_PROFILE`, Federation-Variablen u. ä.), und meldet sie mit dem
+  nicht terminalen `error` `api_credentials_removed` (nur Namen, nie Werte). Ebenso entfernt er alle übrigen
+  `ANTHROPIC_*`-, `CLAUDE_CODE_*`- und `CLAUDE_AGENT_SDK_*`-Variablen sowie `CLAUDECODE`; `CLAUDE_CONFIG_DIR` bleibt.
+  Das geschieht vor dem ersten Aufruf des Binarys, `claude -v` und `claude auth status` laufen mit der bereinigten
+  Umgebung. Es gibt keinen API-Fallback: ist danach keine claude.ai-Anmeldung aktiv, endet der Versuch mit `not_logged_in`.
+- **Kontrollierte Umgebung beim SDK-Start:** Das echte SDK erbt `os.environ`. Der Runner startet deshalb nie einen
+  echten `ClaudeSDKClient`, wenn `main(..., environ=<Mapping>)` ein anderes Mapping als `os.environ` bekam (terminaler
+  `internal_error` nach der Vorprüfung, ohne Sitzung). Tests mit Fake-Client dürfen ein Dict übergeben.
+- **Vorprüfung** (Reihenfolge): Umgebung bereinigen, Policy, Binary (absolut, ausführbar, nicht die gebündelte
+  CLI), SDK-Pin, `claude -v` (Mindestversion 2.1.311), **Versionssperre** (siehe unten), `claude auth status` (nur
+  `loggedIn`, `authMethod`, `apiProvider` werden gelesen). Kein Modellaufruf. Im Init-Frame prüft der Runner
+  `apiKeySource == none`, die Fähigkeit `interrupt_receipt_v1` und die CLI-Version.
+- **Fail-closed bei ungetesteter CLI-Version:** Ist die CLI ungleich 2.1.311 (aber nicht älter), bricht ein
+  schreibendes Profil (`scoped_write`, `policy.WRITING_PROFILES`) in der Vorprüfung terminal mit
+  `cli_version_untested` ab (die Meldung nennt beide Versionen), ohne Sitzung und ohne Modellaufruf. `readonly` läuft
+  mit nicht terminaler Warnung `cli_version_untested` weiter.
 - **Policy-Profile** (`RunSpec.policy_profile`): `readonly`, `scoped_write` (Abschnitt 5), `autonomous` wird mit
   `isolation_not_proven` abgelehnt, alles andere mit `unknown_policy_profile`. `setting_sources` ist immer leer, damit
   Benutzer- und Projekteinstellungen (zum Beispiel `remoteControlAtStartup`, Hooks, MCP) nicht in Läufe gelangen.
 - **Wirksame Konfiguration:** `session_started` trägt die optionalen Felder `permission_mode`, `claude_binary`,
   `auth_source` (Vertragserweiterung in CC-17, siehe `contracts.md`).
-- **Grenzen:** `max_runtime_seconds` wird im Runner erzwungen (Interrupt, dann terminaler `error`
-  `max_runtime_exceeded`). `skill_ids` werden noch nicht angewendet (nicht terminaler `error` `skills_not_applied`).
+- **Grenzen:** `max_runtime_seconds` gilt für Verbindungsaufbau, Anfrage und Antworten zusammen. Bei Ablauf: Interrupt
+  (nur bei bereiter Sitzung, höchstens 10 s), dann terminaler `error` `max_runtime_exceeded`. Das Schließen der Sitzung
+  (Disconnect, beendet den CLI-Prozess) hat eine eigene Grenze von 10 s (`runtime.CLOSE_TIMEOUT`) und ändert das
+  Ergebnis nie; ein Fehler dabei wird nur protokolliert. Der schlechteste Fall liegt also bei
+  `max_runtime_seconds` + 20 s. Wird ein hängender `__aenter__` abgebrochen, räumt der SDK-Client den gestarteten
+  Prozess selbst auf (`connect()` ruft bei jedem Abbruch `disconnect()` auf); diese SDK-interne Aufräumzeit hat der
+  Runner nicht begrenzt. `skill_ids` werden noch nicht angewendet (nicht terminaler `error` `skills_not_applied`).
 
 Prüfbefehle:
 
 ```bash
 cd runners/claude_sdk
 uv run --frozen pytest tests/test_runtime_smoke.py -q                                      # ohne Konto, ohne Netzwerk
-CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q           # echte Läufe (Abo-Kontingent)
+CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q -s        # echte Läufe (Abo-Kontingent), -s zeigt die Session-IDs
 CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=<Ziel> uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # mit Belegen
 ```
 
-Die Live-Tests laufen nie in CI und nie in `make py-test`.
+Die Live-Tests laufen nie in CI und nie in `make py-test`. Alle drei starten den Runner als Unterprozess
+(`python -m claude_sdk_runner`; Interrupt-Test mit `Popen`, Kommandos über stdin, `--max-turns 4`; Scope-Probe mit
+`--max-turns 16`) und geben ihm eine **Allowlist-Umgebung**, nie die Umgebung des Testprozesses: `PATH` (Binary-Suche,
+Shell-Werkzeuge), `HOME` (Konfiguration, Schlüsselbund), `USER`/`LOGNAME` (Kontoname), `SHELL` (Bash-Werkzeug),
+`TMPDIR` (macOS-Temp, Sandbox), `LANG`, `__CF_USER_TEXT_ENCODING` (macOS). Der Roundtrip-Test setzt zusätzlich einen
+Dummy-`ANTHROPIC_API_KEY` (`ccmas-dummy-not-a-key`) und prüft, dass er gemeldet und entfernt wird und die Sitzung über
+claude.ai (`auth_source: claude_ai`) läuft. Ohne Konto-Zugriff prüft `test_real_sdk_transport_passes_none_of_the_injected_variables_to_the_binary`
+über den echten SDK-Transport mit einem Stub-Binary, dass keine injizierte Variable das Binary erreicht.
 
 ## 1. Bedingungen für das SDK mit der eigenen claude.ai-Anmeldung
 
@@ -96,17 +123,27 @@ nach den oben zitierten Stellen **ausgeschlossen**. Ein stiller Wechsel auf API-
 - Im Init-Frame jeder SDK-Sitzung steht `apiKeySource`. Wert `none` heißt: kein API-Schlüssel im Spiel (claude.ai-Login).
   Beobachtet in allen Läufen: `none`. Jeder andere Wert muss den Lauf sofort abbrechen.
 - Das SDK vererbt `os.environ` an die CLI (nur `CLAUDECODE` wird entfernt) und kann Variablen über `options.env` nur
-  überschreiben, nicht löschen. Der Runner muss `os.environ` deshalb **vor** dem Start selbst bereinigen. In der
+  überschreiben, nicht löschen. Der Runner bereinigt `os.environ` deshalb **vor** dem ersten Aufruf des Binarys selbst
+  (Abschnitt „Der Runner in diesem Stand“) und startet einen echten Client nur mit `os.environ`. In der
   Entwicklungssitzung waren `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_MESSAGING_*` und `CLAUDE_CODE_CHILD_SESSION`
-  gesetzt; sie dürfen nicht an die Kindsitzung gehen.
+  gesetzt; sie gehen nicht an die Kindsitzung. Belegt ist das ohne Konto durch einen Test über den echten
+  SDK-Transport (Unterprozess, Stub-Binary protokolliert nur Variablennamen): keine der injizierten Variablen
+  erreicht `-v`, `auth status` oder den Sitzungsstart; erlaubt sind nur die vom SDK selbst gesetzten
+  `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION` und `CLAUDE_CODE_SDK_READS_SESSION_STATE`.
+- Die frühere Fassung der Live-Tests rief `main` im Testprozess mit einem bereinigten Dict auf. Das SDK hätte dort
+  trotzdem die unbereinigte `os.environ` des Testprozesses (zum Beispiel `CLAUDE_CODE_*` einer übergeordneten
+  Claude-Sitzung) an die CLI vererbt. Die Läufe der Interrupt-Probe und der Scope-Probe in den Belegen vom 2026-11-10
+  entstanden in dieser Form; sie wurden nach der Umstellung auf Unterprozess und Allowlist wiederholt (Abschnitt 4).
 
 ## 3. Kompatibilität SDK 0.2.180 und CLI 2.1.311
 
 **Nachgewiesen:** Die Kombination funktioniert in echten Läufen (Abschnitt 4): Start über `cli_path`, Init-Frame mit
 `claude_code_version` 2.1.311 und den Fähigkeiten (unter anderem `interrupt_receipt_v1`), Werkzeugereignisse,
 `ResultMessage`, Interrupt. Das SDK selbst prüft die CLI-Version nur auf `>= 2.0.0` und warnt nur; der Runner erzwingt
-deshalb die Untergrenze 2.1.311 (ältere CLI → `sdk_cli_incompatible`) und die gepinnte SDK-Version. Eine neuere CLI
-wird zugelassen, aber mit der Warnung `cli_version_untested` gemeldet.
+deshalb die Untergrenze 2.1.311 (ältere CLI → `sdk_cli_incompatible`) und die gepinnte SDK-Version. Eine
+andere, neuere CLI ist ungetestet und wird **fail-closed** behandelt: schreibende Profile (`scoped_write`) enden in der
+Vorprüfung terminal mit `cli_version_untested` (ohne Sitzung, ohne Modellaufruf), `readonly` läuft mit der nicht
+terminalen Warnung `cli_version_untested`. Es gibt keinen CLI-Upgrade durch den Runner; lokal ist 2.1.311 installiert.
 
 **Nicht nachgewiesen:** andere CLI-Versionen, insbesondere die im SDK gebündelte 2.1.321. Es gibt keine offizielle
 Kompatibilitätsmatrix.
@@ -126,6 +163,12 @@ nachprüfbar: Dateistand im Fixture und Unverändertheit von Nachbar-, Secret- u
 (`test_live_interrupt`, per `pgrep`), Inhalt der angelegten Datei (`test_live_sdk_roundtrip`). Sie gelten für den
 Testlauf am 2026-11-10; wer sie belegen will, muss den Live-Test wiederholen. Es wurden keine Felder nachträglich in
 die Belegkopfzeilen geschrieben.
+
+**Nachprüfung nach der Umstellung auf Unterprozess und Allowlist (2026-11-10, derselbe Tag, 3 weitere echte Läufe, Haiku,
+Effort `low`):** `test_live_sdk_roundtrip` mit Dummy-`ANTHROPIC_API_KEY` in der Umgebung (Session
+`9e71bb53-bc7e-4bed-8b18-85d6944d9d93`), `test_live_interrupt_ends_with_exactly_one_cancelled_result` (Session
+`88408048-46f1-4d6d-8f66-be6b15bf30ca`) und `test_scope_probe` (Session `51a86faa-988d-4aac-aebf-8256456ac08f`)
+bestanden. Die Belegdateien unten stammen noch von den früheren Läufen und werden in einem Folgeauftrag neu erzeugt.
 
 Redigierte Belege (JSONL, Kopfzeile mit Datum, SDK-, CLI-Version und Modell; Pfade des Fixtures geschwärzt, keine
 Konto-, E-Mail- oder Organisationsdaten; die Session-ID steht bewusst darin) unter `docs/architecture/evidence/`:
@@ -225,7 +268,7 @@ Umgebung oder Home-Lesegrenze).
 
 ## 6. Diagnosen ohne Konto-Zugriff
 
-Jede Diagnose ist ein eigener Code im terminalen `error` (Art `runtime`), mit Test ohne Konto-Zugriff
+Jede Diagnose ist ein eigener Code im `error` (Art `runtime`, terminal, wenn nicht anders vermerkt), mit Test ohne Konto-Zugriff
 (`tests/test_runtime_smoke.py` und `tests/test_runtime_units.py`; Doubles nur dort: Stub-Binary für `-v` und
 `auth status`, Fake-Client mit echten SDK-Nachrichtentypen).
 
@@ -233,27 +276,26 @@ Jede Diagnose ist ein eigener Code im terminalen `error` (Art `runtime`), mit Te
 | --- | --- | --- |
 | `not_logged_in` | `claude auth status` meldet `loggedIn: false`; auch Antwort `authentication_failed` in der Sitzung | `test_no_api_fallback_when_not_logged_in`, zusätzlich mit dem echten Binary und leerem `CLAUDE_CONFIG_DIR` (kein Netzwerk, kein Konto) |
 | `not_subscription_login` | Anmeldung ist nicht claude.ai/firstParty | `test_no_api_fallback_when_login_is_not_claude_ai` |
-| `api_credentials_in_environment` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_*` u. ä.; nur der Name wird gemeldet, das Binary wird nicht einmal gestartet | `test_no_api_fallback_when_credentials_in_environment` |
+| `api_credentials_removed` (**nicht terminal**) | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_*` u. ä. waren in der Umgebung und wurden **entfernt**; nur Namen, nie Werte. Danach läuft die normale Vorprüfung mit der bereinigten Umgebung; ohne Anmeldung folgt `not_logged_in` | `test_credentials_in_environment_are_removed_with_a_warning_and_never_reach_the_cli`, `test_removed_credentials_and_not_logged_in_ends_with_terminal_not_logged_in`, `test_real_sdk_transport_passes_none_of_the_injected_variables_to_the_binary`; live: `test_live_sdk_roundtrip` |
+| `cli_version_untested` | CLI ist neuer als die nachgewiesene 2.1.311: **terminal** für `scoped_write` (Vorprüfung, keine Sitzung), **nicht terminal** (Warnung) für `readonly` | `test_untested_cli_version_blocks_the_writing_profile_before_any_session`, `test_newer_but_consistent_cli_runs_readonly_with_untested_warning` |
+| `internal_error` (Art `internal`) | Echter SDK-Start mit einem anderen Mapping als `os.environ` (die Umgebung wäre unbereinigt); nur durch Programmierfehler erreichbar | `test_real_sdk_client_is_never_started_with_a_foreign_environment` |
+| `max_runtime_exceeded` | `max_runtime_seconds` überschritten, auch bei hängendem Verbindungsaufbau oder hängender Anfrage | `test_max_runtime_exceeded_is_terminal_error`, `test_max_runtime_also_bounds_connect_and_query`, `test_hanging_disconnect_after_timeout_still_ends_with_max_runtime_exceeded` |
 | `api_billing_detected` | `apiKeySource` im Init-Frame ist nicht `none`: Abbruch im Init-Frame, **nach** dem Senden der Anfrage: garantiert ist, dass der Runner danach nichts mehr verarbeitet und unterbricht, nicht dass in der CLI kein Werkzeug anläuft | `test_api_key_source_in_init_aborts_immediately` |
 | `sdk_cli_incompatible` | CLI älter als 2.1.311, Version nicht lesbar, SDK-Pin weicht ab, Fähigkeit `interrupt_receipt_v1` fehlt | `test_old_or_unreadable_cli_version_is_incompatible`, `test_missing_interrupt_capability_is_incompatibility`, `test_sdk_pin_is_consistent` |
 | `cli_unavailable` | Binary fehlt, nicht ausführbar, relativ oder die im SDK gebündelte CLI | `test_missing_binary_is_cli_unavailable`, `test_bundled_sdk_cli_is_rejected` |
-| `billing_error` | Antwort `billing_error` in der Sitzung | – (Zuordnung im Code, kein eigener Test) |
+| `billing_error` | Antwort `billing_error` in der Sitzung | `test_billing_error_in_session_is_terminal_error_without_fallback` |
 | `subscription_limit` (Art `subscription_limit`, **nicht terminal**) | `RateLimitEvent` mit Status `rejected`, `rate_limit` oder HTTP 429; danach terminales `result` `controlled_failure` | `test_subscription_limit_is_non_terminal_error_then_controlled_failure` |
 
 Es gibt keinen API-Fallback und keine Token-Vermittlung. Der Abo-Limit-Pfad ist nur mit einem Fake-Client belegt; ein
 echter Limit-Lauf wurde bewusst nicht herbeigeführt.
 
-**Umgebung:** Credential- und Provider-Variablen sind ein Fehler (nur Namen). Alle übrigen `ANTHROPIC_*`-,
-`CLAUDE_CODE_*`- und `CLAUDE_AGENT_SDK_*`-Variablen sowie `CLAUDECODE` werden vor dem Start aus `os.environ`
-entfernt, weil das SDK Variablen nur überschreiben, nicht löschen kann (sonst gelangten zum Beispiel
+**Umgebung:** Credential- und Provider-Variablen werden entfernt und als nicht terminale Warnung gemeldet (so
+entschieden am 10.11.2026; die frühere Fassung brach mit `api_credentials_in_environment` ab, dieser Code existiert
+nicht mehr). Alle übrigen `ANTHROPIC_*`-, `CLAUDE_CODE_*`- und `CLAUDE_AGENT_SDK_*`-Variablen sowie `CLAUDECODE`
+werden ebenfalls entfernt, weil das SDK Variablen nur überschreiben, nicht löschen kann (sonst gelangten zum Beispiel
 `CLAUDE_CODE_SESSION_ID` und `CLAUDE_CODE_MESSAGING_*` einer übergeordneten Claude-Sitzung in die Kindsitzung).
-`CLAUDE_CONFIG_DIR` bleibt erhalten.
-
-**Bewusste Abweichung von der Spezifikation:** Die Spezifikation sagt, der Runner „entfernt“ Variablen, die den Login
-übersteuern würden. Der Code bricht bei diesen Credential- und Provider-Variablen stattdessen mit einem Fehler ab
-(`api_credentials_in_environment`), um keinen stillen Weiterlauf bei fehlerhafter Konfiguration zuzulassen. Das ist
-strenger, nicht schwächer. **Offen für M04:** Entweder entfernt Go diese Variablen vor dem Start des Runners (dann
-läuft der Runner normal weiter), oder die Spezifikation wird auf „Fehler“ angepasst.
+`CLAUDE_CONFIG_DIR` bleibt erhalten. Das Entfernen ist keine Anmeldung: Ohne aktive claude.ai-Anmeldung endet der
+Versuch mit `not_logged_in`.
 
 ## 7. Remote Control: Vorprüfung (nur gelesen, nichts aktiviert)
 
@@ -295,6 +337,9 @@ Konto erproben und dabei die Kombination mit dem Isolationsprofil prüfen.
 - **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
 - **Isolation:** Git-Schreibaktionen, Werkzeugkette in der Sandbox, Netzwerkgrenze, Hooks/MCP und eine OS-Grenze um
   den ganzen Runner (Abschnitt 5, Lösungsvorschlag) vor der Freigabe des autonomen Modus.
+- **Laufzeitgrenze:** Die Aufräumzeit eines abgebrochenen `connect()` im SDK (`disconnect()`) ist nicht vom Runner
+  begrenzt; auf einem Rechner im Schlaf oder bei hängendem CLI-Prozess bleibt die Prozessgruppen-Beendigung durch
+  Go (M04) maßgeblich.
 - **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
 - **Skills** (`skill_ids`) werden noch nicht angewendet.
 - **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt offen und wird vom Projektinhaber getragen.

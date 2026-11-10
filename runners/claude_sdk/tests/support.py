@@ -130,29 +130,50 @@ def terminals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-# --- Stub-Binary (Test-Double für das claude-Binary; nur Vorprüfungen, nie eine Sitzung) ------------
+# --- Stub-Binary (Test-Double für das claude-Binary: Vorprüfungen, Sitzungsstart nur protokolliert) ---
 
 
 def make_stub_cli(tmp: Path, *, version: str = "2.1.311 (Claude Code)", auth: dict[str, Any] | None = None) -> tuple[str, Path]:
-    """Legt ein kleines Skript an, das `-v` und `auth status` beantwortet und jeden Aufruf protokolliert."""
+    """Legt ein kleines Skript an, das `-v` und `auth status` beantwortet und jeden Aufruf protokolliert.
+
+    Zwei Protokolle: `stub.log` (Argumente; bei einem Sitzungsstart zusätzlich `SESSION-REQUESTED`) und, lesbar über
+    `stub_calls`, `stub-env.log` mit den **Namen** der Umgebungsvariablen jedes Aufrufs (nie Werte).
+    """
     if auth is None:
         auth = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max"}
     log = tmp / "stub.log"
+    env_log = tmp / "stub-env.log"
     auth_file = tmp / "auth.json"
     auth_file.write_text(json.dumps(auth))
     script = tmp / "claude-stub"
     script.write_text(
         "#!/bin/sh\n"
         f'echo "$@" >> "{log}"\n'
+        "kind=session\n"
+        'case "$1" in -v|--version) kind=version;; auth) kind=auth;; esac\n'
+        f'{{ printf "%s:" "$kind"; env | sed -n \'s/^\\([A-Za-z_][A-Za-z0-9_]*\\)=.*/ \\1/p\' | sort | tr -d "\\n"; echo; }} >> "{env_log}"\n'
         'if [ "$1" = "-v" ] || [ "$1" = "--version" ]; then echo "' + version + '"; exit 0; fi\n'
         'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n'
         f'  cat "{auth_file}"\n'
         f'  if grep -q \'"loggedIn": *true\' "{auth_file}"; then exit 0; else exit 1; fi\n'
         "fi\n"
+        f'echo SESSION-REQUESTED >> "{log}"\n'
         "echo SESSION-REQUESTED >&2; exit 9\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return str(script), log
+
+
+def stub_calls(binary: str) -> list[tuple[str, set[str]]]:
+    """Aufrufe des Stub-Binarys in Reihenfolge: (Art `version`/`auth`/`session`, Namen der Umgebungsvariablen)."""
+    env_log = Path(binary).parent / "stub-env.log"
+    if not env_log.exists():
+        return []
+    calls = []
+    for line in env_log.read_text().splitlines():
+        kind, _, names = line.partition(":")
+        calls.append((kind, set(names.split())))
+    return calls
 
 
 # --- Fake-Client (Test-Double für ClaudeSDKClient; liefert echte SDK-Nachrichtentypen) ------------
@@ -213,7 +234,11 @@ def text(t: str) -> AssistantMessage:
 
 
 class FakeClient:
-    """Ersetzt ClaudeSDKClient im Test. Spielt ein Skript aus echten SDK-Nachrichten ab."""
+    """Ersetzt ClaudeSDKClient im Test. Spielt ein Skript aus echten SDK-Nachrichten ab.
+
+    Hänger lassen sich je Phase erzwingen (`hang_enter`, `hang_query`, `hang_exit`); `*_cancelled` hält fest, ob die
+    blockierte Phase vom Runner abgebrochen wurde (also kein Task zurückbleibt).
+    """
 
     created: list["FakeClient"] = []
 
@@ -225,16 +250,41 @@ class FakeClient:
         self.interrupt_calls = 0
         self.calls: list[str] = []
         self.query_delay = 0.0
+        self.query_error: Exception | None = None
+        self.hang_enter = False
+        self.hang_query = False
+        self.hang_exit = False
+        self.enter_cancelled = False
+        self.query_cancelled = False
+        self.exit_cancelled = False
+        self.exit_calls = 0
         FakeClient.created.append(self)
 
+    @staticmethod
+    async def _hang(flag: str, owner: "FakeClient") -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            setattr(owner, flag, True)
+            raise
+
     async def __aenter__(self) -> "FakeClient":
+        if self.hang_enter:
+            await self._hang("enter_cancelled", self)
         return self
 
     async def __aexit__(self, *exc: Any) -> bool:
+        self.exit_calls += 1
+        if self.hang_exit:
+            await self._hang("exit_cancelled", self)
         return False
 
     async def query(self, prompt: str) -> None:
+        if self.hang_query:
+            await self._hang("query_cancelled", self)
         await asyncio.sleep(self.query_delay)  # Zeit für früh eingetroffene Kommandos
+        if self.query_error is not None:
+            raise self.query_error
         self.prompt = prompt
         self.calls.append("query")
 

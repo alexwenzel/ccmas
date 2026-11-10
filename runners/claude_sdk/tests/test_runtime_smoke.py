@@ -10,11 +10,9 @@ Mit ``CCMAS_EVIDENCE_DIR=<Verzeichnis>`` schreiben sie redigierte JSONL-Belege.
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -26,8 +24,8 @@ import claude_agent_sdk
 import pytest
 
 from support import (
-    REAL_CLAUDE, Collector, command_line, make_stub_cli, run_runner, start_line, terminals, validate_all,
-    write_pipe_stdin,
+    REAL_CLAUDE, Collector, command_line, fake_factory, init_message, make_stub_cli, result_message, run_runner,
+    start_line, stub_calls, terminals, validate_all,
 )
 
 BASE_ENV = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "/tmp")}
@@ -62,17 +60,117 @@ def test_no_api_fallback_when_login_is_not_claude_ai(tmp_path: Path):
     assert _assert_no_api_use(events, log)["code"] == "not_subscription_login"
 
 
-@pytest.mark.parametrize("var", ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
-                                 "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BASE_URL"])
-def test_no_api_fallback_when_credentials_in_environment(tmp_path: Path, var: str):
+DUMMY_KEY = "ccmas-dummy-not-a-key"
+CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK",
+                   "ANTHROPIC_BASE_URL"]
+
+
+@pytest.mark.parametrize("var", CREDENTIAL_VARS)
+def test_credentials_in_environment_are_removed_with_a_warning_and_never_reach_the_cli(tmp_path: Path, var: str):
+    """Entfernen statt Abbrechen: nicht terminale Meldung mit dem Namen, `-v` und `auth status` sehen die Variable nie."""
     fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
     binary, log = make_stub_cli(tmp_path)
-    env = dict(BASE_ENV, **{var: "sk-ant-niemals-ausgeben"})
-    _, events, err, out = run_runner([start_line(str(fx), binary)], env)
-    p = _assert_no_api_use(events, log)
-    assert p["code"] == "api_credentials_in_environment" and var in p["message"]
-    assert "niemals" not in err and "niemals" not in " ".join(out.lines)
-    assert not log.exists()  # nicht einmal `-v` oder `auth status` wurde aufgerufen
+    env = dict(BASE_ENV, **{var: DUMMY_KEY})
+    code, events, err, out = run_runner([start_line(str(fx), binary)], env,
+                                        client_factory=fake_factory([init_message(), result_message()]))
+    validate_all(out)
+    (warn,) = [e["payload"] for e in events if e["type"] == "error" and e["payload"]["code"] == "api_credentials_removed"]
+    assert warn["terminal"] is False and warn["kind"] == "runtime" and var in warn["message"]
+    assert events.index(next(e for e in events if e["type"] == "error")) < events.index(next(e for e in events if e["type"] == "session_started"))
+    (t,) = terminals(events)
+    assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded" and code == 0
+    assert var not in env  # aus der Umgebung des Runners entfernt, nicht nur ausgeblendet
+    calls = stub_calls(binary)
+    assert [k for k, _ in calls] == ["version", "auth"]  # die normale Vorprüfung lief, mit bereinigter Umgebung
+    assert all(var not in names for _, names in calls)
+    assert DUMMY_KEY not in err and DUMMY_KEY not in " ".join(out.lines) and DUMMY_KEY not in log.read_text()
+
+
+def test_removed_credentials_and_not_logged_in_ends_with_terminal_not_logged_in(tmp_path: Path):
+    """Kein API-Fallback: nach dem Entfernen entscheidet allein die claude.ai-Anmeldung."""
+    fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
+    binary, log = make_stub_cli(tmp_path, auth={"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"})
+    env = dict(BASE_ENV, ANTHROPIC_API_KEY=DUMMY_KEY)
+    code, events, err, out = run_runner([start_line(str(fx), binary)], env)
+    validate_all(out)
+    assert [e["payload"]["code"] for e in events] == ["api_credentials_removed", "not_logged_in"]
+    (t,) = terminals(events)
+    assert t["payload"]["code"] == "not_logged_in" and t["payload"]["terminal"] is True and code == 0
+    assert not any(e["type"] in ("session_started", "tool_event", "result") for e in events)
+    assert "SESSION-REQUESTED" not in log.read_text()
+    assert all("ANTHROPIC_API_KEY" not in names for _, names in stub_calls(binary))
+    assert DUMMY_KEY not in err and DUMMY_KEY not in " ".join(out.lines)
+
+
+def test_real_sdk_client_is_never_started_with_a_foreign_environment(tmp_path: Path):
+    """Ohne `client_factory` startet das echte SDK mit `os.environ`; ein anderes Dict wäre unbereinigt. Also: Abbruch."""
+    fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
+    binary, log = make_stub_cli(tmp_path)
+    code, events, err, out = run_runner([start_line(str(fx), binary)], dict(BASE_ENV, CLAUDE_CODE_SESSION_ID="parent"))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "internal_error" and t["payload"]["kind"] == "internal"
+    assert code == 0 and not any(e["type"] == "session_started" for e in events)
+    assert "SESSION-REQUESTED" not in log.read_text()
+    assert "session" not in [k for k, _ in stub_calls(binary)]
+
+
+def _runner_subprocess(args: list[str], line: str, env: dict[str, str], cwd: Path, *, timeout: int = 60):
+    return subprocess.run([sys.executable, "-m", "claude_sdk_runner", *args], input=(line + "\n").encode(),
+                          capture_output=True, env=env, timeout=timeout, cwd=str(cwd))
+
+
+def test_real_sdk_transport_passes_none_of_the_injected_variables_to_the_binary(tmp_path: Path):
+    """Echter SDK-Transport in einem Unterprozess: Credential- und Elternsitzungs-Variablen erreichen das Binary nie.
+
+    Das Stub-Binary beantwortet `-v` und `auth status` (angemeldet) und beendet jeden Sitzungsstart mit Fehler. Es
+    protokolliert für jeden Aufruf nur die Variablennamen. Der Sitzungsaufruf stammt vom SDK selbst (Beweis, dass der
+    echte Transport die Umgebung geerbt hat); die SDK-eigenen Variablen sind die einzigen erlaubten `CLAUDE_*`.
+    """
+    fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
+    cfg = tmp_path / "cfg"; cfg.mkdir()
+    binary, log = make_stub_cli(tmp_path)
+    injected = {
+        "ANTHROPIC_API_KEY": DUMMY_KEY, "ANTHROPIC_AUTH_TOKEN": DUMMY_KEY, "CLAUDE_CODE_OAUTH_TOKEN": DUMMY_KEY,
+        "ANTHROPIC_BASE_URL": "http://" + DUMMY_KEY, "CLAUDE_CODE_USE_BEDROCK": DUMMY_KEY,
+        "CLAUDE_CODE_SESSION_ID": DUMMY_KEY, "CLAUDE_CODE_MESSAGING_TOKEN": DUMMY_KEY, "CLAUDECODE": "1",
+        "CLAUDE_AGENT_SDK_FOO": DUMMY_KEY, "ANTHROPIC_MODEL": DUMMY_KEY,
+    }
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_CONFIG_DIR": str(cfg), **injected}
+    proc = _runner_subprocess(["--max-turns", "3"], start_line(str(fx), binary, max_runtime_seconds=30), env, tmp_path)
+    out = Collector(); out.write(proc.stdout)
+    validate_all(out)
+    events = out.events()
+    (t,) = terminals(events)
+    assert proc.returncode == 0 and events[-1] is t
+    assert t["type"] == "error" and t["payload"]["code"] == "session_failed"  # das Stub-Binary beendet den Sitzungsstart mit Fehler
+    assert not any(e["type"] in ("session_started", "tool_event", "result") for e in events)
+    warn = [e["payload"] for e in events if e["type"] == "error" and not e["payload"]["terminal"]]
+    assert [w["code"] for w in warn] == ["api_credentials_removed"]
+    assert all(name in warn[0]["message"] for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                                                        "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK"))
+    calls = stub_calls(binary)
+    assert {"version", "auth", "session"} <= {k for k, _ in calls}, calls  # der echte SDK-Transport hat das Binary gestartet
+    # Vom SDK selbst gesetzt (subprocess_cli.py), nicht aus der Umgebung des Aufrufers:
+    allowed_sdk = {"CLAUDE_CODE_ENTRYPOINT", "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_CODE_SDK_READS_SESSION_STATE"}
+    for kind, names in calls:
+        assert not names & set(injected), (kind, sorted(names & set(injected)))
+        assert "CLAUDE_CONFIG_DIR" in names  # bleibt erhalten: dort liegt die Anmeldung des Binarys
+        extra = {n for n in names if n.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDE_AGENT_SDK_", "CLAUDECODE"))}
+        assert extra <= (allowed_sdk if kind == "session" else set()), (kind, sorted(extra))
+    assert "--max-turns 3" in log.read_text()  # das validierte Argument erreicht die SDK-Optionen
+    for text_ in (proc.stdout.decode(), proc.stderr.decode(), log.read_text(), (tmp_path / "stub-env.log").read_text()):
+        assert DUMMY_KEY not in text_
+
+
+@pytest.mark.parametrize("args", [["--max-turns", "0"], ["--max-turns", "-1"], ["--max-turns", "abc"], ["--max-turns", "1000"],
+                                  ["--max-turns"], ["--unbekannt"]])
+def test_invalid_runner_arguments_exit_2_with_empty_stdout(tmp_path: Path, args: list[str]):
+    fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
+    binary, log = make_stub_cli(tmp_path)
+    proc = _runner_subprocess(args, start_line(str(fx), binary), {"PATH": os.environ["PATH"], "HOME": str(tmp_path)}, tmp_path)
+    assert proc.returncode == 2 and proc.stdout == b""
+    assert not log.exists()  # nichts wurde gestartet
 
 
 @pytest.mark.skipif(not os.access(REAL_CLAUDE, os.X_OK), reason="lokales claude-Binary nicht vorhanden")
@@ -98,10 +196,28 @@ def _cli_version() -> str:
     return out.split()[0]
 
 
-def _live_env() -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDE_AGENT_SDK"))
-           and k != "CLAUDECODE"}
+LIVE_ENV_ALLOWLIST = (
+    "PATH",  # Binary-Suche (node, python3, Shell-Werkzeuge im Bash-Werkzeug der CLI)
+    "HOME",  # Konfigurationsverzeichnis ~/.claude und Zugriff der CLI auf den Schlüsselbund
+    "USER", "LOGNAME",  # Kontoname der Schlüsselbund-Suche und der Shell
+    "SHELL",  # Shell des Bash-Werkzeugs
+    "TMPDIR",  # temporäres Verzeichnis unter macOS (Sandbox und Werkzeuge)
+    "LANG",  # Zeichenkodierung der Kindprozesse
+    "__CF_USER_TEXT_ENCODING",  # CoreFoundation unter macOS
+)
+"""Live-Umgebung als Allowlist: nur diese Variablen des Testprozesses gelangen in den Runner-Unterprozess. Alles
+andere (insbesondere `CLAUDE_CODE_*` einer übergeordneten Claude-Sitzung, Tokens, Proxy-Variablen) bleibt draußen."""
+
+
+def _live_env(**extra: str) -> dict[str, str]:
+    env = {k: os.environ[k] for k in LIVE_ENV_ALLOWLIST if k in os.environ}
+    env.update(extra)
     return env
+
+
+def _run_live_runner(line: str, env: dict[str, str], cwd: Path, *, max_turns: int | None = None, timeout: int = 300):
+    args = [sys.executable, "-m", "claude_sdk_runner"] + (["--max-turns", str(max_turns)] if max_turns else [])
+    return subprocess.run(args, input=(line + "\n").encode(), capture_output=True, env=env, timeout=timeout, cwd=str(cwd))
 
 
 _PATH_PATTERNS = [
@@ -136,19 +252,26 @@ def _write_evidence(name: str, events: list[dict], replace: dict[str, str], note
 
 @pytest.mark.live
 def test_live_sdk_roundtrip(tmp_path: Path):
-    """Echter Lauf über `python -m claude_sdk_runner` als Unterprozess: Sitzung, echte Werkzeugaktivität, genau ein Ergebnis."""
+    """Echter Lauf über `python -m claude_sdk_runner` als Unterprozess: Sitzung, echte Werkzeugaktivität, genau ein Ergebnis.
+
+    Die Umgebung enthält absichtlich einen Dummy-`ANTHROPIC_API_KEY`: er muss gemeldet und entfernt werden, die Sitzung
+    läuft über die claude.ai-Anmeldung (`auth_source: claude_ai`), der Wert erscheint nirgends.
+    """
     fx = (tmp_path / "work" / "fixture"); fx.mkdir(parents=True); fx = fx.resolve()
     prompt = "Lege mit dem Write-Werkzeug im aktuellen Verzeichnis die Datei hello.txt mit dem Inhalt ok an. Antworte danach mit dem Wort fertig."
     line = start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, policy_profile="scoped_write", max_runtime_seconds=120)
-    proc = subprocess.run([sys.executable, "-m", "claude_sdk_runner"], input=(line + "\n").encode(), capture_output=True,
-                          env=_live_env(), timeout=180, cwd=str(tmp_path))
+    proc = _run_live_runner(line, _live_env(ANTHROPIC_API_KEY=DUMMY_KEY), tmp_path, timeout=180)
     out = Collector(); out.write(proc.stdout)
     validate_all(out)
     events = out.events()
     types = [e["type"] for e in events]
     assert proc.returncode == 0, proc.stderr.decode()[-500:]
-    assert types[0] == "session_started"
-    started = events[0]["payload"]
+    assert DUMMY_KEY not in proc.stdout.decode() and DUMMY_KEY not in proc.stderr.decode()
+    removed = events[0]["payload"]
+    assert events[0]["type"] == "error" and removed["code"] == "api_credentials_removed" and removed["terminal"] is False
+    assert "ANTHROPIC_API_KEY" in removed["message"]
+    assert types[1] == "session_started"
+    started = events[1]["payload"]
     assert re.fullmatch(r"[0-9a-f-]{36}", started["session_id"])
     assert started["auth_source"] == "claude_ai" and started["claude_binary"] == REAL_CLAUDE
     assert started["permission_mode"] == "dontAsk" and started["effort"] == "low" and "haiku" in started["model"]
@@ -158,47 +281,64 @@ def test_live_sdk_roundtrip(tmp_path: Path):
     (t,) = terminals(events)
     assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded"
     assert events[-1] is t
+    print(f"live-roundtrip session_id={started['session_id']}")
     _write_evidence("live-roundtrip", events, {str(fx): "<FIXTURE>", str(tmp_path): "<TMP>"},
-                    "python -m claude_sdk_runner, Policy scoped_write, ein Write-Aufruf")
+                    "python -m claude_sdk_runner, Policy scoped_write, ein Write-Aufruf, Dummy-API-Schlüssel in der Umgebung entfernt")
 
 
 @pytest.mark.live
 def test_live_interrupt_ends_with_exactly_one_cancelled_result(tmp_path: Path):
-    """Laufender Lauf (Bash sleep) wird über das Protokoll unterbrochen: ein terminales Ergebnis, Kindprozess beendet."""
+    """Laufender Lauf (Bash sleep) wird über das Protokoll unterbrochen: ein terminales Ergebnis, Kindprozess beendet.
+
+    Der Runner läuft als Unterprozess mit Allowlist-Umgebung; Kommandos gehen über seine stdin.
+    """
     fx = (tmp_path / "work" / "fixture"); fx.mkdir(parents=True); fx = fx.resolve()
     prompt = "Führe mit dem Bash-Werkzeug genau diesen Befehl aus: python3 -c \"import time; time.sleep(57)\". Antworte danach mit dem Wort fertig."
-    stdin, send, close = write_pipe_stdin()
     out = Collector()
     seen = threading.Event()
     out.on_event = lambda e: seen.set() if e["type"] == "tool_event" and e["payload"]["tool"] == "Bash" and e["payload"]["phase"] == "started" else None
-    result: dict = {}
-
-    def target():
-        from claude_sdk_runner.entrypoint import main
-        result["code"] = main(stdin, out, io.StringIO(), _live_env(), max_turns=4)
-
-    send(start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, max_runtime_seconds=120))
-    th = threading.Thread(target=target); th.start()
-    assert seen.wait(90), "Bash-Werkzeug wurde nicht gestartet: " + str(out.lines[-3:])
-    # Positivkontrolle: der Kindprozess läuft wirklich, bevor unterbrochen wird.
+    errlog = tmp_path / "runner.stderr"
     marker = r"time\.sleep\(57\)"
-    deadline = time.monotonic() + 15
-    while subprocess.run(["pgrep", "-f", marker], capture_output=True).returncode != 0:
-        assert time.monotonic() < deadline, "Kindprozess wurde nicht gestartet: " + str(out.lines[-3:])
-        time.sleep(0.3)
-    assert not any(e["type"] == "tool_event" and e["payload"]["phase"] != "started" for e in out.events())
-    t0 = time.monotonic()
-    send(command_line("interrupt", reason="user_request"))
-    th.join(60); close()
-    assert not th.is_alive()
-    elapsed = time.monotonic() - t0
+    with errlog.open("wb") as err:
+        proc = subprocess.Popen([sys.executable, "-m", "claude_sdk_runner", "--max-turns", "4"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=err, env=_live_env(), cwd=str(tmp_path))
+        assert proc.stdin is not None and proc.stdout is not None
+        stdout = proc.stdout
+
+        def pump():  # stdout zeilenweise lesen; der Collector benachrichtigt den Test
+            for raw in iter(stdout.readline, b""):
+                out.write(raw)
+
+        reader = threading.Thread(target=pump, daemon=True); reader.start()
+        try:
+            proc.stdin.write((start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, max_runtime_seconds=120) + "\n").encode())
+            proc.stdin.flush()
+            assert seen.wait(90), "Bash-Werkzeug wurde nicht gestartet: " + str(out.lines[-3:])
+            # Positivkontrolle: der Kindprozess läuft wirklich, bevor unterbrochen wird.
+            deadline = time.monotonic() + 15
+            while subprocess.run(["pgrep", "-f", marker], capture_output=True).returncode != 0:
+                assert time.monotonic() < deadline, "Kindprozess wurde nicht gestartet: " + str(out.lines[-3:])
+                time.sleep(0.3)
+            assert not any(e["type"] == "tool_event" and e["payload"]["phase"] != "started" for e in out.events())
+            t0 = time.monotonic()
+            proc.stdin.write((command_line("interrupt", reason="user_request") + "\n").encode())
+            proc.stdin.flush()
+            code = proc.wait(timeout=60)
+            elapsed = time.monotonic() - t0
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.stdin.close()
+            reader.join(10)
     events = out.events()
     validate_all(out)
     (t,) = terminals(events)
     assert t["type"] == "result" and t["payload"]["outcome"] == "cancelled" and events[-1] is t
-    assert elapsed < 40 and result["code"] == 0
+    assert elapsed < 40 and code == 0, errlog.read_text()[-500:]
     time.sleep(1)
     assert subprocess.run(["pgrep", "-f", marker], capture_output=True).returncode != 0, "Kindprozess läuft noch"
+    sid = next(e["payload"]["session_id"] for e in events if e["type"] == "session_started")
+    print(f"live-interrupt session_id={sid}")
     _write_evidence("live-interrupt", events, {str(fx): "<FIXTURE>", str(tmp_path): "<TMP>"},
                     f"Interrupt nach laufendem Bash-Werkzeug; Dauer bis Ergebnis {elapsed:.1f}s")
 
@@ -225,12 +365,14 @@ def test_scope_probe(tmp_path: Path):
 9. Bash-Werkzeug: echo four > {ctl}/contracts/w_bash.txt
 10. Bash-Werkzeug: ls {nb}
 Antworte am Ende mit dem Wort fertig."""
-    code, events, err, out = run_runner(
-        [start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, policy_profile="scoped_write", max_runtime_seconds=240)],
-        _live_env(), max_turns=16)
+    line = start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, policy_profile="scoped_write", max_runtime_seconds=240)
+    proc = _run_live_runner(line, _live_env(), tmp_path, max_turns=16, timeout=300)
+    out = Collector(); out.write(proc.stdout)
     validate_all(out)
+    events = out.events()
     (t,) = terminals(events)
     assert t["type"] == "result", t
+    assert proc.returncode == 0, proc.stderr.decode()[-500:]
     started = [e["payload"] for e in events if e["type"] == "tool_event" and e["payload"]["phase"] == "started"]
     failed = [e["payload"] for e in events if e["type"] == "tool_event" and e["payload"]["phase"] == "failed"]
     assert len(started) >= 9, f"Probe unvollständig (Modell hat die Schritte nicht ausgeführt): {len(started)} Aufrufe"
@@ -244,6 +386,8 @@ Antworte am Ende mit dem Wort fertig."""
     # Alle acht verbotenen Zugriffe sind als gescheitert gemeldet, das Secret taucht in keinem Ereignis auf.
     assert len(failed) >= 8, failed
     assert "SECRET-DUMMY-VALUE" not in " ".join(out.lines)
+    sid = next(e["payload"]["session_id"] for e in events if e["type"] == "session_started")
+    print(f"live-scope-probe session_id={sid}")
     _write_evidence("live-scope-probe", events, {str(base): "<SCOPE>", str(tmp_path): "<TMP>"},
                     f"Scope-Probe: {len(started)} Werkzeugaufrufe, {len(failed)} verweigert; Dateistand geprüft")
 

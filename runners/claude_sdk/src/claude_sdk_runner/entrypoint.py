@@ -20,7 +20,8 @@ from typing import Any, BinaryIO, Callable, MutableMapping, TextIO
 
 from . import contracts
 from .contracts import ContractError
-from .diagnostics import INTERNAL, RuntimeDiagnostic, fit, redact
+from .diagnostics import API_CREDENTIALS_REMOVED, INTERNAL, RuntimeDiagnostic, fit, redact
+from .environment import prepare_environment
 from .runtime import Session, preflight
 
 
@@ -139,11 +140,11 @@ async def _command_loop(queue: "asyncio.Queue[Any]", session: Session, sink: Pro
             _warn(sink, "unexpected_start", "Ein zweiter Start innerhalb eines Versuchs wird ignoriert.", log)
 
 
-def _warn(sink: ProtocolSink, code: str, message: str, log: Log) -> None:
+def _warn(sink: ProtocolSink, code: str, message: str, log: Log, kind: str = "protocol") -> None:
     if sink.terminal_sent:
         return
     try:
-        sink.send("error", {"code": code, "message": message, "kind": "protocol", "terminal": False})
+        sink.send("error", {"code": code, "message": fit(message, 4000), "kind": kind, "terminal": False})
     except Exception as e:  # noqa: BLE001
         log(f"warnung nicht gesendet: {type(e).__name__}")
 
@@ -167,8 +168,16 @@ async def _amain(stdin: BinaryIO, stdout: BinaryIO, log: Log, environ: MutableMa
     spec = start["payload"]
     sink = ProtocolSink(stdout, {k: start[k] for k in ("project_id", "execution_id", "attempt", "correlation_id")})
     log(f"start empfangen: execution={start['execution_id']} attempt={start['attempt']} profil={spec['policy_profile']} modell={spec['model']}")
+    # Die Umgebung wird vor jedem Aufruf des Binarys bereinigt; entfernte Credential-Variablen werden gemeldet (nur Namen).
+    scrub = prepare_environment(environ)
+    if scrub.credentials:
+        log(f"umgebung: {len(scrub.credentials)} credential-variablen entfernt")
+        _warn(sink, API_CREDENTIALS_REMOVED,
+              "Aus der Umgebung entfernt, weil sie die claude.ai-Anmeldung übersteuern oder auf API-Abrechnung umleiten "
+              "würden: " + ", ".join(scrub.credentials) + ". Es gibt keinen API-Fallback; die Anmeldung des lokalen Binarys "
+              "muss aktiv sein.", log, kind="runtime")
     try:
-        pre, pol = await asyncio.to_thread(preflight, spec, environ)
+        pre, pol = await asyncio.to_thread(preflight, spec, environ, scrub)
     except RuntimeDiagnostic as d:
         log(f"vorprüfung: {d.code}")
         sink.send("error", {"code": d.code, "message": fit(d.message, 4000), "kind": d.kind, "terminal": True})
@@ -178,6 +187,14 @@ async def _amain(stdin: BinaryIO, stdout: BinaryIO, log: Log, environ: MutableMa
         sink.send("error", {"code": INTERNAL, "message": f"Vorprüfung fehlgeschlagen ({type(e).__name__}).", "kind": "internal", "terminal": True})
         return 0
     log(f"vorprüfung ok: cli={pre.claude_version} anmeldung={pre.auth_source} entfernt={len(pre.scrubbed)} Variablen")
+    if client_factory is None and environ is not os.environ:
+        # Das echte SDK vererbt `os.environ` an die CLI. Nur diese Umgebung wurde bereinigt, also darf kein
+        # echter Client mit einem anderen Mapping gestartet werden (sonst käme eine unbereinigte Umgebung an die CLI).
+        log("echter sdk-start mit fremdem environ-mapping verweigert")
+        sink.send("error", {"code": INTERNAL, "kind": "internal", "terminal": True,
+                            "message": "Ein echter SDK-Start ist nur mit der bereinigten Prozessumgebung zulässig (os.environ); "
+                                       "ein anderes Umgebungs-Mapping wäre unbereinigt."})
+        return 0
     session = Session(spec, pre, pol, sink, log, client_factory=client_factory, max_turns=max_turns)
     commands = asyncio.ensure_future(_command_loop(queue, session, sink, log))
     try:
@@ -192,7 +209,9 @@ async def _amain(stdin: BinaryIO, stdout: BinaryIO, log: Log, environ: MutableMa
 
 def main(stdin: BinaryIO, stdout: BinaryIO, stderr: TextIO, environ: MutableMapping[str, str] | None = None, *,
          client_factory: Callable[[Any], Any] | None = None, max_turns: int | None = None) -> int:
-    """Führt einen Versuch aus. `client_factory` und `max_turns` sind Einhängepunkte für Tests und Kostenbegrenzung."""
+    """Führt einen Versuch aus. `client_factory` und `max_turns` sind Einhängepunkte für Tests und Kostenbegrenzung.
+
+    `environ` ist nur mit `client_factory` zulässig: ein echter SDK-Client erbt immer `os.environ` (siehe `_amain`)."""
     env = os.environ if environ is None else environ
     log = Log(stderr)
     try:

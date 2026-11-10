@@ -48,13 +48,14 @@ def test_credential_variables_are_reported_by_name_only():
     ]
 
 
-def test_prepare_environment_raises_without_leaking_values():
-    env = {"ANTHROPIC_API_KEY": "sk-ant-geheim-wert"}
-    with pytest.raises(RuntimeDiagnostic) as e:
-        environment.prepare_environment(env)
-    assert e.value.code == "api_credentials_in_environment"
-    assert "ANTHROPIC_API_KEY" in e.value.message
-    assert "geheim" not in e.value.message
+def test_prepare_environment_removes_credentials_and_reports_names_only():
+    env = {"ANTHROPIC_API_KEY": "sk-ant-geheim-wert", "CLAUDE_CODE_USE_BEDROCK": "1", "AWS_BEARER_TOKEN_BEDROCK": "geheim2",
+           "CLAUDE_CODE_SESSION_ID": "s", "PATH": "/bin"}
+    result = environment.prepare_environment(env)
+    assert env == {"PATH": "/bin"}  # nichts davon erreicht je ein Kindprozess
+    assert result.credentials == ["ANTHROPIC_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "CLAUDE_CODE_USE_BEDROCK"]
+    assert result.other == ["CLAUDE_CODE_SESSION_ID"]
+    assert "geheim" not in repr(result)
 
 
 def test_prepare_environment_scrubs_parent_session_and_overrides_but_keeps_login_inputs():
@@ -62,10 +63,11 @@ def test_prepare_environment_scrubs_parent_session_and_overrides_but_keeps_login
         "ANTHROPIC_MODEL": "x", "CLAUDE_CODE_SESSION_ID": "s", "CLAUDE_CODE_MESSAGING_TOKEN": "t", "CLAUDECODE": "1",
         "CLAUDE_AGENT_SDK_VERSION": "9", "PATH": "/bin", "HOME": "/h", "CLAUDE_CONFIG_DIR": "/c", "TMPDIR": "/t",
     }
-    removed = environment.prepare_environment(env)
+    result = environment.prepare_environment(env)
     assert sorted(env) == ["CLAUDE_CONFIG_DIR", "HOME", "PATH", "TMPDIR"]
-    assert "ANTHROPIC_MODEL" in removed and "CLAUDE_CODE_MESSAGING_TOKEN" in removed
-    assert not any(v in " ".join(removed) for v in ("=t", "=s"))
+    assert "ANTHROPIC_MODEL" in result.removed and "CLAUDE_CODE_MESSAGING_TOKEN" in result.removed
+    assert result.credentials == []  # kein Login-Override, nur Erbe einer Elternsitzung
+    assert not any(v in " ".join(result.removed) for v in ("=t", "=s"))
 
 
 # --- Policy -------------------------------------------------------------------------------------------
@@ -456,7 +458,7 @@ def test_exception_after_the_result_does_not_produce_a_second_terminal(tmp_path:
     (t,) = terminals(events)
     assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded"
     assert code == 0  # der Fehler nach dem Ergebnis macht den Versuch nicht zum Absturz
-    assert "verworfen" in err
+    assert "schließen" in err  # Fehler beim Schließen wird protokolliert, nicht gemeldet
 
 
 def test_billing_error_in_session_is_terminal_error_without_fallback(tmp_path: Path, fx: Path):
@@ -480,12 +482,37 @@ def test_cli_version_in_init_must_match_the_checked_one(tmp_path: Path, fx: Path
     assert FakeClient.created[0].interrupt_calls == 1
 
 
-def test_newer_but_consistent_cli_runs_with_untested_warning(tmp_path: Path, fx: Path):
+def test_newer_but_consistent_cli_runs_readonly_with_untested_warning(tmp_path: Path, fx: Path):
     binary, _ = make_stub_cli(tmp_path, version="2.1.312 (Claude Code)")
-    _, events, _, _ = run_runner([start_line(str(fx), binary)], dict(BASE_ENV),
+    _, events, _, _ = run_runner([start_line(str(fx), binary, policy_profile="readonly")], dict(BASE_ENV),
                                  client_factory=fake_factory([init_message(version="2.1.312"), result_message()]))
-    warns = [e["payload"]["code"] for e in events if e["type"] == "error"]
-    assert warns == ["cli_version_untested"]
+    warns = [e["payload"] for e in events if e["type"] == "error"]
+    assert [w["code"] for w in warns] == ["cli_version_untested"]
+    assert warns[0]["terminal"] is False and "2.1.312" in warns[0]["message"] and "2.1.311" in warns[0]["message"]
+    assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
+
+
+def test_untested_cli_version_blocks_the_writing_profile_before_any_session(tmp_path: Path, fx: Path):
+    """Fail-closed: bei ungetesteter CLI-Version kein Schreibprofil, ohne Sitzung und ohne Modellaufruf."""
+    binary, log = make_stub_cli(tmp_path, version="2.1.312 (Claude Code)")
+    FakeClient.created.clear()
+    code, events, _, out = run_runner([start_line(str(fx), binary, policy_profile="scoped_write")], dict(BASE_ENV),
+                                      client_factory=fake_factory([init_message(version="2.1.312"), tool_use("toolu_01", "Write", file_path="x"),
+                                                                   result_message()]))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["terminal"] is True and code == 0
+    assert t["payload"]["code"] == "cli_version_untested" and t["payload"]["kind"] == "runtime"
+    assert "2.1.312" in t["payload"]["message"] and "2.1.311" in t["payload"]["message"]
+    assert [e["type"] for e in events] == ["error"]  # keine Warnung davor, keine Sitzung, kein Werkzeug
+    assert FakeClient.created == [] and "SESSION" not in log.read_text()
+
+
+def test_verified_cli_version_allows_the_writing_profile(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path)  # 2.1.311
+    _, events, _, _ = run_runner([start_line(str(fx), binary, policy_profile="scoped_write")], dict(BASE_ENV),
+                                 client_factory=fake_factory([init_message(), result_message()]))
+    assert [e["payload"]["code"] for e in events if e["type"] == "error"] == []
     assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
 
 
@@ -511,3 +538,91 @@ def test_early_interrupt_is_applied_once_the_session_is_ready(tmp_path: Path, fx
     assert t["type"] == "result" and t["payload"]["outcome"] == "cancelled"
     client = FakeClient.created[0]
     assert client.calls == ["query", "interrupt"]  # nie vor der Anfrage
+
+
+def _query_raises(options):
+    client = FakeClient(options, [init_message(), Wait()])
+    client.query_delay = 0.3
+    client.query_error = RuntimeError("Verbindung zur Anfrage verloren")
+    return client
+
+
+@pytest.mark.parametrize("kind", ["interrupt", "stop"])
+def test_early_interrupt_with_failing_query_ends_with_exactly_one_session_failed(tmp_path: Path, fx: Path, kind: str):
+    """Interrupt trifft vor dem Ende von query ein und query scheitert: ein terminaler Fehler, kein Hängen."""
+    binary, _ = make_stub_cli(tmp_path)
+    FakeClient.created.clear()
+    t0 = time.monotonic()
+    code, events, _, out = run_runner([start_line(str(fx), binary), command_line(kind)], dict(BASE_ENV),
+                                      client_factory=_query_raises)
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "session_failed" and t["payload"]["kind"] == "runtime"
+    assert events[-1] is t and code == 0 and time.monotonic() - t0 < 5
+    assert FakeClient.created[0].interrupt_calls == 0  # die Sitzung war nie bereit: kein Interrupt auf einem toten Client
+
+
+# --- Laufzeitgrenze umfasst Verbindungsaufbau und Anfrage ------------------------------------------------------------
+
+
+def _hanging(**flags):
+    def factory(options):
+        client = FakeClient(options, [init_message(), result_message()])
+        for name, value in flags.items():
+            setattr(client, name, value)
+        return client
+    return factory
+
+
+@pytest.mark.parametrize("phase,cancelled", [("hang_enter", "enter_cancelled"), ("hang_query", "query_cancelled")])
+def test_max_runtime_also_bounds_connect_and_query(tmp_path: Path, fx: Path, phase: str, cancelled: str):
+    binary, _ = make_stub_cli(tmp_path)
+    FakeClient.created.clear()
+    t0 = time.monotonic()
+    code, events, _, out = run_runner([start_line(str(fx), binary, max_runtime_seconds=1)], dict(BASE_ENV),
+                                      client_factory=_hanging(**{phase: True}))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "max_runtime_exceeded" and code == 0
+    assert time.monotonic() - t0 < 8
+    client = FakeClient.created[0]
+    assert getattr(client, cancelled) is True  # die blockierte Phase wurde abgebrochen, kein Task bleibt hängen
+    assert not any(e["type"] in ("session_started", "result") for e in events)
+
+
+def test_hanging_query_is_closed_and_not_interrupted_without_a_ready_session(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path)
+    FakeClient.created.clear()
+    run_runner([start_line(str(fx), binary, max_runtime_seconds=1)], dict(BASE_ENV), client_factory=_hanging(hang_query=True))
+    client = FakeClient.created[0]
+    assert client.exit_calls == 1  # der Client wird nach dem Timeout geschlossen (beendet den CLI-Prozess)
+    assert client.interrupt_calls == 0 and client.query_cancelled is True
+
+
+def test_hanging_disconnect_is_bounded_and_keeps_the_single_result(tmp_path: Path, fx: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(runtime, "CLOSE_TIMEOUT", 0.5)
+    binary, _ = make_stub_cli(tmp_path)
+    FakeClient.created.clear()
+    t0 = time.monotonic()
+    code, events, err, out = run_runner([start_line(str(fx), binary)], dict(BASE_ENV), client_factory=_hanging(hang_exit=True))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded" and code == 0
+    assert time.monotonic() - t0 < 5
+    assert FakeClient.created[0].exit_cancelled is True
+    assert "schließen" in err
+
+
+def test_hanging_disconnect_after_timeout_still_ends_with_max_runtime_exceeded(tmp_path: Path, fx: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(runtime, "CLOSE_TIMEOUT", 0.5)
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([start_line(str(fx), binary, max_runtime_seconds=1)], dict(BASE_ENV),
+                                 client_factory=lambda o: _hang_both(o))
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "max_runtime_exceeded"
+
+
+def _hang_both(options):
+    client = FakeClient(options, [init_message(), Hang()])
+    client.hang_exit = True
+    return client
