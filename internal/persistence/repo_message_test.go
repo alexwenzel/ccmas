@@ -368,7 +368,7 @@ func TestOutboxKindIsCheckedByTheDatabase(t *testing.T) {
 	insert := func(kind string) error {
 		n++
 		return execSQL(t, s, `INSERT INTO outbox (action_id, project_id, operation_key, kind, payload_json, state, created_at, updated_at)
-			VALUES (?, 'ccmas', ?, ?, '{}', 'pending', ?, ?)`, "a"+itoa(int64(n)), "k"+itoa(int64(n)), kind, ts, ts)
+			VALUES (?, 'ccmas', ?, ?, '{}', 'pending', ?, ?)`, "a"+itoa(int64(n)), "ccmas/"+kind+"/k"+itoa(int64(n)), kind, ts, ts)
 	}
 	for _, ok := range []string{"asana.comment", "asana.create_ticket", "github.create_pr", "a.b", "x1.y2_z"} {
 		if err := insert(ok); err != nil {
@@ -389,8 +389,9 @@ func TestOutboxKindIsCheckedByTheDatabase(t *testing.T) {
 			t.Errorf("Go lässt %q zu, die Datenbank nicht", bad)
 		}
 	}
+	// Die Art einer Aktion ändert sich nie (Migration 003, outbox_immutable); auch eine ungültige Art wird abgewiesen.
 	wantCode(t, mapErr(execSQL(t, s, "UPDATE outbox SET kind = 'kaputt' WHERE action_id = 'a1'")), CodeConstraint)
-	must(t, execSQL(t, s, "UPDATE outbox SET kind = 'asana.update' WHERE action_id = 'a1'"))
+	wantCode(t, mapErr(execSQL(t, s, "UPDATE outbox SET kind = 'asana.update' WHERE action_id = 'a1'")), CodeConstraint)
 }
 
 func TestTransitionDelivery(t *testing.T) {

@@ -91,9 +91,10 @@ func TestMessageAndOutboxTables(t *testing.T) {
 		return execSQL(t, s, `INSERT INTO outbox (action_id, project_id, operation_key, kind, payload_json, state, created_at, updated_at)
 			VALUES (?, 'ccmas', ?, 'asana.comment', '{}', ?, ?, ?)`, id, key, state, ts, ts)
 	}
-	must(t, insertOutbox("a1", "asana:comment:wo-1:1", "pending"))
-	wantCode(t, mapErr(insertOutbox("a2", "asana:comment:wo-1:1", "pending")), CodeConflict) // operation_key ist eindeutig
-	wantCode(t, mapErr(insertOutbox("a3", "k3", "halbfertig")), CodeConstraint)
+	// operation_key beginnt mit <projekt>/<art>/ (Migration 003) und ist global eindeutig.
+	must(t, insertOutbox("a1", "ccmas/asana.comment/wo-1-1", "pending"))
+	wantCode(t, mapErr(insertOutbox("a2", "ccmas/asana.comment/wo-1-1", "pending")), CodeConflict)
+	wantCode(t, mapErr(insertOutbox("a3", "ccmas/asana.comment/k3", "halbfertig")), CodeConstraint)
 	// last_error ist begrenzt (redigierte Kurzfassung, kein Rohtext).
 	wantCode(t, mapErr(execSQL(t, s, "UPDATE outbox SET last_error = ? WHERE action_id = 'a1'", strings.Repeat("x", 1025))), CodeConstraint)
 }

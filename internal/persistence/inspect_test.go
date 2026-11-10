@@ -261,14 +261,22 @@ func checkWorldReport(t *testing.T, rep Report, w world) {
 	}
 }
 
-// TestInspectOutboxCounts: die Outbox-Anzahlen je Zustand kommen aus der Tabelle (die Logik folgt in CC-45).
+// TestInspectOutboxCounts: die Outbox-Anzahlen je Zustand kommen aus der Tabelle. Die Zeilen entstehen über die
+// Outbox-Methoden: Die Datenbank lässt eine neue Aktion nur als pending zu.
 func TestInspectOutboxCounts(t *testing.T) {
 	s := newStore(t)
 	seedBase(t, s)
-	for i, st := range []string{"pending", "pending", "needs_attention", "succeeded"} {
-		must(t, execSQL(t, s, `INSERT INTO outbox (action_id, project_id, operation_key, kind, payload_json, state, created_at, updated_at)
-			VALUES (?, 'ccmas', ?, 'asana.comment', '{}', ?, ?, ?)`, "a"+string(rune('0'+i)), "k"+string(rune('0'+i)), st, ts, ts))
+	attention, done := obAction(t, "wo-1", "attention"), obAction(t, "wo-1", "done")
+	for _, a := range []domain.OutboxAction{attention, done, obAction(t, "wo-1", "p1"), obAction(t, "wo-1", "p2")} {
+		obEnqueue(t, s, a)
 	}
+	obClaim(t, s, time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), time.Minute, 2) // die beiden ältesten
+	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
+		return tx.FailOutbox(projectID, attention.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "http_403"}, time.Time{})
+	})
+	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
+		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, "gid-1")
+	})
 	must(t, s.Close())
 	rep := inspect(t, s.Path())
 	got := rep.Data.Projects[0].Outbox

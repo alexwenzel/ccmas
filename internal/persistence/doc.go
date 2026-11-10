@@ -83,6 +83,24 @@
 // Migration 003 sichert dies in der Datenbank: Trigger auf messages.type (domain.MessageKinds), auf die Übergänge der
 // Zustellung und auf die Form von outbox.kind (<system>.<aktion>, domain.CheckOutboxKind); Nachrichten sind unveränderlich.
 //
+// # Outbox für externe Aktionen (CC-45)
+//
+// Die Outbox (outbox) hält die Absicht, in einem externen System (Asana, GitHub) zu schreiben, bevor sie ausgeführt wird. Sie
+// ist Journal und kein Planungszustand: Eine Aktion erscheint nicht im ProjectSnapshot und erhöht state_revision nicht. Der
+// Grund ist derselbe wie bei den Nachrichten: Der Lebenslauf einer Aktion (Beanspruchen, Wiederholen, Abgleichen) ist Betrieb
+// des Dienstes und ändert nichts an dem, worauf Pläne und Entscheidungen beruhen; erhöhte jeder Versuch die Revision, ließe
+// er jeden Plan veralten. Die auslösende fachliche Änderung ist dagegen Planungszustand und erhöht die Revision wie
+// bisher: Tx.EnqueueOutbox läuft in derselben Transaktion, ein Rollback nimmt Absicht und Änderung gemeinsam zurück.
+// Jede Änderung der Outbox schreibt ihr Ereignis (Ebene outbox, Arten domain.OutboxAuditKinds) in derselben Transaktion; es
+// trägt Zustände, Zähler und die Fehlerkennung (Code), nie Nutzdaten oder Fehlermeldungen. Der Lebenslauf folgt
+// domain.OutboxState (erwarteter Ist-Zustand sonst conflict, unerlaubter Übergang sonst state): ClaimOutbox, CompleteOutbox,
+// FailOutbox, MarkOutboxUncertain, ExpireOutboxClaims, RetryOutboxReconcile, RequeueOutbox, EscalateOutbox, CancelOutbox und
+// ResolveOutbox (ausdrückliche Klärung mit Akteur und Grund). Ein abgelaufener Claim gilt als ungewiss und geht in den
+// Abgleich, nie zurück nach pending. Gespeichert wird nur die begrenzte Fehlerkennung (domain.OutboxError, höchstens 322
+// Bytes, ohne Steuerzeichen); Adapter geben keine Zugangsdaten in Meldungen. Migration 003 sichert Startwerte, Schlüsselform
+// (<projekt>/<art>/…), Übergangstabelle, Zähler und die Form je Zustand durch Trigger und ergänzt die Spalte
+// reconcile_attempts. Ablauf, Schlüssel und Marker: docs/architecture/messaging.md.
+//
 // # Typen und Zeit
 //
 // Das Paket verwendet die Typen aus internal/domain und internal/supervisor; Dokumente mit Schemavertrag werden vor dem

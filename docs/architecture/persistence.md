@@ -1,6 +1,6 @@
 # CCMAS – SQLite-Zustand (`internal/persistence`)
 
-Stand: Ticket CC-27 (Meilenstein M03). **Führend ist die Spezifikation** „Multi Agent Setup“ (Version 1.7.0), Abschnitte
+Stand: Ticket CC-27 (Meilenstein M03), ergänzt um CC-45 (Nachrichten und Outbox). **Führend ist die Spezifikation** „Multi Agent Setup“ (Version 1.7.0), Abschnitte
 „Führender interner Zustand“, „Projektbezogene Arbeitsorte“ und „Prüfbefehl status“. Diese Datei spiegelt den Code
 (`internal/persistence/doc.go` ist die Quelle) und ist keine Kopie der Spezifikation. Bei Abweichungen gilt der Code, und
 die Datei wird nachgezogen.
@@ -91,11 +91,12 @@ Schemavertrag geprüft; Spalten für Zugangsdaten gibt es nicht (`TestNoSecretCo
 | `review_reports` | Review-Berichte (Urteil, Commit, Konzeptversion) |
 | `events` | Auditverlauf, nur anhängbar (Trigger sperren Ändern und Löschen) |
 | `leases` | Reservierungen (Tabelle und Einschränkungen vorhanden, **Logik folgt in CC-42**); Zustandstyp `domain.LeaseState` |
-| `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Tabellen vorhanden, **Logik folgt in CC-45**); Zustandstypen `domain.DeliveryState` und `domain.OutboxState` |
+| `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Logik seit CC-45, siehe [`messaging.md`](messaging.md)); Zustandstypen `domain.DeliveryState` und `domain.OutboxState` |
 
 Die Zustandslisten für Reservierung, Zustellung und Outbox (`domain.LeaseState` in `lease.go`, `domain.DeliveryState` in
-`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Übergangstabellen gibt es
-noch keine**; sie kommen mit CC-42 (Reservierung) bzw. CC-45 (Zustellung, Outbox). In `persistence/enums.go` stehen nur noch
+`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Übergangstabellen** mit
+`CanTransition` gibt es seit CC-45 für die Zustellung und die Outbox (Trigger in Migration 003); die für die Reservierung
+kommt mit CC-42. In `persistence/enums.go` stehen nur noch
 interne Hilfslisten, die Typen aus `supervisor` und `skills` spiegeln.
 
 ## Zustandsrevision und Zeilenrevision
@@ -111,7 +112,7 @@ Einteilung der Änderungen:
 
 | Planungszustand (erhöht die Revision) | Journal und Beobachtung (erhöhen sie nicht) |
 | --- | --- |
-| Projektkonfiguration, Agenten, Ziele, Aufträge samt Konzeptstand, PR, Abhängigkeiten und Ergebnissen, Ausführungen und ihr Ausführungszustand, Fragen und Antworten, Review-Berichte (also alles, was der `ProjectSnapshot` zeigt) | Pläne und Entscheidungen (ein Plan gilt für genau die Revision, auf der er beruht), Profilversionen und Skill-Snapshots (unveränderliche Verweisziele), das Asana-Abbild `tasks`, Session-ID, Prozessbeobachtung |
+| Projektkonfiguration, Agenten, Ziele, Aufträge samt Konzeptstand, PR, Abhängigkeiten und Ergebnissen, Ausführungen und ihr Ausführungszustand, Fragen und Antworten, Review-Berichte (also alles, was der `ProjectSnapshot` zeigt) | Pläne und Entscheidungen (ein Plan gilt für genau die Revision, auf der er beruht), Profilversionen und Skill-Snapshots (unveränderliche Verweisziele), das Asana-Abbild `tasks`, Session-ID, Prozessbeobachtung, Nachrichten, Zustellungen und Outbox (siehe [`messaging.md`](messaging.md)) |
 
 Die Journal-Einträge tragen im Ereignis die unveränderte aktuelle Revision; das Ereignis einer Änderung des Planungszustands
 trägt die Revision **nach** der Änderung. Der Grund: Würde jede Aufzeichnung die Revision erhöhen, ließe sie den Plan veralten,
@@ -274,7 +275,8 @@ ein Hinweis), 1 (mindestens ein Befund), 2 (Bedienfehler, auch ein nicht bestimm
 ## Migrationsnummern und Schemagrenzen für die Folgetickets
 
 Die Migrationsnummern der parallelen Folgetickets sind vergeben, damit sie nicht kollidieren: **CC-42 → `002`**, **CC-45 → `003`**,
-**CC-51 → `004`** (falls nötig). Eine bereits angewandte Migration wird nie geändert (Prüfsumme, `migration_checksum_mismatch`);
+**CC-51 → `004`** (falls nötig). **`003` ist belegt** (`003_message_delivery_checks.sql`: Nachrichten, Zustellung und Outbox; nur Trigger
+und eine Spalte `outbox.reconcile_attempts` per `ADD COLUMN`, kein Tabellenumbau). Eine bereits angewandte Migration wird nie geändert (Prüfsumme, `migration_checksum_mismatch`);
 Änderungen kommen als neue Migration. Nur `001` durfte noch geändert werden, solange es keine produktive Datenbank gibt.
 
 **Tabellen-Umbauten** (neue Tabelle anlegen, Zeilen kopieren, alte löschen, umbenennen) brauchen wegen `foreign_keys=ON`
@@ -287,7 +289,9 @@ aufgeschoben; verletzte Bezüge brechen das Festschreiben ab.
 - **Lease und Versuch:** `leases.(project_id, execution_id, attempt)` verweist auf einen Versuch **desselben Projekts**, nicht
   auf einen Versuch desselben **Auftrags**. Dass die Ausführung zum Auftrag der Lease gehört, prüft die Reservierungslogik.
 - **Outbox:** `outbox.operation_key` ist **global** eindeutig (`UNIQUE`), nicht je Projekt. Der Schlüssel muss das Projekt
-  enthalten, sonst kollidieren gleiche Operationen verschiedener Projekte als `conflict`.
+  enthalten, sonst kollidieren gleiche Operationen verschiedener Projekte als `conflict`. Seit CC-45 bildet und prüft
+  `domain.OperationKey` den Schlüssel (`<project_id>/<kind>/<teil>…`) und ein Trigger (Migration 003) erzwingt das Präfix
+  `<project_id>/<kind>/` auch gegen direktes SQL; die Aktionen bilden ihren Schlüssel mit `domain.NewOutboxAction`.
 
 ## Plattformnachweis
 
@@ -300,7 +304,7 @@ nicht gemessen.
 | Ticket | Inhalt |
 | --- | --- |
 | **CC-42** | Reservierung und Leases (Logik auf `leases`, Übergangstabelle für `LeaseState`), Snapshot-Bauer (`ProjectSnapshot` aus der Datenbank), Orchestrator-Aufruf des Validators |
-| **CC-45** | Nachrichten, Zustellung, Outbox (Logik auf `messages`, `message_deliveries`, `outbox`); die Übergangstabellen (`CanTransition`) für `DeliveryState` und `OutboxState` |
+| **CC-45** | umgesetzt: Nachrichten, Zustellung und Outbox mit Übergangstabellen (`CanTransition`) für `DeliveryState` und `OutboxState`, Abgleich nach ungewissem Ergebnis, begrenztem Backoff und Klärungsbedarf; siehe [`messaging.md`](messaging.md). Offen bleiben die echten Asana- und GitHub-Adapter (M05/M06) und die CLI-Anbindung der Klärung (CC-51) |
 | **CC-51** | Dienst (Schreiber der Datenbank, Steuer-Socket unter `<Ausführungsbereich>/run/`), Idempotenz von Kommandos, die weiteren Exit-Codes von `status` (4, 5, 6; vom Projektinhaber festgelegt) |
 
 ## Prüfbefehle

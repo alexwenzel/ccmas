@@ -349,6 +349,20 @@ freier Worker kann andere Arbeit übernehmen, während ein früherer Auftrag auf
 | Frage | `open` → `answered`, `superseded`, `cancelled`; `answered` → `delivered`, `superseded`, `cancelled`; Rest Endzustände (keine Antwort ist keine Freigabe) |
 | OS-Prozess | `running`, `sleeping`, `stopped`, `zombie`, `exited`, `unknown` – beobachtet, keine Übergangstabelle |
 
+### Nachrichten und Outbox (CC-45)
+
+Zwei weitere Zustandstypen mit Übergangstabelle, beide in `internal/domain` und durch Trigger der Datenbank gesichert
+(Migration 003); Zustellung und Aktionen sind Journal (kein Planungszustand). Ausführlich: [`messaging.md`](messaging.md).
+
+| Ebene | Zustand → erlaubte Folgezustände |
+| --- | --- |
+| Zustellung (`DeliveryState`) | `pending` → `delivered`; `delivered` → `delivered` (Wiederholung, Versuch +1), `acknowledged`; `acknowledged` ist Endzustand (keine Quittung ohne Zustellung) |
+| Outbox (`OutboxState`) | `pending` → `claimed`, `cancelled`; `claimed` → `succeeded`, `retry_wait`, `reconciling`, `needs_attention`; `retry_wait` → `claimed`, `cancelled`, `needs_attention`; `reconciling` → `reconciling`, `succeeded`, `pending`, `needs_attention`; `needs_attention` → `pending`, `succeeded`, `cancelled` (nur ausdrückliche, auditierte Klärung); `succeeded`, `cancelled` sind Endzustände |
+
+Ein ungewisser Ausgang (Timeout, abgebrochene Verbindung, abgelaufener Claim) führt nach `reconciling`, nie direkt nach `pending`
+oder `retry_wait`. Schlüssel `<project_id>/<kind>/<teil>…` (`OperationKey`) und Marker `ccmas-op:<24 Hexzeichen>`
+(`OperationMarker`) sind Teil des Vertrags mit den Adaptern.
+
 Auftragszustände in der Spezifikation: wartet auf Voraussetzungen/Kapazität (`waiting`), in Bearbeitung,
 Validierung, Review, wartet auf Integration, abgeschlossen, blockiert, abgebrochen. „Abgeschlossen“ ist nur
 aus „wartet auf Integration“ erreichbar. Die Zehn-Absturz-Sperre (`blocked`) gehört zu M09; die Persistenz der Zustände
