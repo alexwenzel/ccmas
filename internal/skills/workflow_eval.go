@@ -9,7 +9,14 @@ import (
 // Dieser Teil enthält die kleinen Auswerter der Plattform auf den geprüften Rollenregeln. Sie
 // entscheiden Zulässigkeit, nicht Fachplanung: Welche Arbeit als Nächstes sinnvoll ist, beurteilt der
 // Supervisor; diese Funktionen sagen nur, was die Regeln erlauben oder verlangen. Alle sind
-// fail-safe: Unbekanntes, Fehlendes und Widersprüchliches führt zur strengeren Seite.
+// fail-safe: Unbekanntes, Fehlendes und Widersprüchliches führt zur strengeren Seite. Das gilt auch für
+// fehlende Regeln: Ein nil-*Rules (Regeln nicht geladen) ergibt keine Freigabe, sondern missing_rules
+// beziehungsweise die strengste Antwort. Geladen werden die Regeln mit LoadRules oder LoadChecked.
+
+// errNoRules ist die Antwort der Auswerter ohne geladene Regeln.
+func errNoRules() *Error {
+	return newErr(CodeMissingRules, "", rulesRel, "Rollenregeln nicht geladen: ohne Regeln entscheidet die Plattform nichts (fail-safe)")
+}
 
 // ---- Review vor dem Push ---------------------------------------------------------
 
@@ -20,10 +27,22 @@ import (
 // nachgewiesen. Jede weitere Änderung am Stand (anderer Commit, andere Konzeptversion) macht den Bericht
 // unbrauchbar; ein neues Review ist nötig.
 //
-// Fehlercodes: review_missing, review_invalid, review_not_independent.
-func (r *Rules) PushAllowed(req domain.IntegrationRequest, report *domain.ReviewReport, implementerExecutionID string) error {
+// reviewerRole ist die Rolle, in der die Plattform die Ausführung report.ReviewerExecutionID gestartet hat
+// (Ausführungskontext, nicht Inhalt des Berichts). Nur die Rolle reviewer gibt Code frei: Ein Bericht des
+// Konzeptprüfers (concept_reviewer) trägt als commit nur den Bezugsstand des Code-Repositorys und ist keine
+// Code-Freigabe. Das ReviewReport-Schema hat kein Rollenfeld; ein Bericht kann seine Rolle nicht selbst
+// belegen, deshalb liefert der Aufrufer sie aus dem Ausführungsdatensatz. Fehlt sie, gilt der Bericht nicht.
+//
+// Fehlercodes: review_missing, review_invalid, review_not_independent, missing_rules.
+func (r *Rules) PushAllowed(req domain.IntegrationRequest, report *domain.ReviewReport, implementerExecutionID string, reviewerRole domain.Role) error {
+	if r == nil {
+		return errNoRules()
+	}
 	if report == nil {
 		return newErr(CodeReviewMissing, "", "", "Kein Review-Bericht: ohne unabhängiges Review mit Urteil %s wird nicht gepusht", domain.VerdictApproved)
+	}
+	if reviewerRole != domain.RoleReviewer {
+		return newErr(CodeReviewInvalid, "", "", "Review-Bericht %s stammt aus der Rolle %q; Code gibt nur ein Review der Rolle %s frei (ein Konzeptprüfbericht ist keine Code-Freigabe)", report.ReportID, reviewerRole, domain.RoleReviewer)
 	}
 	if err := req.CheckReview(*report); err != nil {
 		return newErr(CodeReviewInvalid, "", "", "Review-Bericht %s trägt den Push nicht: %v", report.ReportID, err)
@@ -75,6 +94,9 @@ type ApprovalRoute struct {
 // unabhängige Konzeptprüfer; strategische, nicht einstufbare, unbekannt eingestufte oder widersprüchliche
 // Fälle (Routine, aber ein Kriterium trifft zu) entscheidet der Nutzer.
 func (r *Rules) ConceptApprover(a ConceptAssessment) ApprovalRoute {
+	if r == nil { // ohne Regeln entscheidet der Nutzer
+		return ApprovalRoute{Approver: ApproverUser, Action: domain.ActionAskQuestion}
+	}
 	ca := r.doc.ConceptApproval
 	user := ApprovalRoute{Approver: ApproverUser, Action: ca.Unclassifiable.Action}
 	if a.Class == ConceptStrategic {
@@ -97,6 +119,9 @@ type ConceptApproval struct {
 // ist. Der Nutzer darf jede Version freigeben, ebenfalls nur die genannte. Fehlercode:
 // concept_approval_invalid.
 func (r *Rules) ConceptApprovalValid(ap ConceptApproval, a ConceptAssessment, currentVersion string) error {
+	if r == nil {
+		return errNoRules()
+	}
 	switch {
 	case ap.Version == "" || currentVersion == "":
 		return newErr(CodeConceptApprovalInvalid, "", "", "Freigabe ohne Konzeptversion: eine Freigabe gilt nur für eine bestimmte Version")
@@ -132,13 +157,38 @@ type RepairDecision struct {
 	Step  Step // bei Halt die Frage an den Nutzer, sonst die Implementierung mit den Befunden
 }
 
-// MaxRepairRounds liefert das Budget an Reparaturrunden (Standard 3).
-func (r *Rules) MaxRepairRounds() int { return r.doc.RepairLoop.MaxRounds }
+// MaxRepairRounds liefert das Budget an Reparaturrunden (Standard 3). Es gilt gleich für die Code-Schleife
+// (RepairStep) und die Konzeptprüfschleife (ConceptRepairStep); ohne Regeln ist es 0 (keine weitere Runde).
+func (r *Rules) MaxRepairRounds() int {
+	if r == nil {
+		return 0
+	}
+	return r.doc.RepairLoop.MaxRounds
+}
 
-// RepairStep entscheidet für die n-te Reparaturrunde (1-basiert, die erste Runde folgt dem ersten Review
-// mit BEFUNDE): innerhalb des Budgets Implementierung mit den Befunden und danach frisches Review, darüber
-// hinaus ein sichtbarer Halt mit Frage an den Nutzer.
+// RepairStep entscheidet für die n-te Reparaturrunde der Code-Schleife (1-basiert, die erste Runde folgt dem
+// ersten Review mit BEFUNDE): innerhalb des Budgets Implementierung mit den Befunden und danach frisches
+// Review, darüber hinaus ein sichtbarer Halt mit Frage an den Nutzer.
 func (r *Rules) RepairStep(round int) (RepairDecision, error) {
+	if r == nil {
+		return RepairDecision{}, errNoRules()
+	}
+	return r.repairStep(round, r.doc.RepairLoop.OnFindings)
+}
+
+// ConceptRepairStep entscheidet für die n-te Runde der Konzeptprüfschleife (concept_findings -> concept_work ->
+// erneute Prüfung durch eine frische Ausführung; 1-basiert, die erste Runde folgt der ersten Konzeptprüfung mit
+// BEFUNDE). Sie hat dasselbe Budget wie die Code-Schleife (repair_loop.max_rounds), wird aber je Schleife
+// getrennt gezählt: Innerhalb des Budgets Konzeptarbeit mit den Befunden, darüber hinaus ein sichtbarer
+// Halt mit Frage an den Nutzer.
+func (r *Rules) ConceptRepairStep(round int) (RepairDecision, error) {
+	if r == nil {
+		return RepairDecision{}, errNoRules()
+	}
+	return r.repairStep(round, r.doc.RepairLoop.OnConceptFindings)
+}
+
+func (r *Rules) repairStep(round int, onFindings stepDoc) (RepairDecision, error) {
 	if round < 1 {
 		return RepairDecision{}, newErr(CodeInvalidRequest, "", "", "Reparaturrunde %d ungültig (zählt ab 1)", round)
 	}
@@ -146,7 +196,7 @@ func (r *Rules) RepairStep(round int) (RepairDecision, error) {
 	if round > rl.MaxRounds {
 		return RepairDecision{Round: round, Halt: true, Step: Step{Action: rl.OnExhausted.Action}}, nil
 	}
-	return RepairDecision{Round: round, Step: Step{Action: rl.OnFindings.Action, Role: rl.OnFindings.Role}}, nil
+	return RepairDecision{Round: round, Step: Step{Action: onFindings.Action, Role: onFindings.Role}}, nil
 }
 
 // ---- Rollenübergänge -------------------------------------------------------------
@@ -154,6 +204,9 @@ func (r *Rules) RepairStep(round int) (RepairDecision, error) {
 // NextSteps liefert die zulässigen Folgeschritte für das Ergebnis einer Rolle; der erste ist der
 // Standardschritt. Unbekannte Rolle oder unbekanntes Ergebnis ist ein Fehler (invalid_request).
 func (r *Rules) NextSteps(role domain.Role, result string) ([]Step, error) {
+	if r == nil {
+		return nil, errNoRules()
+	}
 	rd, ok := r.doc.Roles[role]
 	if !ok {
 		return nil, newErr(CodeInvalidRequest, "", "", "Rolle %q hat keine Rollenregeln", role)
@@ -184,6 +237,9 @@ func (r *Rules) NextStep(role domain.Role, result string) (Step, error) {
 // ausdrücklich gesetzt; er darf nie aufgeweitet werden (pr -> auto, unbekannt -> auto). Auto -> pr ist
 // zulässig (restriktiver). Fehlercodes: platform_limit, invalid_request.
 func (r *Rules) IntegrationModeAllowed(ordered, requested domain.IntegrationMode) error {
+	if r == nil {
+		return errNoRules()
+	}
 	if !slices.Contains(domain.IntegrationModes(), requested) {
 		return newErr(CodeInvalidRequest, "", "", "Unbekannter Integrationsmodus %q", requested)
 	}
@@ -243,13 +299,24 @@ type Completion struct {
 // ist der Wartezustand waiting_integration, nie Abschluss. Im PR-Modus zählt nur ein menschlicher Merge;
 // ein unbekannter Modus gilt als PR-Modus.
 func (r *Rules) FeatureComplete(ev CompletionEvidence) Completion {
+	if r == nil {
+		return noRulesCompletion()
+	}
 	return r.complete(ev, r.doc.Completion.Requires)
 }
 
 // MilestoneComplete wertet zusätzlich die Teilziele und die Abnahme durch den Projektinhaber aus.
 func (r *Rules) MilestoneComplete(ev CompletionEvidence) Completion {
+	if r == nil {
+		return noRulesCompletion()
+	}
 	req := append(slices.Clone(r.doc.Completion.Requires), r.doc.Completion.MilestoneAlsoRequires...)
 	return r.complete(ev, req)
+}
+
+// noRulesCompletion ist die Antwort ohne geladene Regeln: kein Abschluss, nichts belegt, Kennung "rules".
+func noRulesCompletion() Completion {
+	return Completion{State: domain.WOInProgress, Missing: []string{"rules"}}
 }
 
 func (r *Rules) complete(ev CompletionEvidence, required []string) Completion {

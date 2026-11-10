@@ -12,23 +12,23 @@
 schema_version: 1
 skills:
   - id: ccmas-concept-ticket
-    version: 2
+    version: 3
     status: approved
     category: concept
     roles: [concept]
     default_for: [concept]
     external_writes: [asana, vault]
-    tree_sha256: c778e2308e62a043bb4f3f9000b862dfc3925c3459bd630f184dc1c61fd8c211
+    tree_sha256: aa4539d916264dde641aa64951e3e6636fbfdd5d4b9ae16d7ebfed56d1f8d162
     files:
       - path: SKILL.md
-        sha256: 70cfe2ecedf875be7d81a9cb3f5d75823685b9bce9f88c54cd222367b542db3c
+        sha256: 2593c2d778b8693c8a1f0c5cb812351037698fc7a7c1033468b9dc5be0063e5c
       - path: contract.yaml
         sha256: ab5af9e95d4514f3d9f2fb127749c4ddcc55a96b5eea54d8d66191c761c10678
     source:
       package: Fachwissen/Claude/Skills/concept-ticket.skill
       package_sha256: f1b1be418cf8c21e7ba8eaaaf60ef3f10d089a2d5cf7b1f4b38a1f853e835370
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md um Einstufung, Konzeptprüfung und Ausführungskontext erweitert (Abschnitt 7 und neuer Schlussabschnitt)."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md um Einstufung, Konzeptprüfung und Ausführungskontext erweitert (Abschnitt 7 und neuer Schlussabschnitt). Nachbesserung: Status review bis zur Freigabe (Konzeptprüfer bei Routine, Projektinhaber bei strategisch), Routineweg nach FREIGEGEBEN (Done nach Regel 7.5) und BEFUNDE (nachbessern, erneut prüfen, Reparaturbudget)."
   - id: ccmas-obsidian-seite
     version: 1
     status: approved
@@ -188,23 +188,23 @@ skills:
       derived: "2026-11-09"
       changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
   - id: ccmas-concept-review
-    version: 1
+    version: 2
     status: approved
     category: review
     roles: [concept_reviewer]
     default_for: [concept_reviewer]
     external_writes: []
-    tree_sha256: aa42f26b71c81b4908b084608b3e4790d5591487bff4c024f2b2ca5e05980376
+    tree_sha256: 6b14e2d3c2c3f33b7e15e1cd5574c8732744f7255fe73946dbf0578c2acf7898
     files:
       - path: SKILL.md
-        sha256: 34b735022e81b79ee2be50d58b4491b8c4b8eed62c6d2e17ca911d8031a2ae4e
+        sha256: 9a98f0927f62077c20fd97cd16f1e23d744e7155612ba9e24894a2f2af0e4ed0
       - path: contract.yaml
-        sha256: a0e87baf0ed89b00ba46b7e05f95163c77ad43f255162386ff4ea7ee1460944f
+        sha256: a0826e07cb641502331b1726e9b0d8ca648b74b742805126506f18ac316a27e6
     source:
       package: none
       package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       derived: "2026-11-10"
-      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängige Konzeptprüfung nach der Spezifikation (Rollen und Ergebnisse, Konzeptprüfer)."
+      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängige Konzeptprüfung nach der Spezifikation (Rollen und Ergebnisse, Konzeptprüfer). Version 2: Bericht bezieht sich auf die Konzeptversion, commit ist nur Bezugsstand und keine Code-Freigabe; Konzeptschleife mit demselben Reparaturbudget wie die Code-Schleife."
   - id: ccmas-code-review
     version: 1
     status: approved

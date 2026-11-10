@@ -47,7 +47,8 @@ Häufigkeiten, Sonderfälle). Ergibt sich ein Widerspruch, ihn vorlegen statt st
   eingetragen.
 - Aufbau, der für Umsetzer taugt: Ziel und Abgrenzung, Entscheidungen mit Begründung und Konsequenzen,
   Spezifikation (Struktur, Felder, Regeln, Abläufe), Grenzfälle, Tests und Abnahme, offene Punkte.
-- Ist-Zustand, Plan und offene Entscheidung klar trennen. Status `review`, bis der Projektinhaber freigibt.
+- Ist-Zustand, Plan und offene Entscheidung klar trennen. Status `review`, bis die Freigabe vorliegt: beim
+  Routinekonzept vom Konzeptprüfer, bei strategischen und nicht ausreichend geklärten Konzepten vom Projektinhaber.
 - **Verwandte Seiten** im selben Arbeitsgang konsistent machen: nach den zentralen Begriffen suchen (`grep -rn`) und
   Aussagen, die jetzt nicht mehr stimmen, anpassen oder auf die neue Seite verweisen. Jede Aussage steht nur an
   einer Stelle.
@@ -82,6 +83,13 @@ beauftragte Arbeit als zurückgestelltes Ticket erfassen statt nebenbei umzusetz
   zutreffende Kriterien stehen im Kommentar und im Ergebnis.
 - **Routinekonzept:** unabhängige Konzeptprüfung anfordern (Skill `ccmas-concept-review`, frische Ausführung). Die
   Freigabe gilt nur für die geprüfte Konzeptversion; abhängige Implementation-Tickets starten erst danach.
+  - **FREIGEGEBEN** für genau die aktuelle Version: Das Ticket nach den Done-Kriterien (Regel 7.5) abschließen und
+    nach `Done` schieben; ein Concept-Ticket ohne strategische Entscheidung braucht keine Freigabe des
+    Projektinhabers. Ändert sich die Konzeptversion danach wesentlich, gilt die Freigabe nicht mehr.
+  - **BEFUNDE:** Das Ticket bleibt in Bearbeitung (`In Progress`). Konzept anhand der Befunde nachbessern (Eingabe
+    `findings`), dann erneut prüfen lassen, jedes Mal von einer frischen Ausführung. Nach dem Reparaturbudget
+    (`repair_loop.max_rounds`, Standard 3 Runden; dieselbe Höchstzahl wie bei der Code-Schleife) hält die Schleife
+    sichtbar an und legt dem Nutzer eine Frage vor, statt weiter zu prüfen.
 - **Strategisch oder nicht ausreichend geklärt:** `Freigabe:`-Unteraufgabe an den Projektinhaber, Ticket nach `Review`.
   Ohne Antwort gibt es keine Freigabe.
 - Bericht im Chat: Ergebnis, geänderte Seiten mit Version, Tickets mit ID, offene Fragen, empfohlener nächster

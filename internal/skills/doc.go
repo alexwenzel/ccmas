@@ -6,6 +6,11 @@
 // Arbeitsverzeichnis: Load liest ausschließlich <wurzel>/.claude/skills/manifest.yaml und
 // die dort eingetragenen Skill-Verzeichnisse.
 //
+// Load prüft Manifest, Dateien und jede vorhandene contract.yaml in sich, verlangt aber weder
+// rules/roles.yaml noch das Vorhandensein von Verträgen. Die Plattformregeln prüft die getrennte
+// Stufe LoadRules/ValidateWorkflow (gebündelt in LoadChecked); die Auswerter (PushAllowed,
+// RepairStep, FeatureComplete, ...) sind Methoden auf geladenen Regeln und entscheiden ohne sie nichts.
+//
 // Hash-Definitionen (in Python identisch nachrechenbar):
 //
 //   - Datei: SHA-256 der rohen Bytes, hexadezimal in Kleinbuchstaben.

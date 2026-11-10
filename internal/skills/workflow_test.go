@@ -113,18 +113,25 @@ var workflowSkillIDs = []string{
 	"ccmas-feature-parallel", "ccmas-meilenstein-abschluss",
 }
 
+// validate lädt den Katalog samt Rollenregeln und prüft beide gegeneinander (LoadChecked): die Prüfung der
+// Plattformregeln, die Load bewusst nicht verlangt.
+func (f *catalogFixture) validate(opts ...Option) (*Catalog, error) {
+	c, _, err := LoadChecked(f.root, opts...)
+	return c, err
+}
+
 // ---- Verträge ---------------------------------------------------------------
 
 func TestWorkflowSkillContracts(t *testing.T) {
 	t.Run("echter Bestand", func(t *testing.T) {
-		c, err := Load(repoRoot)
+		// Der echte Bestand wird mit den Plattformregeln geprüft, nicht nur geladen: jede Lücke fällt hier auf.
+		c, rules, err := LoadChecked(repoRoot)
 		if err != nil {
 			for _, e := range FindingsOf(err) {
 				t.Errorf("%s: %s", e.Code, e.Message)
 			}
-			t.Fatal("Load des Repositorys")
+			t.Fatal("LoadChecked des Repositorys")
 		}
-		rules := c.Rules()
 		var got []string
 		for _, sk := range c.Skills() {
 			_, has := c.Contract(sk.ID)
@@ -220,7 +227,10 @@ func TestWorkflowSkillContracts(t *testing.T) {
 
 	t.Run("Test-Skills mit gültigem Vertrag laden", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
-		c := f.mustLoad()
+		c, err := f.validate()
+		if err != nil {
+			t.Fatal(err)
+		}
 		ct, ok := c.Contract("ccmas-demo-review")
 		if !ok || ct.Role != domain.RoleReviewer {
 			t.Fatalf("Vertrag fehlt oder falsche Rolle: %+v %v", ct, ok)
@@ -280,7 +290,12 @@ func TestWorkflowSkillContracts(t *testing.T) {
 			m["blockers"] = []any{map[string]any{"id": "x", "description": "d", "result": "gibt_es_nicht"}}
 		}, "blockers[0].result"},
 		"Abschlusskriterium leer": {func(t *testing.T, m map[string]any) { m["completion_criteria"] = strs("") }, "completion_criteria[0]"},
-		"Ergebnis fehlt":          {func(t *testing.T, m map[string]any) { delete(at(t, m, "results"), "findings") }, "results"},
+		"Ergebnis fehlt": {func(t *testing.T, m map[string]any) {
+			delete(at(t, m, "results"), "findings")
+			for _, b := range list(t, m, "blockers") { // Blockaden dürfen nicht ins Leere zeigen
+				b.(map[string]any)["result"] = "approved"
+			}
+		}, "results"},
 		"unbekanntes Ergebnis": {func(t *testing.T, m map[string]any) {
 			at(t, m, "results")["bonus"] = map[string]any{"followups": []any{}}
 		}, "results.bonus"},
@@ -309,6 +324,16 @@ func TestWorkflowSkillContracts(t *testing.T) {
 			at(t, m, "results", "approved")["followups"] = []any{map[string]any{"action": "request_integration", "preconditions": strs("review_approved", "magie")}}
 		}, "results.approved.followups[0]"},
 	}
+	// Stufe, in der ein kaputter Vertrag auffällt: Load prüft den Vertrag in sich und gegen internal/domain;
+	// was die Rollenregeln oder andere Skills des Katalogs braucht, prüft erst ValidateWorkflow. Für die
+	// Fälle in "validateOnly" muss Load also noch gelingen; "either" lassen die Stufe offen.
+	validateOnly := map[string]bool{
+		"uses_skills unbekannt": true, "uses_skills nicht für die Rolle": true,
+		"Fähigkeit nicht erlaubt für die Rolle": true, "Pflichtverbot fehlt": true, "falsches Ergebnisformat": true,
+		"Urteil weicht von Regeln ab": true, "Urteil fehlt": true, "Folgeauftrag außerhalb der Rollenregeln": true,
+	}
+	either := map[string]bool{"unbekanntes Ergebnis": true}
+	validateOnly["Ergebnis fehlt"] = true
 	names := make([]string, 0, len(broken))
 	for n := range broken {
 		names = append(names, n)
@@ -321,7 +346,16 @@ func TestWorkflowSkillContracts(t *testing.T) {
 			m := baseContract(t, defaultTestSkills()[0])
 			tc.mutate(t, m)
 			f.setContract("ccmas-demo-review", m)
-			_, err := f.load()
+			_, loadErr := f.load()
+			switch {
+			case validateOnly[name]:
+				if loadErr != nil {
+					t.Errorf("Load darf den Katalog laden, Regelbezüge prüft ValidateWorkflow: %v", loadErr)
+				}
+			case !either[name]:
+				wantFinding(t, loadErr, CodeInvalidContract, tc.field)
+			}
+			_, err := f.validate()
 			wantFinding(t, err, CodeInvalidContract, tc.field)
 			for _, e := range FindingsOf(err) {
 				if e.Code == CodeInvalidContract && (e.Skill != "ccmas-demo-review" || e.Path != "contract.yaml") {
@@ -345,14 +379,20 @@ func TestWorkflowSkillContracts(t *testing.T) {
 	t.Run("Vertrag fehlt", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
 		f.remove("ccmas-demo-impl", "contract.yaml")
-		_, err := f.load()
+		if _, err := f.load(); err != nil {
+			t.Errorf("Load verlangt keine Verträge: %v", err)
+		}
+		_, err := f.validate()
 		wantErr(t, err, CodeMissingContract, "ccmas-demo-impl", "contract.yaml")
 	})
 
 	t.Run("Vertrag in Hilfsskill", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
-		f.setContractRaw("ccmas-demo-know", marshalYAML(t, baseContract(t, defaultTestSkills()[0])))
-		_, err := f.load()
+		m := baseContract(t, defaultTestSkills()[0])
+		m["skill"] = "ccmas-demo-know"
+		m["role"] = "concept"
+		f.setContractRaw("ccmas-demo-know", marshalYAML(t, m))
+		_, err := f.validate()
 		wantErr(t, err, CodeInvalidContract, "ccmas-demo-know", "contract.yaml")
 	})
 
@@ -387,7 +427,7 @@ func TestWorkflowSkillContracts(t *testing.T) {
 		s["allowed"] = append(list(t, s, "allowed"), "write_asana")
 		s["forbidden"] = strs("push", "open_pr", "merge", "write_vault", "start_agents", "change_platform_limits")
 		f.setContract("ccmas-demo-impl", m)
-		_, err := f.load()
+		_, err := f.validate()
 		wantFinding(t, err, CodeInvalidContract, "scope.allowed")
 	})
 
@@ -397,20 +437,21 @@ func TestWorkflowSkillContracts(t *testing.T) {
 		delete(m, "checks")
 		f.setContract("ccmas-demo-review", m)
 		f.remove("ccmas-demo-impl", "contract.yaml")
-		_, err := f.load()
+		_, err := f.validate()
 		wantFinding(t, err, CodeInvalidContract, "checks")
 		wantErr(t, err, CodeMissingContract, "ccmas-demo-impl", "contract.yaml")
 	})
 }
 
+// mustLoadRepo lädt den echten Bestand und prüft ihn gegen die Plattformregeln (LoadChecked).
 func mustLoadRepo(t *testing.T) *Catalog {
 	t.Helper()
-	c, err := Load(repoRoot)
+	c, _, err := LoadChecked(repoRoot)
 	if err != nil {
 		for _, e := range FindingsOf(err) {
 			t.Errorf("%s: %s", e.Code, e.Message)
 		}
-		t.Fatal("Load des Repositorys")
+		t.Fatal("LoadChecked des Repositorys")
 	}
 	return c
 }
@@ -461,7 +502,7 @@ func TestReviewBeforePushRule(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := r.PushAllowed(tc.req, tc.rep, tc.impl)
+			err := r.PushAllowed(tc.req, tc.rep, tc.impl, domain.RoleReviewer)
 			if tc.want == "" {
 				if err != nil {
 					t.Fatalf("erlaubt erwartet: %v", err)
@@ -514,7 +555,7 @@ func TestReviewBeforePushRule(t *testing.T) {
 		m := baseContract(t, defaultTestSkills()[0])
 		at(t, m, "results", "approved")["followups"] = []any{map[string]any{"action": "request_integration", "preconditions": strs("ci_passed")}}
 		f.setContract("ccmas-demo-review", m)
-		_, err := f.load()
+		_, err := f.load() // fester Kern der Plattform, schon beim Laden
 		wantFinding(t, err, CodeInvalidContract, "review_approved")
 	})
 
@@ -744,12 +785,15 @@ func TestSkillsCannotExtendPlatformLimits(t *testing.T) {
 			wantFinding(t, err, CodePlatformLimit, "platform.protected")
 		}
 	})
-	t.Run("Load meldet den Verstoß aus der Regeldatei", func(t *testing.T) {
+	t.Run("LoadChecked meldet den Verstoß aus der Regeldatei", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
 		m := repoRulesMap(t)
 		m["max_workers"] = 8
 		f.setRulesRaw(marshalYAML(t, m))
-		_, err := f.load()
+		if _, err := f.load(); err != nil {
+			t.Errorf("Load liest die Regeldatei nicht: %v", err)
+		}
+		_, err := f.validate()
 		wantFinding(t, err, CodePlatformLimit, "max_workers")
 	})
 	t.Run("Die Plattform bleibt unverändert", func(t *testing.T) {
@@ -1249,19 +1293,19 @@ func TestRulesFileStrictness(t *testing.T) {
 			}
 		}
 	})
-	t.Run("Load: Regeldatei fehlt oder ist ungültig", func(t *testing.T) {
+	t.Run("LoadChecked: Regeldatei fehlt oder ist ungültig", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
-		if err := os.Remove(filepath.Join(f.root, "rules", "roles.yaml")); err != nil {
-			t.Fatal(err)
-		}
-		_, err := f.load()
+		f.removeRules()
+		_, err := f.validate()
+		wantErr(t, err, CodeMissingRules, "", "rules/roles.yaml")
+		_, err = LoadRules(f.root)
 		wantErr(t, err, CodeMissingRules, "", "rules/roles.yaml")
 
 		f.setRulesRaw("schema_version: 9\n")
-		_, err = f.load()
+		_, err = f.validate()
 		wantErr(t, err, CodeInvalidRules, "", "rules/roles.yaml")
 	})
-	t.Run("Load: kein Symlink als Regeldatei", func(t *testing.T) {
+	t.Run("LoadChecked: kein Symlink als Regeldatei", func(t *testing.T) {
 		f := newCatalogFixture(t, defaultTestSkills())
 		p := filepath.Join(f.root, "rules", "roles.yaml")
 		real := filepath.Join(f.root, "rules", "real.yaml")
@@ -1271,7 +1315,7 @@ func TestRulesFileStrictness(t *testing.T) {
 		if err := os.Symlink(real, p); err != nil {
 			t.Skip("Symlinks nicht möglich:", err)
 		}
-		_, err := f.load()
+		_, err := f.validate()
 		if err == nil {
 			t.Fatal("Symlink als Regeldatei wurde akzeptiert")
 		}
@@ -1414,4 +1458,258 @@ func TestManifestSourceWithoutPackage(t *testing.T) {
 			wantErr(t, err, CodeInvalidManifest, "ccmas-demo-know", "")
 		})
 	}
+}
+
+// ---- Getrennte Prüfung der Plattformregeln (ValidateWorkflow) ----------------
+
+func TestValidateWorkflowIsSeparateStage(t *testing.T) {
+	rules := repoRules(t)
+
+	t.Run("derselbe Katalog ohne Verträge scheitert in ValidateWorkflow mit missing_contract", func(t *testing.T) {
+		c := syntheticCatalog(t).mustLoad() // lädt (decoupling_test.go)
+		err := ValidateWorkflow(c, rules)
+		wantErr(t, err, CodeMissingContract, "ccmas-demo-review", "contract.yaml")
+		wantErr(t, err, CodeMissingContract, "ccmas-demo-impl", "contract.yaml")
+		for _, e := range FindingsOf(err) {
+			if e.Code == CodeMissingContract && e.Skill != "ccmas-demo-review" && e.Skill != "ccmas-demo-impl" {
+				t.Errorf("Hilfsskill verlangt keinen Vertrag: %+v", e)
+			}
+		}
+	})
+	t.Run("ohne Regeln gibt es keine Entscheidung: missing_rules", func(t *testing.T) {
+		c := syntheticCatalog(t).mustLoad()
+		wantErr(t, ValidateWorkflow(c, nil), CodeMissingRules, "", "rules/roles.yaml")
+		// LoadChecked meldet die fehlende Regeldatei, ohne den Katalog herauszugeben.
+		got, gotRules, err := LoadChecked(syntheticCatalog(t).root)
+		wantErr(t, err, CodeMissingRules, "", "rules/roles.yaml")
+		if got != nil || gotRules != nil {
+			t.Errorf("bei Befunden dürfen weder Katalog noch Regeln herausgegeben werden: %v %v", got, gotRules)
+		}
+	})
+	t.Run("LoadChecked meldet fehlende Verträge neben der Regelprüfung", func(t *testing.T) {
+		f := syntheticCatalog(t)
+		f.setRulesRaw(readRepoFile(t, "rules/roles.yaml"))
+		_, _, err := LoadChecked(f.root)
+		wantErr(t, err, CodeMissingContract, "ccmas-demo-impl", "contract.yaml")
+	})
+	t.Run("kein Katalog", func(t *testing.T) {
+		if err := ValidateWorkflow(nil, rules); CodeOf(err) != CodeInvalidRequest {
+			t.Errorf("Code %q: %v", CodeOf(err), err)
+		}
+	})
+	t.Run("gültiger Katalog besteht beide Stufen", func(t *testing.T) {
+		f := newCatalogFixture(t, defaultTestSkills())
+		c := f.mustLoad()
+		if err := ValidateWorkflow(c, rules); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := LoadChecked(f.root); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("der echte Bestand besteht beide Stufen", func(t *testing.T) {
+		c, err := Load(repoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateWorkflow(c, rules); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("strengere Rollenregeln gelten für bestehende Verträge", func(t *testing.T) {
+		// Die Regeldatei verlangt für reviewer/approved zusätzlich ci_passed; der Vertrag nennt nur review_approved.
+		f := newCatalogFixture(t, defaultTestSkills())
+		m := repoRulesMap(t)
+		step := list(t, at(t, m, "roles", "reviewer", "results", "approved"), "next")[0].(map[string]any)
+		step["requires"] = strs("review_approved", "ci_passed")
+		f.setRulesRaw(marshalYAML(t, m))
+		f.mustLoad()
+		_, err := f.validate()
+		wantFinding(t, err, CodeInvalidContract, "ci_passed")
+	})
+	t.Run("Kategorie und Rolle: Prüfskill darf nicht als Implementierer auftreten", func(t *testing.T) {
+		// Rolle implementer steht im Manifest, aber die Kategorie review wird nur von Prüfrollen getragen.
+		f := newCatalogFixture(t, defaultTestSkills())
+		f.entry("ccmas-demo-review").Roles = []domain.Role{domain.RoleReviewer, domain.RoleConceptReviewer, domain.RoleImplementer}
+		m := baseContract(t, defaultTestSkills()[0])
+		m["role"] = "implementer"
+		f.setContract("ccmas-demo-review", m)
+		f.writeManifest()
+		_, err := f.validate()
+		wantFinding(t, err, CodeInvalidContract, "role")
+	})
+}
+
+// ---- Ohne Regeln keine Entscheidung ------------------------------------------
+
+func TestEvaluatorsWithoutRulesAreFailSafe(t *testing.T) {
+	var none *Rules // Regeln nicht geladen
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	req := domain.IntegrationRequest{
+		RequestID: "req-1", DecisionID: "dec-1", WorkOrderID: "wo-1", Mode: domain.ModePR, BaseBranch: "develop",
+		HeadCommit: head, Branch: "feature/CC-1-x", ReviewReportID: "rep-1", ConceptVersion: "v3",
+	}
+	good := &domain.ReviewReport{
+		ReportID: "rep-1", WorkOrderID: "wo-1", ReviewerExecutionID: "exec-review", Commit: head,
+		ConceptVersion: "v3", Verdict: domain.VerdictApproved, Findings: []domain.Finding{},
+	}
+
+	if err := none.PushAllowed(req, good, "exec-impl", domain.RoleReviewer); CodeOf(err) != CodeMissingRules {
+		t.Errorf("PushAllowed ohne Regeln: %v", err)
+	}
+	if err := none.ConceptApprovalValid(ConceptApproval{Version: "v1", Approver: ApproverUser}, ConceptAssessment{}, "v1"); CodeOf(err) != CodeMissingRules {
+		t.Errorf("ConceptApprovalValid ohne Regeln: %v", err)
+	}
+	if route := none.ConceptApprover(ConceptAssessment{Class: ConceptRoutine}); route.Approver != ApproverUser || route.Action != domain.ActionAskQuestion {
+		t.Errorf("ConceptApprover ohne Regeln = %+v, erwartet den Nutzer", route)
+	}
+	if _, err := none.RepairStep(1); CodeOf(err) != CodeMissingRules {
+		t.Errorf("RepairStep ohne Regeln: %v", err)
+	}
+	if _, err := none.ConceptRepairStep(1); CodeOf(err) != CodeMissingRules {
+		t.Errorf("ConceptRepairStep ohne Regeln: %v", err)
+	}
+	if none.MaxRepairRounds() != 0 {
+		t.Errorf("MaxRepairRounds ohne Regeln = %d", none.MaxRepairRounds())
+	}
+	if _, err := none.NextSteps(domain.RoleReviewer, "approved"); CodeOf(err) != CodeMissingRules {
+		t.Errorf("NextSteps ohne Regeln: %v", err)
+	}
+	if _, err := none.NextStep(domain.RoleReviewer, "approved"); CodeOf(err) != CodeMissingRules {
+		t.Errorf("NextStep ohne Regeln: %v", err)
+	}
+	if err := none.IntegrationModeAllowed(domain.ModePR, domain.ModePR); CodeOf(err) != CodeMissingRules {
+		t.Errorf("IntegrationModeAllowed ohne Regeln: %v", err)
+	}
+	for name, got := range map[string]Completion{"Feature": none.FeatureComplete(fullEvidence()), "Meilenstein": none.MilestoneComplete(fullEvidence())} {
+		if got.Complete || got.State == domain.WOCompleted || len(got.Missing) == 0 {
+			t.Errorf("%s ohne Regeln = %+v: ohne Regeln gibt es keinen Abschluss", name, got)
+		}
+	}
+	if none.SilenceIsApproval() || none.QuestionRoute() != nil {
+		t.Errorf("Fragenweg ohne Regeln: %v %v", none.QuestionRoute(), none.SilenceIsApproval())
+	}
+}
+
+// ---- Konzeptbericht ist keine Code-Freigabe ----------------------------------
+
+func TestPushNeedsReviewerRole(t *testing.T) {
+	r := repoRules(t)
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	req := domain.IntegrationRequest{
+		RequestID: "req-1", DecisionID: "dec-1", WorkOrderID: "wo-1", Mode: domain.ModePR, BaseBranch: "develop",
+		HeadCommit: head, Branch: "feature/CC-1-x", ReviewReportID: "rep-1", ConceptVersion: "v3",
+	}
+	// Ein Konzeptprüfbericht trägt als commit den Bezugsstand des Code-Repositorys; hier zufällig denselben
+	// Commit wie der zu pushende Stand. Inhaltlich ist der Bericht gültig, nur die Rolle der Ausführung fehlt.
+	report := &domain.ReviewReport{
+		ReportID: "rep-1", WorkOrderID: "wo-1", ReviewerExecutionID: "exec-concept-review", Commit: head,
+		ConceptVersion: "v3", Verdict: domain.VerdictApproved, Findings: []domain.Finding{},
+	}
+	for _, tc := range []struct {
+		role domain.Role
+		ok   bool
+	}{
+		{domain.RoleReviewer, true},
+		{domain.RoleConceptReviewer, false},
+		{domain.RoleImplementer, false},
+		{domain.RoleSupervisor, false},
+		{"", false},
+		{"zauberer", false},
+	} {
+		err := r.PushAllowed(req, report, "exec-impl", tc.role)
+		switch {
+		case tc.ok && err != nil:
+			t.Errorf("Rolle %q: %v", tc.role, err)
+		case !tc.ok && CodeOf(err) != CodeReviewInvalid:
+			t.Errorf("Rolle %q: Code %q, erwartet %s (%v)", tc.role, CodeOf(err), CodeReviewInvalid, err)
+		}
+	}
+	// Der Vertrag des Konzeptprüfers führt nie zur Integration: seine Folgeaufträge enthalten keine geschützte Aktion.
+	c := mustLoadRepo(t)
+	ct, _ := c.Contract("ccmas-concept-review")
+	for result, rc := range ct.Results {
+		for _, f := range rc.Followups {
+			if slices.Contains(r.GuardedActions(), f.Action) {
+				t.Errorf("concept-review/%s: geschützte Aktion %s", result, f.Action)
+			}
+		}
+	}
+}
+
+// ---- Konzeptprüfschleife ------------------------------------------------------
+
+func TestConceptRepairBudget(t *testing.T) {
+	r := repoRules(t)
+	if r.MaxRepairRounds() != 3 {
+		t.Fatalf("Budget %d", r.MaxRepairRounds())
+	}
+	for round := 1; round <= r.MaxRepairRounds(); round++ {
+		d, err := r.ConceptRepairStep(round)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Halt || d.Step.Action != domain.ActionConceptWork || d.Step.Role != domain.RoleConcept {
+			t.Errorf("Runde %d: %+v", round, d)
+		}
+	}
+	for _, round := range []int{4, 5, 100} {
+		d, err := r.ConceptRepairStep(round)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !d.Halt || d.Step.Action != domain.ActionAskQuestion || d.Step.Role != "" {
+			t.Errorf("Runde %d: kein sichtbarer Halt mit Frage an den Nutzer: %+v", round, d)
+		}
+	}
+	for _, round := range []int{0, -1} {
+		if _, err := r.ConceptRepairStep(round); CodeOf(err) != CodeInvalidRequest {
+			t.Errorf("Runde %d: %v", round, err)
+		}
+	}
+	// concept_findings führt laut Rollenregeln in die Konzeptarbeit; das Budget ist dasselbe wie im Code-Pfad.
+	steps, _ := r.NextSteps(domain.RoleConceptReviewer, "concept_findings")
+	if len(steps) != 1 || steps[0].Action != domain.ActionConceptWork || steps[0].Role != domain.RoleConcept {
+		t.Errorf("concept_reviewer/concept_findings = %+v", steps)
+	}
+	for round := 1; round <= 5; round++ {
+		code, _ := r.RepairStep(round)
+		concept, _ := r.ConceptRepairStep(round)
+		if code.Halt != concept.Halt {
+			t.Errorf("Runde %d: Code-Schleife Halt=%v, Konzeptschleife Halt=%v: das Budget muss gleich sein", round, code.Halt, concept.Halt)
+		}
+	}
+
+	t.Run("beide Schleifen folgen dem Budget aus der Regeldatei", func(t *testing.T) {
+		m := repoRulesMap(t)
+		at(t, m, "repair_loop")["max_rounds"] = 1
+		r1, err := mustParseRules(t, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d, _ := r1.ConceptRepairStep(1); d.Halt {
+			t.Errorf("Runde 1 bei Budget 1: %+v", d)
+		}
+		if d, _ := r1.ConceptRepairStep(2); !d.Halt {
+			t.Errorf("Runde 2 bei Budget 1: %+v", d)
+		}
+	})
+	t.Run("Regeldatei: Befunde der Konzeptprüfung gehen in die Konzeptarbeit", func(t *testing.T) {
+		mut := map[string]func(*testing.T, map[string]any){
+			"Aktion": func(t *testing.T, m map[string]any) {
+				at(t, m, "repair_loop", "on_concept_findings")["action"] = "implementation"
+			},
+			"Rolle": func(t *testing.T, m map[string]any) {
+				at(t, m, "repair_loop", "on_concept_findings")["role"] = "implementer"
+			},
+			"fehlt": func(t *testing.T, m map[string]any) { delete(at(t, m, "repair_loop"), "on_concept_findings") },
+		}
+		for name, fn := range mut {
+			m := repoRulesMap(t)
+			fn(t, m)
+			_, err := mustParseRules(t, m)
+			wantFinding(t, err, CodeInvalidRules, "repair_loop.on_concept_findings")
+			_ = name
+		}
+	})
 }

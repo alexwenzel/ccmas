@@ -61,8 +61,11 @@ an den Nutzer (fail-safe).
 | strategisch oder ungeklärt | **keine Freigabe**, Ergebnis `needs_user_decision` | Empfehlung an den Nutzer: Frage mit Optionen, Folgen und einer Empfehlung |
 
 Der Bericht nutzt das Format `ReviewReport`: `verdict`, `findings` (mit `severity` blocker/major/minor und
-`location`) und `concept_version`. Das Schema verlangt dort einen `commit`; hier ist es der HEAD-Commit des
-geprüften Repositorys zum Prüfzeitpunkt. Bei strategischen oder ungeklärten Konzepten steht im Bericht die
+`location`) und `concept_version`. Der Bericht bezieht sich auf die **Konzeptversion**. Das Schema verlangt dort
+zusätzlich einen `commit`; er ist nur der **Bezugsstand des Code-Repositorys** (Stand `develop` zum Prüfzeitpunkt,
+Hilfslösung) und **keine Freigabe von Code**: Ein Konzeptprüfbericht trägt nie einen Push, die Plattform akzeptiert für
+Code nur Berichte der Rolle `reviewer`. Eine eigene Berichtsart oder ein optionaler `commit` ist ein offener Punkt
+(Vertragsänderung, Folgeticket). Bei strategischen oder ungeklärten Konzepten steht im Bericht die
 Einstufung mit den zutreffenden Kriterien und die Frage an den Nutzer; ein Urteil FREIGEGEBEN gibt es dann nicht.
 
 ```text
@@ -89,4 +92,6 @@ Nach dem Bericht beurteilt der Supervisor den nächsten Schritt; der Vertrag nen
 - **FREIGEGEBEN** → Plan ergänzen (`plan_extend`, Supervisor) oder Implementierung der abhängigen Arbeit
   (`implementation`), jeweils mit der Voraussetzung `concept_version_approved`.
 - **BEFUNDE** → Konzeptarbeit (`concept_work`) mit den Befunden, danach neue Prüfung durch eine frische Ausführung.
+  Diese Schleife hat dasselbe Reparaturbudget wie die Code-Schleife (`repair_loop.max_rounds`, Standard 3 Runden);
+  danach folgt ein sichtbarer Halt mit einer Frage an den Nutzer (`ask_question`) statt einer weiteren Runde.
 - **Nutzerentscheidung nötig** → Rückfrage an den Nutzer (`ask_question`); ohne Antwort gibt es keine Freigabe.

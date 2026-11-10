@@ -93,11 +93,14 @@ concept_approval:
     - {id: permission_change, source: "Regel 4: Änderung an Berechtigungs- und Isolationsgrenzen"}
     - {id: unclear_requirements, source: "Spezifikation: wesentliche fachliche Unklarheit, nicht ausreichend geklärt"}
 
-# Reparaturschleife: BEFUNDE -> Implementierung mit den Befunden -> frisches Review. Nach dem Budget
+# Reparaturschleifen: BEFUNDE -> Implementierung mit den Befunden -> frisches Review (Code-Schleife),
+# BEFUNDE der Konzeptprüfung -> Konzeptarbeit mit den Befunden -> erneute Prüfung durch eine frische
+# Ausführung (Konzeptschleife). Beide haben dasselbe Budget max_rounds, je Schleife gezählt. Nach dem Budget
 # folgt ein sichtbarer Halt mit Frage an den Nutzer.
 repair_loop:
   max_rounds: 3
   on_findings: {action: implementation, role: implementer}
+  on_concept_findings: {action: concept_work, role: concept}
   on_exhausted: {action: ask_question}
 
 # Integration: PR ist der Standard; Auto gilt nur ausdrücklich je Auftrag und wird nie vom Supervisor

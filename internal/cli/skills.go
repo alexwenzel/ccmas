@@ -286,7 +286,9 @@ func newSkillsValidateCommand(root *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, loadErr := skills.Load(rootDir)
+			// Load prüft Manifest, Dateien und Verträge in sich; LoadChecked ergänzt Regeldatei und
+			// Vertragspflicht samt Querbezügen (ValidateWorkflow).
+			c, _, loadErr := skills.LoadChecked(rootDir)
 			findings := skills.FindingsOf(loadErr)
 			if loadErr != nil && len(findings) == 0 {
 				return loadErr

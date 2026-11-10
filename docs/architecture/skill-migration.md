@@ -28,13 +28,15 @@ Frontmatter, `projekt-anlegen` mit ergänztem abschließendem Zeilenumbruch; `ob
 identisch. Mit CC-33 kamen hinzu: die Datei `contract.yaml` bei den vier ursprünglichen Workflow-Skills (Version 2) und die
 zwei neuen Prüfskills `ccmas-concept-review` und `ccmas-code-review` (Version 1, Ableitung 2026-11-10, ohne Originalpaket).
 Bei `ccmas-concept-ticket` änderte sich außerdem die `SKILL.md` (Einstufung routine/strategisch, Konzeptprüfung,
-Ausführungskontext). Die `SKILL.md` von `feature-parallel`, `meilenstein-abschluss` und `antworten-abholen` ist
+Ausführungskontext; Version 3 nach dem Review: Status `review` bis zur Freigabe des Konzeptprüfers beziehungsweise
+Projektinhabers, Routineweg nach FREIGEGEBEN und BEFUNDE). `ccmas-concept-review` Version 2: Bericht bezieht sich auf
+die Konzeptversion, `commit` ist nur Bezugsstand; Konzeptschleife mit dem Reparaturbudget der Code-Schleife. Die `SKILL.md` von `feature-parallel`, `meilenstein-abschluss` und `antworten-abholen` ist
 unverändert; ihre Textanpassung folgt in W33.2 (`pending_adaptation`).
 
 | Skill | Version | roles | status / Anpassung | category | default_for | external_writes | tree_sha256 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ccmas-concept-ticket` | 2 | concept | approved | concept | concept | asana, vault | `c778e2308e62a043bb4f3f9000b862dfc3925c3459bd630f184dc1c61fd8c211` |
-| `ccmas-concept-review` | 1 | concept_reviewer | approved (neu in CC-33) | review | concept_reviewer | – | `aa42f26b71c81b4908b084608b3e4790d5591487bff4c024f2b2ca5e05980376` |
+| `ccmas-concept-ticket` | 3 | concept | approved | concept | concept | asana, vault | `aa4539d916264dde641aa64951e3e6636fbfdd5d4b9ae16d7ebfed56d1f8d162` |
+| `ccmas-concept-review` | 2 | concept_reviewer | approved (neu in CC-33) | review | concept_reviewer | – | `6b14e2d3c2c3f33b7e15e1cd5574c8732744f7255fe73946dbf0578c2acf7898` |
 | `ccmas-code-review` | 1 | reviewer | approved (neu in CC-33) | review | reviewer | – | `60797c5af7f5d43ced4827b6d668911da9b58343f17fb2cfee3f545fce300c9d` |
 | `ccmas-obsidian-seite` | 1 | concept, documentation | approved | knowledge | concept, documentation | vault | `1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7` |
 | `ccmas-asana-ticket` | 1 | supervisor, concept, completion, question_handler | approved (für concept nur auf ausdrückliche Anforderung, daher kein Standard) | tracking | – | asana | `fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556` |
@@ -111,9 +113,15 @@ ein leeres Manifest und mehrere YAML-Dokumente sind Fehler.
   passendem Hash (`changed_resource`); `tree_sha256` stimmt (`invalid_manifest`).
 - Jedes `ccmas-*`-Verzeichnis unter `.claude/skills/` hat einen Eintrag (`unregistered_skill`).
 - Kategorien `rules` und `delivery` dürfen nie `reviewer` oder `concept_reviewer` erlauben (`invalid_manifest`).
-- Workflow-Skills (Kategorien `concept`, `review`, `delivery`, `completion`, `questions`) haben eine gültige
-  `contract.yaml` (`missing_contract`, `invalid_contract`, `platform_limit`); die Regeldatei `rules/roles.yaml` fehlt nie und
-  ist gültig (`missing_rules`, `invalid_rules`). Einzelheiten und Querbezüge: [`workflow-rules.md`](workflow-rules.md).
+- Jede **vorhandene** `contract.yaml` ist in sich gültig (`invalid_contract`, `platform_limit` in jeder Tiefe; Bezüge zu
+  `internal/domain`). `Load` verlangt aber weder `rules/roles.yaml` noch das Vorhandensein von Verträgen: Ein Katalog ohne
+  Regeln und ohne Verträge lädt (synthetische Kataloge in Tests anderer Pakete).
+- Die Plattformregeln prüft die zweite, getrennte Stufe `skills.LoadChecked` beziehungsweise `skills.LoadRules` und
+  `skills.ValidateWorkflow(catalog, rules)`: Workflow-Skills (Kategorien `concept`, `review`, `delivery`, `completion`,
+  `questions`) haben einen Vertrag (`missing_contract`), die Regeldatei fehlt nie und ist gültig (`missing_rules`,
+  `invalid_rules`), Verträge passen zu den Rollenregeln und zum Katalog. Sie läuft in `ccmas skills validate`, in den
+  Tests gegen den echten Bestand und vor jeder Entscheidung der Auswerter. Einzelheiten:
+  [`workflow-rules.md`](workflow-rules.md).
 - `default_for` ⊆ `roles`, nur bei `approved`; Rollen, Kategorien, `external_writes` aus geschlossenen Mengen;
   Pfade relativ und kanonisch (kein `..`, kein führendes `/`); Hashes 64 Hexziffern in Kleinbuchstaben;
   `derived` ein Datum `JJJJ-MM-TT`.
@@ -141,8 +149,8 @@ prüft den Code; mehrere Befunde sind `skills.Findings`.
 | `snapshot_mismatch` | Snapshot-Verzeichnis weicht von seiner `snapshot.json` ab (veränderte, fehlende, zusätzliche Dateien) |
 | `invalid_snapshot` | `snapshot.json` fehlt, ist nicht lesbar oder verletzt den Vertrag |
 | `snapshot_write` | Snapshot nicht schreibbar (Dateisystem) |
-| `missing_rules` / `invalid_rules` | `rules/roles.yaml` fehlt beziehungsweise ist ungültig (CC-33) |
-| `missing_contract` / `invalid_contract` | Workflow-Skill ohne `contract.yaml` beziehungsweise ungültiger Vertrag (CC-33) |
+| `missing_rules` / `invalid_rules` | `rules/roles.yaml` fehlt beziehungsweise ist ungültig (CC-33); nur in der Regelprüfung (`LoadRules`, `LoadChecked`, `ValidateWorkflow`), nicht in `Load` |
+| `missing_contract` / `invalid_contract` | Workflow-Skill ohne `contract.yaml` (nur `ValidateWorkflow`) beziehungsweise ungültiger Vertrag (CC-33; Format schon in `Load`) |
 | `platform_limit` | Regeldatei oder Vertrag setzt eine Plattformgrenze (Worker-Limit, Modus, Policy, Berechtigungen, Zielbranch) (CC-33) |
 | `review_missing`, `review_invalid`, `review_not_independent`, `concept_approval_invalid` | Entscheidungen der Auswerter für Push und Konzeptfreigabe, kein Ladefehler (CC-33) |
 
@@ -226,8 +234,9 @@ Laufende Ausführungen bleiben bei ihrem Snapshot; ein geänderter Bestand gilt 
 ## CLI
 
 `ccmas skills list [--role R] [--json]`, `show <id> [--json]`, `validate [--json]`,
-`snapshot --role R [--skill ID …] --out DIR [--json]`. `validate` prüft seit CC-33 auch die Rollenregeln und die
-Workflow-Verträge (Bericht mit `workflow_contracts`).
+`snapshot --role R [--skill ID …] --out DIR [--json]`. `validate` prüft seit CC-33 zusätzlich die Rollenregeln und die
+Workflow-Verträge gegeneinander (`skills.LoadChecked`, Bericht mit `workflow_contracts`); `list`, `show` und `snapshot`
+laden nur den Katalog (`skills.Load`) und brauchen die Regeldatei nicht.
 
 Der Softwareordner ergibt sich aus `--root`, dann der Umgebungsvariable `CCMAS_HOME`, dann dem Verzeichnis über dem
 Binary (`<exe-dir>/..`, Symlinks aufgelöst, nur wenn dort `.claude/skills/manifest.yaml` liegt); sonst endet der
@@ -280,5 +289,5 @@ nur das Schreibschutz-Layout (0444/0555), eine zweite Prüfung gibt es nicht.
   an die bereits vorhandenen Verträge anpassen, dann `approved`), CC-14 (`neue-aufgabe-nehmen`, `morgen-briefing`, neue
   Skills `ccmas-supervisor` und `ccmas-work-assessment`), M07 (`projekt-anlegen`). Konzeptprüfer und Reviewer haben seit
   CC-33 ihre Skills (`ccmas-concept-review`, `ccmas-code-review`).
-- **Regeln:** `rules/roles.yaml` ist maschinenlesbarer Auszug der Regeldatei und wird von `skills.Load` geprüft
-  ([`workflow-rules.md`](workflow-rules.md)). Ein Befehl `ccmas rules` bleibt geplant.
+- **Regeln:** `rules/roles.yaml` ist maschinenlesbarer Auszug der Regeldatei und wird von `skills.LoadRules`/`LoadChecked`
+  geprüft, nicht von `skills.Load` ([`workflow-rules.md`](workflow-rules.md)). Ein Befehl `ccmas rules` bleibt geplant.

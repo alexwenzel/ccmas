@@ -799,13 +799,8 @@ func TestCatalogIgnoresTargetProjectSkills(t *testing.T) {
 }
 
 func TestRepoManifestMatchesFiles(t *testing.T) {
-	c, err := Load(repoRoot)
-	if err != nil {
-		for _, e := range FindingsOf(err) {
-			t.Errorf("%s: %s", e.Code, e.Message)
-		}
-		t.Fatal("Manifest und Dateien des Repositorys passen nicht zusammen (ccmas skills validate)")
-	}
+	// LoadChecked wie `ccmas skills validate`: Manifest, Dateien, Verträge und Plattformregeln des echten Bestands.
+	c := mustLoadRepo(t)
 
 	type want struct {
 		version    int
@@ -816,9 +811,10 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 		writes     []string
 	}
 	R := func(rs ...domain.Role) []domain.Role { return rs }
-	// Version 2: contract.yaml ergänzt (CC-33); die beiden Prüfskills sind neu in CC-33.
+	// Version 2: contract.yaml ergänzt (CC-33); die beiden Prüfskills sind neu in CC-33. Nachbesserung nach dem
+	// Review: concept-ticket 3, concept-review 2.
 	inventory := map[string]want{
-		"ccmas-concept-ticket":        {2, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
+		"ccmas-concept-ticket":        {3, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
 		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation"), R("concept", "documentation"), []string{"vault"}},
 		"ccmas-asana-ticket":          {1, StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), nil, []string{"asana"}},
 		"ccmas-regeln-pflegen":        {1, StatusApproved, CategoryRules, R("documentation"), nil, []string{"vault"}},
@@ -829,7 +825,7 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 		"ccmas-meilenstein-abschluss": {2, StatusPendingAdaptation, CategoryCompletion, R("completion"), nil, []string{"asana", "vault"}},
 		"ccmas-antworten-abholen":     {2, StatusPendingAdaptation, CategoryQuestions, R("question_handler"), nil, []string{"asana", "vault"}},
 		"ccmas-code-review":           {1, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
-		"ccmas-concept-review":        {1, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
+		"ccmas-concept-review":        {2, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
 	}
 	got := c.Skills()
 	if len(got) != len(inventory) {
@@ -877,10 +873,7 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 }
 
 func TestRepoRoleSelection(t *testing.T) {
-	c, err := Load(repoRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := mustLoadRepo(t)
 	for _, role := range domain.Roles() {
 		t.Run("Standard "+string(role), func(t *testing.T) {
 			s, err := c.Resolve(role, nil)

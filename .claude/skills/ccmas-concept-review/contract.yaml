@@ -24,6 +24,7 @@ checks:
   - {id: rules_respected, description: "Regeln, festgelegte Produktentscheidungen und frühere Entscheidungen werden eingehalten"}
   - {id: implementable, description: "Ein Implementierer könnte jedes abgeleitete Ticket ohne Rückfrage beginnen"}
   - {id: classified, description: "Das Konzept ist als routine oder strategisch eingestuft; Zweifel gelten als strategisch"}
+  - {id: commit_is_reference, description: "Der Bericht bezieht sich auf die Konzeptversion; commit ist nur der Bezugsstand des Code-Repositorys (Stand develop zum Prüfzeitpunkt) und keine Freigabe von Code"}
 blockers:
   - {id: version_not_unique, description: "Die Konzeptversion ist nicht eindeutig bestimmbar", result: concept_findings}
   - {id: strategic_or_unclear, description: "Das Konzept ist strategisch oder nicht ausreichend geklärt; es gibt keine Freigabe", result: needs_user_decision}
@@ -32,12 +33,15 @@ completion_criteria:
   - "Bei routine steht FREIGEGEBEN oder BEFUNDE für genau die geprüfte Konzeptversion"
   - "Bei strategisch oder ungeklärt gibt es keine Freigabe, sondern eine Empfehlung für den Nutzer mit Optionen"
   - "Es wurde nichts geändert; Befunde nennen Ort und erwartete Korrektur"
+  - "Der Bericht bezieht sich auf die Konzeptversion; sein commit ist ein Bezugsstand und gibt keinen Code frei"
 results:
   concept_approved:
     verdict: FREIGEGEBEN
     followups:
       - {action: plan_extend, role: supervisor, preconditions: [concept_version_approved]}
       - {action: implementation, role: implementer, preconditions: [concept_version_approved]}
+  # Nach Befunden: Konzeptarbeit, danach neue Prüfung in frischer Ausführung. Dasselbe Reparaturbudget wie die
+  # Code-Schleife (rules/roles.yaml, repair_loop.max_rounds); danach Halt mit Frage an den Nutzer.
   concept_findings:
     verdict: BEFUNDE
     followups:

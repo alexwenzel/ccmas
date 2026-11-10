@@ -32,6 +32,7 @@ type testSkill struct {
 	defaultFor []domain.Role
 	writes     []string
 	files      map[string]string
+	noContract bool // Workflow-Skill ohne contract.yaml anlegen (synthetischer Katalog ohne Verträge)
 }
 
 func defaultTestSkills() []testSkill {
@@ -188,7 +189,7 @@ func (f *catalogFixture) addSkill(s testSkill) {
 	if _, ok := files["SKILL.md"]; !ok {
 		files["SKILL.md"] = fmt.Sprintf("---\nname: %s\ndescription: Beschreibung von %s\n---\n\n# %s\n\nInhalt.\n", s.id, s.id, s.id)
 	}
-	if _, ok := workflowBase[s.category]; ok {
+	if _, ok := workflowBase[s.category]; ok && !s.noContract {
 		if _, has := files["contract.yaml"]; !has {
 			files["contract.yaml"] = marshalYAML(f.t, baseContract(f.t, s))
 		}
@@ -265,6 +266,14 @@ func (f *catalogFixture) write(id, rel, content string) {
 
 func (f *catalogFixture) load(opts ...Option) (*Catalog, error) {
 	return Load(f.root, opts...)
+}
+
+// removeRules löscht die Regeldatei: ein synthetischer Katalog ohne Plattformregeln.
+func (f *catalogFixture) removeRules() {
+	f.t.Helper()
+	if err := os.Remove(filepath.Join(f.root, "rules", "roles.yaml")); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *catalogFixture) mustLoad(opts ...Option) *Catalog {

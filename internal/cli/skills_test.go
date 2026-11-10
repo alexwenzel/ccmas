@@ -318,6 +318,23 @@ func TestSkillsValidate(t *testing.T) {
 			})
 		}
 	})
+	t.Run("Katalog-Befehle brauchen die Plattformregeln nicht, validate schon", func(t *testing.T) {
+		// Load ist von rules/roles.yaml entkoppelt (andere Pakete bauen synthetische Kataloge); die Prüfung der
+		// Plattformregeln ist allein Sache von `skills validate`.
+		root := copyCatalog(t)
+		if err := os.Remove(filepath.Join(root, "rules", "roles.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"list"}, {"show", "ccmas-code-review"}} {
+			if code, _, errOut := runSkills(t, root, args...); code != ExitOK {
+				t.Errorf("skills %v ohne Regeldatei: Exit-Code %d\n%s", args, code, errOut)
+			}
+		}
+		code, out, errOut := runSkills(t, root, "validate")
+		if code != ExitError || out != "" || !strings.Contains(errOut, "missing_rules") {
+			t.Errorf("validate ohne Regeldatei: Exit-Code %d, stdout %q, stderr %q", code, out, errOut)
+		}
+	})
 	t.Run("Wurzel ohne Manifest", func(t *testing.T) {
 		code, out, errOut := runSkills(t, t.TempDir(), "validate")
 		if code != ExitError || out != "" || !strings.Contains(errOut, "missing_manifest") {
