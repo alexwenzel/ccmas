@@ -31,8 +31,9 @@ const (
 	repoRoot    = "../../.."
 	evidenceDir = "../../../docs/architecture/evidence/supervisor"
 
-	// SessionLimit ist das Budget echter Sitzungen für den Nachweis M02 (einschließlich Neuplanungen und Fehlversuchen).
-	SessionLimit = 16
+	// SessionLimit ist das Budget echter Sitzungen für den Nachweis M02 und die Profilwahl S7 zusammen (einschließlich Neuplanungen
+	// und Fehlversuchen). Es war 16 für S1 bis S6 und ist mit S7 auf höchstens 10 Sitzungen in CC-14 begrenzt.
+	SessionLimit = 10
 
 	supervisorModel = "claude-opus-5-5" // laut Auftrag das Modell des Supervisorprofils der Beispielkonfiguration
 )

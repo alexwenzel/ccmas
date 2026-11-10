@@ -77,7 +77,11 @@ func (e *evEnv) scriptedPlans() map[scenario.ID]domain.DecisionBatch {
 	rev.ReviewTarget = &domain.ReviewTarget{WorkOrderID: scenario.S3Fin, Commit: scenario.Commit, ConceptVersion: "1.0"}
 	ask := e.decision("dec-1", domain.ActionAskQuestion, scenario.S2ConStrat, "")
 	ask.Question = &domain.DecisionQuestion{Text: "Soll der Umfang erweitert werden?", Context: "Strategische Entscheidung.", Recommendation: "Nein."}
+	// S7: strengeres Profil für den kritischen Auftrag (Effort eine Stufe über dem Standard), Standard für den trivialen.
+	critical := e.decision("dec-1", domain.ActionImplementation, scenario.S7A, domain.RoleImplementer, domain.Precondition{Kind: domain.PrecConceptApproved, Ref: "2.0"})
+	critical.Selection.Effort = domain.EffortXHigh
 	return map[scenario.ID]domain.DecisionBatch{
+		scenario.S7: b(critical, e.decision("dec-2", domain.ActionImplementation, scenario.S7B, domain.RoleImplementer)),
 		scenario.S1: b(e.decision("dec-1", domain.ActionImplementation, scenario.S1A, domain.RoleImplementer, approved),
 			e.decision("dec-2", domain.ActionImplementation, scenario.S1B, domain.RoleImplementer, approved),
 			e.decision("dec-3", domain.ActionWait, scenario.S1C, "", domain.Precondition{Kind: domain.PrecWorkOrderCompleted, Ref: scenario.S1A})),

@@ -24,7 +24,7 @@ import (
 // Skill-Katalog dieses Worktrees (skills.LoadChecked) und den synthetischen Zuständen aus diesem Paket, nie dem echten Board.
 // Jede Sitzung verbraucht Abo-Kontingent; das Budget sind SessionLimit Sitzungen für alle Szenarien zusammen.
 //
-//	CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 90m -v
+//	CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 60m -v
 //
 // Ohne weitere Angabe laufen die Szenarien, für die noch kein Beleg existiert. Mit CCMAS_LIVE_SCENARIOS=S1,S3 laufen genau diese;
 // ein vorhandener Beleg wird nie überschrieben. Eine Wiederholung ist nur nach einem Infrastrukturfehler im ersten Lauf zulässig
@@ -88,6 +88,10 @@ func descriptionOf(id scenario.ID) string {
 	case scenario.S6:
 		return "sc6-a ist ein Fehlerauftrag ohne Konzeptbezug, FREIGEGEBEN (Berichtsversion kein-konzept), noch kein PR. Während der Planung ändert sich die Zustandsrevision (12 auf 13): " +
 			"der erste Plan wird mit stale_revision abgelehnt, die Neuplanung läuft auf dem frischen Snapshot (13) und wird angenommen. Erwartet: Integration von sc6-a."
+	case scenario.S7:
+		return "PR-Modus, max_workers 3, nichts aktiv. Zwei unabhängige, startbare Implementierungsaufträge ohne offene Abhängigkeit: sc7-a (Umbau der Zugriffskontrolle der lokalen Schnittstelle, Sicherheits- und Rückwärtskompatibilitätsrisiko, " +
+			"ausführliche Akzeptanzkriterien, vom Nutzer freigegebenes strategisches Konzept mit architecture_change und permission_change) und sc7-b (Tippfehler in einer Fehlermeldung, ein Satz, klare Kriterien). " +
+			"Erwartet: beide implementiert, für sc7-a ein strengeres Profil als der Rollenstandard, für sc7-b kein stärkeres; beide Begründungen nennen den Profilgrund."
 	}
 	return ""
 }
@@ -129,10 +133,11 @@ func TestLiveSupervisorScenarios(t *testing.T) {
 			continue
 		}
 		t.Run(string(id), func(t *testing.T) {
-			// Pro Szenario sind höchstens 1 + DefaultMaxReplans Sitzungen möglich: ohne diesen Platz startet das Szenario nicht,
-			// damit das Budget nie überschritten wird.
-			if need := 1 + supervisor.DefaultMaxReplans; used+need > SessionLimit {
-				t.Skipf("Sitzungsbudget: %d von %d belegt, ein Szenario braucht bis zu %d", used, SessionLimit, need)
+			// Ohne Platz für mindestens eine Sitzung startet das Szenario nicht. Das Budget überschreitet nie ein Lauf: der Zähler
+			// (countingRuntime) startet keine Sitzung über SessionLimit hinaus; reicht der Rest für Neuplanungen nicht, endet das
+			// Szenario ausgesetzt und bleibt so im Beleg.
+			if used+1 > SessionLimit {
+				t.Skipf("Sitzungsbudget: %d von %d belegt", used, SessionLimit)
 			}
 			runScenario(t, e, id, binary, dir, path, repeatReason, &used, runner.New(runner.Config{SoftwareRoot: e.root}))
 		})

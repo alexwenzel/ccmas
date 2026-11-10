@@ -1,6 +1,6 @@
 # CCMAS – Supervisor: Snapshot, Validator und Planer
 
-Stand: Ticket CC-14 (inklusive Befundrunde 2 des Reviews), Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen), Teil W14.2 (Supervisor-Skills, Planer, Systemprompt und strukturierte Ausgabe im Runner) und Teil W14.3 (Nachweis des Ergebnisziels von M02 mit echten Supervisor-Läufen, Abschnitt „Nachweis M02“). **Führend ist die
+Stand: Ticket CC-14 (inklusive Befundrunde 2 des Reviews), Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen), Teil W14.2 (Supervisor-Skills, Planer, Systemprompt und strukturierte Ausgabe im Runner) und Teil W14.3 (Nachweis des Ergebnisziels von M02 mit echten Supervisor-Läufen, Abschnitt „Nachweis M02“) und Teil W14.4 (Szenario S7: zustandsabhängige Wahl von Modell und Effort). **Führend ist die
 Spezifikation** „Multi Agent Setup“, Abschnitte „Intelligente Arbeitsverteilung als Herzstück“ (Aufgabe des Supervisors,
 Skill und tatsächliche Intelligenz, Aufwand/Modell/Effort, Planungszyklus), „Supervisor-Entscheidungen“, „Projekt, Profile und
 Arbeitsauftrag“, „Zustandsmodell“, „Tickets und Mehrfachauswahl“, „PR und Auto-Merge“, „Milestones starten“, „Fragen und
@@ -9,7 +9,7 @@ fest, was das Repository umsetzt, und ist keine Kopie der Spezifikation.
 
 **Grenzen dieses Stands:** Der Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Der Orchestrator (M03) existiert nicht, ebenso wenig
 die Befüllung des `ProjectSnapshot` aus dem führenden Zustand. Alles unten beschreibt Bausteine, die getestet sind, nicht einen
-laufenden Planungszyklus. Die Planung ist mit dem echten Supervisor an sieben synthetischen Zuständen belegt (Abschnitt „Nachweis M02“), nicht an echten Projektzuständen und
+laufenden Planungszyklus. Die Planung ist mit dem echten Supervisor an acht synthetischen Zuständen belegt (Abschnitt „Nachweis M02“), nicht an echten Projektzuständen und
 ohne dass die geplante Arbeit ausgeführt wurde.
 
 ## Grundsatz: Go entscheidet Zulässigkeit, nicht Planung
@@ -35,7 +35,7 @@ Der Validator verändert weder Batch noch Snapshot noch Policy, startet nichts u
 | `validator.go` | `Validator` mit `Validate`, `Accept`, `AcceptJSON`; `ValidatedBatch`, `Delegation` |
 | `rejection.go` | `Code`, `Rejection`, `RejectionError`, `AsRejection` |
 | `planner.go`, `context.go`, `modelschema.go`, `attempt.go`, `snapshotdir.go` | `Planner` (Plan, PlanWithRecord), Planungszustand mit Kontextbudget, Modell-Ausgabeschema, Versuchsprotokoll und Wartezustand (seit W14.2) |
-| `scenario/` | synthetische Snapshots S1–S6 (S2 in Routine und strategisch getrennt) und benannte semantische Prädikate als Auswertungswerkzeug, kein Teil der Planung (seit W14.2, S6 und Ergebnis je Prädikat seit W14.3); in den Tests des Pakets: Live-Szenarien (`live_test.go`), Belegformat und Offline-Prüfung der Belege (`evidence_test.go`), Test der Belegkette ohne Konto (`roundtrip_test.go`) |
+| `scenario/` | synthetische Snapshots S1–S7 (S2 in Routine und strategisch getrennt) und benannte semantische Prädikate als Auswertungswerkzeug, kein Teil der Planung (seit W14.2, S6 und Ergebnis je Prädikat seit W14.3, S7 seit W14.4); in den Tests des Pakets: Live-Szenarien (`live_test.go`), Belegformat und Offline-Prüfung der Belege (`evidence_test.go`), Test der Belegkette ohne Konto (`roundtrip_test.go`) |
 | `../../prompts/` | Systemprompt der Rolle supervisor (`supervisor.md`, Go-Paket `prompts`, eingebettet) |
 
 ## ProjectSnapshot
@@ -308,9 +308,9 @@ trennt die Aufwandsschätzung (Größe, Komplexität, Unsicherheit) vom Modell-E
 `contract.yaml` (Workflow-Verträge gibt es nur für die Kategorien `concept`, `review`, `delivery`, `completion`, `questions`), Rolle `supervisor`, Standardausstattung der Rolle, Herkunft `package: none`
 ([`skill-migration.md`](skill-migration.md)). `ccmas-neue-aufgabe-nehmen` und `ccmas-morgen-briefing` nutzt der Planer nicht; sie bleiben `pending_adaptation`, ihre Zuordnung zu einem Ticket ist offen.
 
-## Szenario-Prädikate (W14.2, erweitert in W14.3)
+## Szenario-Prädikate (W14.2, erweitert in W14.3 und W14.4)
 
-`internal/supervisor/scenario` enthält die synthetischen Snapshots S1 bis S6 (erfundene Aufträge `sc1-a`, …; nie der Stand des echten Boards) und **benannte** semantische Prädikate, die einen Batch ohne Rücksicht auf den Wortlaut bewerten
+`internal/supervisor/scenario` enthält die synthetischen Snapshots S1 bis S7 (erfundene Aufträge `sc1-a`, …; nie der Stand des echten Boards) und **benannte** semantische Prädikate, die einen Batch ohne Rücksicht auf den Wortlaut bewerten
 (`Predicates(id)`, `EvaluateDetailed` = Ergebnis je Prädikat; `Evaluate` = alle Verstöße; gemeinsames Prädikat `delegations_complete` plus die des Szenarios). `TestScenarioPlanContract` prüft handgeschriebene gute und schlechte Batches, jeweils auch gegen den Validator. W14.3 wendet
 dieselben Prädikate auf die echten Ausgaben an. S2 ist seit W14.3 in zwei Zustände getrennt (`S2-routine`, `S2-strategisch`), weil Routine- und strategisches Konzept verschiedene Wege haben (Konzeptfreigabe durch den `concept_reviewer` oder Entscheidung des Nutzers).
 
@@ -323,9 +323,11 @@ dieselben Prädikate auf die echten Ausgaben an. S2 ist seit W14.3 in zwei Zust�
 | S4 | Review mit BEFUNDE, Reparaturrunde 1 von 3 | `repair_for_same_order`: Implementierung (Rolle `implementer`) für denselben Auftrag; `no_integration_or_completion` |
 | S5 | PR-Modus, Review FREIGEGEBEN, PR offen mit dem freigegebenen Commit als Kopf, CI bestanden | `wait`, `no_completion`, `no_repeated_integration` (der Validator lehnt sie zusätzlich als `duplicate_start` ab), `no_new_work_on_order`, `no_mode_extension` (kein neuer Auftrag im Modus `auto`) |
 | S6 | Fehlerauftrag ohne Konzeptbezug, Review FREIGEGEBEN (Berichtsversion `kein-konzept`), noch kein PR; die Zustandsrevision ändert sich während der Planung (12 → 13) | `integration_requested`: genau eine Integration von `sc6-a`; `no_new_work_on_order`; `no_completion`. Der erste Plan (Revision 12) wird mit `stale_revision` abgelehnt, die Neuplanung läuft auf dem frischen Snapshot (13) |
+| S7 | PR-Modus, `max_workers` 3, nichts aktiv; zwei unabhängige, startbare Implementierungsaufträge: `sc7-a` (Umbau der Zugriffskontrolle der lokalen Schnittstelle mit Sicherheits- und Rückwärtskompatibilitätsrisiko, ausführliche Akzeptanzkriterien, vom Nutzer freigegebenes strategisches Konzept 2.0 mit `architecture_change` und `permission_change`, im Titel als Architekturentscheidung mit hoher Unsicherheit ausgewiesen) und `sc7-b` (Fehlerauftrag ohne Konzeptbezug: ein Tippfehler in einer Fehlermeldung, ein Satz, klare Kriterien) | `both_orders_implemented`: beide werden von der Rolle `implementer` implementiert, jeder mit eigener Aufwandsschätzung (getrennt vom Effort); `critical_order_stricter_profile`: für `sc7-a` ein strengeres Profil als der Rollenstandard (stärkeres Modell oder höherer Effort); `trivial_order_not_stronger`: für `sc7-b` weder stärkeres Modell noch höherer Effort; `rationales_state_profile_reason`: beide Begründungen sind angegeben (nur Vorhandensein, nicht Wortlaut) |
 
 Für jede Beauftragung (alle Szenarien) verlangt `CheckDelegations` (`delegations_complete`): Auswahl mit Rolle, mindestens einem Skill, Modell und Effort aus dem Angebot der Rolle im Snapshot, ein erwartetes Ergebnis, eine vollständige
-Aufwandsschätzung (`estimate`: Größe, Komplexität, Unsicherheit; getrennt vom Effort) und eine Begründung. Die Prädikate urteilen über den Inhalt; ob der Validator einen Batch annimmt, ist davon unabhängig
+Aufwandsschätzung (`estimate`: Größe, Komplexität, Unsicherheit; getrennt vom Effort) und eine Begründung.
+**Stärke von Modell und Effort in S7:** Der Effort ist höher, wenn er im Angebot der Rolle (`allowed_efforts`, nach Stufe geordnet) hinter dem Standard steht. Das Angebot trägt keine Stärkeordnung der Modelle (`allowed_models` ist nach Modell-ID sortiert); das Prädikat stuft ein Modell deshalb nach der Familie im Namen ein (`haiku` < `sonnet` < `opus`). Ein Modell ohne bekannte Familie ist ein Verstoß („nicht einstufbar“), kein stillschweigendes Bestehen. „Strenger“ heißt: stärkeres Modell oder höherer Effort; „nicht stärker“ heißt: weder noch. Die Prädikate urteilen über den Inhalt; ob der Validator einen Batch annimmt, ist davon unabhängig
 (zum Beispiel ist ein einzelnes `implementation` in S3 zulässig, aber inhaltlich schlecht).
 
 ## Belege (W14.2)
@@ -338,14 +340,16 @@ Test: `CCMAS_LIVE_TESTS=1 go test ./internal/supervisor -run TestLivePlanner -co
 Ergebnisziel von M02: Ein echter Claude-Supervisor beurteilt unterschiedliche Zustände und wählt begründet nächste Arbeit, Rollen, Skills, Modell und Effort; die Pläne unterscheiden sich belegbar je Zustand.
 Aufgezeichnete Beispielentscheidungen ersetzen diesen Nachweis nicht (Spezifikation, „Kritische Negativ- und Grenzfälle“); die Belege hier sind rohe Ausgaben echter Sitzungen.
 
-**Aufbau.** `TestLiveSupervisorScenarios` (`internal/supervisor/scenario/live_test.go`) plant jeden der sieben Zustände S1, S2-routine, S2-strategisch, S3, S4, S5 und S6 mit dem echten `Planner`: über den Go-Runner-Adapter und den echten Python-Runner,
+**Aufbau.** `TestLiveSupervisorScenarios` (`internal/supervisor/scenario/live_test.go`) plant jeden der acht Zustände S1, S2-routine, S2-strategisch, S3, S4, S5, S6 und S7 mit dem echten `Planner`: über den Go-Runner-Adapter und den echten Python-Runner,
 mit dem Supervisorprofil der Beispielkonfiguration (`profile init` in ein temporäres Konfigurationsverzeichnis, gelesen aus `models.yaml`/`agents.yaml` dort; **keine Overrides**: angefordert und wirksam `claude-opus-5-5`, Herkunft `role`, Effort `high`),
 dem Skill-Katalog dieses Worktrees (`skills.LoadChecked`; Snapshot der Rolle `supervisor` mit `ccmas-supervisor` Version 2 und `ccmas-work-assessment` Version 1, beide laut `session_started` in der Sitzung geladen), dem Systemprompt `prompts/supervisor.md` und dem lokalen Claude-Binary (Claude Code 2.1.311, `claude-agent-sdk` 0.2.180, Max-Anmeldung).
-Die Zustände sind die synthetischen aus `internal/supervisor/scenario`, nie das echte Board und nie Asana. Standardwerte des Planers: höchstens 8 Runden, 10 Minuten je Versuch, bis zu zwei Neuplanungen. Das Budget waren 16 echte Sitzungen für alle Szenarien zusammen (einschließlich Neuplanungen und Fehlversuchen);
+Die Zustände sind die synthetischen aus `internal/supervisor/scenario`, nie das echte Board und nie Asana. Standardwerte des Planers: höchstens 8 Runden, 10 Minuten je Versuch, bis zu zwei Neuplanungen. Das Budget waren 16 echte Sitzungen für S1 bis S6 (einschließlich Neuplanungen und Fehlversuchen); mit S7 gilt in CC-14 insgesamt höchstens 10 (`SessionLimit` = 10);
 der Test zählt mit, startet kein Szenario, das das Budget überschreiten könnte, und zählt auch die Sitzungen bereits vorhandener Belege. Ein vorhandener Beleg wird nie überschrieben; eine Wiederholung gäbe es nur nach einem Infrastrukturfehler (Abo-Limit, Zeitüberschreitung, Prozessfehler: Wartegrund `supervisor_unavailable` oder `subscription_limit`), höchstens einmal je Szenario und als zweiter Lauf im selben Beleg mit Grund (`repeatAllowed`); ein inhaltlich schwacher Plan ist kein Grund.
 S6: die `SnapshotSource` des Tests liefert zur Validierung des ersten Versuchs den Zustand mit der Revision 13 (gleichzeitige Änderung simuliert, Inhalt sonst gleich) und danach denselben neuen Stand.
 
 **Lauf am 2026-11-10** (Aufruf `CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 90m -v`, S1 zuerst allein, dann die übrigen sechs): **8 echte Sitzungen von 16**, keine Wiederholung nach Infrastrukturfehler, kein Szenario ausgesetzt.
+
+**Lauf S7 am 2026-11-10** (W14.4; Aufruf `CCMAS_LIVE_TESTS=1 CCMAS_LIVE_SCENARIOS=S7 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 60m -v`; Prompt, Skills, Rollenregeln, Beispielkonfigurationen und Validator unverändert, die Policy-Hashes der Belege S1 bis S6 gelten weiter und die Belege wurden nicht neu erzeugt): **1 echte Sitzung, angenommen im ersten Versuch (14,7 s, Kontext 12.037 Bytes), keine Wiederholung. Insgesamt in CC-14: 9 echte Sitzungen von höchstens 10.**
 
 | Szenario | Sitzungen (Versuche) | Angenommene Entscheidungen (Aktion Auftrag; Rolle, Modell/Effort; Aufwand Größe/Komplexität/Unsicherheit) | Prädikate | Auffälligkeiten |
 | --- | --- | --- | --- | --- |
@@ -356,8 +360,9 @@ S6: die `SnapshotSource` des Tests liefert zur Validierung des ersten Versuchs d
 | S4 | `ed36f38b-574f-4171-8315-b8e735e96b5f` (1) | `implementation` sc4-a (implementer, sonnet/high; s/low/low) als Reparatur | alle 3 erfüllt | nennt Befund f-1 und Reparaturrunde 1 von 3; keine Integration |
 | S5 | `c4452fb5-a9a9-4282-a9ff-b719de776c0d` (1) | `wait` sc5-a | alle 6 erfüllt | begründet mit dem offenen PR, der den freigegebenen Commit trägt, bestandener CI und fehlendem Merge |
 | S6 | `ba9fc29e-7457-4130-a7fd-a113df7e813f` (Versuch 1: abgelehnt, `stale_revision`), `c026baba-feb7-4426-81d7-c3224669e491` (Versuch 2: angenommen) (2) | `request_integration` sc6-a (beide Versuche inhaltlich gleich) | alle 4 erfüllt | Versuch 1 beruht auf Revision 12, geprüft gegen 13: `stale_revision`, nichts ausgeführt; Versuch 2 plant auf dem frischen Snapshot (Revision 13, anderer Hash) und wird angenommen |
+| S7 | `21575c61-092f-4523-991f-bfc320ba9a45` (1) | `implementation` sc7-a (implementer, **opus/xhigh**; l/high/high), `implementation` sc7-b (implementer, **sonnet/low**; xs/low/low) | alle 5 erfüllt | erste Abweichung vom Rollenstandard (sonnet/high): strenger für den Umbau der Zugriffskontrolle, schlanker für den Tippfehler; beide Begründungen nennen den Profilgrund (Berechtigungs- und Kompatibilitätsgrenzen, hohe Unsicherheit des Konzepts; sehr kleine mechanische Änderung ohne Logik); beide laufen parallel auf 2 von 3 freien Plätzen |
 
-Jede Zeile gilt für den Beleg `evidence/supervisor/<Szenario>.json` (`S1.json`, `S2-routine.json`, `S2-strategisch.json`, `S3.json`, `S4.json`, `S5.json`, `S6.json`). Alle Versuche liefen zwischen 7 und 13 Sekunden; der Kontext lag bei 10,4 bis 11,2 KiB (10.678 bis 11.432 Bytes), keine Reduktionsregel griff.
+Jede Zeile gilt für den Beleg `evidence/supervisor/<Szenario>.json` (`S1.json`, `S2-routine.json`, `S2-strategisch.json`, `S3.json`, `S4.json`, `S5.json`, `S6.json`, `S7.json`). Alle Versuche in S1 bis S6 liefen zwischen 7 und 13 Sekunden; der Kontext lag bei 10,4 bis 11,2 KiB (10.678 bis 11.432 Bytes), keine Reduktionsregel griff.
 
 **Was ein Beleg enthält (je Versuch):** Datum, Szenario-ID, den vollständigen kanonischen Snapshot und dessen sha256, angewandte Kontextreduktionen, Hashes von Prompt, Systemprompt und Ausgabeschema, Skill-Snapshot-ID sowie Skill-IDs, -Versionen und `tree_sha256`,
 das Supervisorprofil (angefordert, wirksam, Herkunft, `profile_id`/`version`), das wirksame Modell laut Sitzung, SDK- und CLI-Version, Session-ID, Dauer, die rohe strukturierte Ausgabe, den gestempelten Batch und das Validierungsurteil mit Ablehnungscodes und -texten (strukturiert und als Text).
@@ -371,16 +376,17 @@ und stellt fest, dass die angenommenen Pläne (Menge aus Aktion, Zielauftrag und
 
 **Bewertung: was belegt ist.**
 
-- Ein echter Claude (wirksames Modell `claude-opus-5-5` laut `session_started` in allen 8 Sitzungen) hat über die vollständige Kette (Go-Planer, Go-Adapter, Python-Runner, SDK, Claude Code) sieben unterschiedliche Zustände beurteilt und jeweils einen vom Validator angenommenen Plan geliefert; sechs Szenarien beim ersten Versuch, S6 nach der Neuplanung.
-- Die Pläne unterscheiden sich belegbar je Zustand: parallele Implementierung mit Warten des abhängigen Auftrags (S1), Konzeptarbeit (S2-routine), Frage an den Nutzer (S2-strategisch), Review vor neuer Arbeit bei einem freien Platz (S3), Reparatur (S4), Warten auf den Merge (S5), Integration (S6). Die Prädikate (Inhalt) und der Validator (Zulässigkeit) bestätigen jeden angenommenen Plan.
-- Rolle, Skills, Modell, Effort, erwartetes Ergebnis, Aufwandsschätzung und Begründung stehen bei jeder Beauftragung und liegen im Angebot der Rolle; die Aufwandsschätzung unterscheidet sich zwischen den Zuständen (zum Beispiel S4 s/low/low, S1 m/medium/medium).
+- Ein echter Claude (wirksames Modell `claude-opus-5-5` laut `session_started` in allen 9 Sitzungen) hat über die vollständige Kette (Go-Planer, Go-Adapter, Python-Runner, SDK, Claude Code) acht unterschiedliche Zustände beurteilt und jeweils einen vom Validator angenommenen Plan geliefert; sieben Szenarien beim ersten Versuch, S6 nach der Neuplanung.
+- Die Pläne unterscheiden sich belegbar je Zustand: parallele Implementierung mit Warten des abhängigen Auftrags (S1), zwei parallele Implementierungen mit unterschiedlichem Profil (S7), Konzeptarbeit (S2-routine), Frage an den Nutzer (S2-strategisch), Review vor neuer Arbeit bei einem freien Platz (S3), Reparatur (S4), Warten auf den Merge (S5), Integration (S6). Die Prädikate (Inhalt) und der Validator (Zulässigkeit) bestätigen jeden angenommenen Plan.
+- **Zustandsabhängige Wahl von Modell und Effort (S7):** In S1 bis S6 entsprach die Wahl überall dem Rollenstandard (implementer sonnet/high, reviewer opus/high, concept sonnet/high), die Zustände verlangten nichts anderes. In S7 wählte der echte Supervisor bei zwei unabhängigen, startbaren Implementierungsaufträgen für den Umbau der Zugriffskontrolle (Sicherheits- und Kompatibilitätsrisiko, Architekturentscheidung mit hoher Unsicherheit) ein stärkeres Profil (opus/xhigh, Schätzung l/high/high) und für den Tippfehler ein schlankeres (sonnet/low, Schätzung xs/low/low). Alle fünf Prädikate sind erfüllt; die Begründungen leiten die Wahl aus Risiko und Schwierigkeit ab, und Aufwandsschätzung und Effort stehen getrennt. Das ist ein Lauf an einem Zustand, dessen Lage fachlich eindeutig beschrieben ist (Skill und Prompt wurden dafür nicht zugeschnitten): Er zeigt, dass der Supervisor Profile zustandsabhängig und begründet wählen kann, nicht, wie zuverlässig oder wie fein.
+- Rolle, Skills, Modell, Effort, erwartetes Ergebnis, Aufwandsschätzung und Begründung stehen bei jeder Beauftragung und liegen im Angebot der Rolle; die Aufwandsschätzung unterscheidet sich zwischen den Zuständen (zum Beispiel S4 s/low/low, S1 m/medium/medium, S7 l/high/high gegenüber xs/low/low).
 - Die Erkennung eines veralteten Zustands greift mit dem echten Modell: der Plan von Revision 12 wird gegen 13 abgelehnt, nichts wird ausgeführt, die Neuplanung läuft auf dem frischen Snapshot.
 - Das Supervisorprofil stammt aus der Beispielkonfiguration (Herkunft `role`), das wirksame Modell stimmt mit dem angeforderten überein, die Skills des Snapshots waren in der Sitzung geladen.
 
 **Bewertung: was nicht belegt ist.**
 
 - **Wirksamer Effort:** `high` ist angefordert und aus der Konfiguration abgeleitet; das SDK meldet den wirksamen Effort nicht (die Belege tragen ihn als „nicht gemessen“).
-- **Zustandsabhängige Wahl von Modell und Effort:** In allen Plänen entspricht die Wahl dem Rollenstandard (implementer sonnet/high, reviewer opus/high, concept sonnet/high); die Begründungen nennen das („Standardprofil der Rolle“). Die Zustände unterscheiden sich nicht in Risiko oder Schwierigkeit genug, um eine abweichende Wahl zu verlangen. Dass der Supervisor bei einem riskanten oder sehr kleinen Auftrag ein anderes Modell oder eine andere Stufe wählt, ist **nicht** gezeigt.
+- **Reichweite der Profilwahl:** S7 ist ein Lauf an zwei klaren Gegenpolen. Nicht gezeigt ist, wie der Supervisor Zwischenfälle (mittleres Risiko) wählt und ob er auch für kritische Reviews oder Konzeptarbeit ein stärkeres Profil wählt (in S3 und S2 wählte er den Rollenstandard); dass derselbe Zustand immer zur selben Wahl führt, ist nicht gezeigt (siehe „Streuung“). Der Vergleich der Stärke von Modellen beruht auf der Familie im Namen, nicht auf einer Ordnung im Angebot.
 - **Streuung:** je Szenario ein Lauf (S6: zwei Versuche mit demselben Ergebnis). Das Modell ist nicht deterministisch; wie oft derselbe Zustand zum selben Plan führt, ist nicht gemessen.
 - **Echte Projektzustände** sind Sache von M03 (Befüllung aus Asana und dem führenden Zustand); die Zustände hier sind klein (10 bis 11 KiB), synthetisch und frei von Rauschen. Das Verhalten bei großen Zuständen und den Kontextreduktionen ist mit dem echten Modell nicht belegt.
 - **Echte Ausführung** der geplanten Arbeit: nichts wurde gestartet, kein Worker, kein Review, kein Push; der Plan ist ein Vorschlag, den der Validator als zulässig bestätigt.
@@ -393,6 +399,6 @@ und stellt fest, dass die angenommenen Pläne (Menge aus Aktion, Zielauftrag und
 ```bash
 go test ./internal/supervisor/... ./internal/domain/... ./internal/skills/... ./internal/profiles/... ./internal/workers/... ./prompts/... -count=1 -race
 make check
-# Live-Szenarien (verbrauchen Abo-Kontingent, vorhandene Belege werden nie überschrieben):
-CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 90m -v
+# Live-Szenarien (verbrauchen Abo-Kontingent, vorhandene Belege werden nie überschrieben; das Budget ist erschöpft bis auf 1 Sitzung):
+CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 60m -v
 ```

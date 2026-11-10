@@ -1,4 +1,4 @@
-// Package scenario enthält die synthetischen Planungsszenarien S1 bis S6 und ihre semantischen Prädikate (CC-14, W14.2, W14.3).
+// Package scenario enthält die synthetischen Planungsszenarien S1 bis S7 und ihre semantischen Prädikate (CC-14, W14.2, W14.3).
 //
 // Die Snapshots sind erfundene Testdaten (Aufträge sc1-a, sc3-fin, ...), nie der Stand des echten ccmas-Boards. Die Prädikate
 // bewerten einen Planungsergebnis-Batch inhaltlich und ohne Wortlaut: Sie fragen, welche Aktionen auf welche Aufträge zielen,
@@ -31,10 +31,11 @@ const (
 	S4          ID = "S4"             // Review mit BEFUNDE innerhalb des Reparaturbudgets
 	S5          ID = "S5"             // PR-Modus, Review FREIGEGEBEN, PR offen
 	S6          ID = "S6"             // Review FREIGEGEBEN, noch kein PR; die Zustandsrevision ändert sich während der Planung
+	S7          ID = "S7"             // zwei unabhängige startbare Implementierungen: ein kritischer, unsicherer und ein trivialer, gut beschriebener Auftrag
 )
 
 // IDs liefert die Szenarien in fester Reihenfolge.
-func IDs() []ID { return []ID{S1, S2Routine, S2Strategic, S3, S4, S5, S6} }
+func IDs() []ID { return []ID{S1, S2Routine, S2Strategic, S3, S4, S5, S6, S7} }
 
 // Aufträge der Szenarien (erfundene IDs).
 const (
@@ -49,6 +50,8 @@ const (
 	S4A           = "sc4-a"   // Review mit BEFUNDE
 	S5A           = "sc5-a"   // freigegeben, PR offen
 	S6A           = "sc6-a"   // freigegeben, noch kein PR, ohne Konzeptbezug
+	S7A           = "sc7-a"   // Umbau der Zugriffskontrolle der lokalen Schnittstelle (strategisches, vom Nutzer freigegebenes Konzept)
+	S7B           = "sc7-b"   // Tippfehler in einer Fehlermeldung (Fehlerauftrag ohne Konzeptbezug)
 )
 
 // Commit des Kopfstands in S3 bis S5 (erfunden).
@@ -162,6 +165,28 @@ func Snapshot(id ID, env Env) (supervisor.ProjectSnapshot, error) {
 			ReviewerRole: domain.RoleReviewer, ImplementerExecutionID: "exec-impl",
 		}
 		s.Orders = []supervisor.Order{a}
+	case S7:
+		// Zwei unabhängige, startbare Aufträge bei freier Kapazität (max_workers 3, nichts aktiv). Der Zustand beschreibt beide
+		// Aufträge sachlich (Titel, Konzeptstand, Akzeptanzkriterien des Ziels); welches Profil zu welchem Auftrag passt, entscheidet
+		// der Supervisor.
+		s.Goal.Title = "Zugriffskontrolle der lokalen Schnittstelle und Fehlermeldungstext"
+		s.Goal.AcceptanceCriteria = []string{
+			"sc7-a: Die Zugriffskontrolle der lokalen Schnittstelle ist auf das neue Berechtigungsmodell umgebaut; jede Anfrage ohne gültige Berechtigung wird abgewiesen, auch über bisher ungeprüfte Pfade",
+			"sc7-a: Bestehende Clients mit dem alten Zugangsformat funktionieren während einer festgelegten Übergangsfrist weiter und erhalten einen Hinweis auf die Ablösung; danach werden sie abgewiesen",
+			"sc7-a: Keine Berechtigung wird stillschweigend aufgeweitet; Standardverhalten ohne Konfiguration ist die engste Berechtigung",
+			"sc7-a: Tests decken Abweisung, Übergangsfrist, Rückwärtskompatibilität und die Rücknahme des Umbaus ab; die Sicherheitsannahmen sind im Ergebnis dokumentiert",
+			"sc7-b: In der Fehlermeldung „Verbindnug zum Dienst fehlgeschlagen“ ist der Tippfehler korrigiert; es ändert sich nur dieser eine Satz, keine Logik",
+			"sc7-b: Der vorhandene Test, der den Meldungstext prüft, erwartet den korrigierten Text und ist grün",
+		}
+		a := order(S7A, supervisor.OrderImplementation, domain.WOWaiting)
+		a.Title = "Zugriffskontrolle der lokalen Schnittstelle auf das neue Berechtigungsmodell umbauen (Sicherheits- und Rückwärtskompatibilitätsrisiko; im freigegebenen Konzept als Architekturentscheidung mit hoher Unsicherheit ausgewiesen)"
+		a.Concept = &supervisor.ConceptState{
+			Version: "2.0", Class: skills.ConceptStrategic, Criteria: []string{"architecture_change", "permission_change"},
+			Approval: &supervisor.ConceptApprovalInfo{Version: "2.0", Approver: skills.ApproverUser},
+		}
+		b := order(S7B, supervisor.OrderBug, domain.WOWaiting)
+		b.Title = "Tippfehler in der Fehlermeldung „Verbindnug zum Dienst fehlgeschlagen“ korrigieren (ein betroffener Satz, klare Kriterien, keine Logikänderung)"
+		s.Orders = []supervisor.Order{a, b}
 	default:
 		return supervisor.ProjectSnapshot{}, fmt.Errorf("unbekanntes Szenario %q", id)
 	}
@@ -212,6 +237,8 @@ func Predicates(id ID) []Predicate {
 		own = predicatesS5()
 	case S6:
 		own = predicatesS6()
+	case S7:
+		own = predicatesS7()
 	default:
 		return []Predicate{{Name: "known_scenario", Statement: "Das Szenario ist bekannt", Check: func(domain.DecisionBatch, supervisor.ProjectSnapshot) []string {
 			return []string{fmt.Sprintf("unbekanntes Szenario %q", id)}
@@ -599,6 +626,140 @@ func predicatesS6() []Predicate {
 				return []string{"S6: Zielabschluss angefordert, obwohl der Auftrag noch nicht integriert ist"}
 			}
 			return nil
+		}),
+	}
+}
+
+// ---- S7: Profilwahl nach Zustand -------------------------------------------------------------------------------------
+
+// modelTier stuft ein Modell nach seiner Familie ein (haiku < sonnet < opus). Das Angebot der Rolle im Snapshot trägt keine
+// Stärkeordnung (die Modelle stehen dort sortiert nach ID); die Familie im Namen ist die einzige Angabe dazu. Modell-IDs stehen
+// weiterhin nur in der Konfiguration, hier nur die Familiennamen. Ein Modell ohne bekannte Familie ist nicht einstufbar.
+func modelTier(model string) (int, bool) {
+	for i, family := range []string{"haiku", "sonnet", "opus"} {
+		if strings.Contains(model, family) {
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+// profileAgainstDefault vergleicht die Auswahl mit dem Standard der Rolle im Angebot: ob das Modell stärker ist (Familie) und ob
+// der Effort höher ist (Reihenfolge der Stufen im Angebot). problem ist gesetzt, wenn sich ein Vergleich nicht anstellen lässt.
+func profileAgainstDefault(sel *domain.Selection, offer supervisor.RoleOffer) (modelStronger, effortStronger bool, problem string) {
+	if sel == nil {
+		return false, false, "keine Auswahl"
+	}
+	if sel.Model != offer.Model {
+		got, ok1 := modelTier(sel.Model)
+		def, ok2 := modelTier(offer.Model)
+		if !ok1 || !ok2 {
+			return false, false, fmt.Sprintf("Modellstärke von %q gegenüber dem Standard %q nicht einstufbar", sel.Model, offer.Model)
+		}
+		modelStronger = got > def
+	}
+	got, def := slices.Index(offer.AllowedEfforts, sel.Effort), slices.Index(offer.AllowedEfforts, offer.Effort)
+	if got < 0 || def < 0 {
+		return false, false, fmt.Sprintf("Effort %q oder Standard %q nicht im Angebot der Rolle", sel.Effort, offer.Effort)
+	}
+	return modelStronger, got > def, ""
+}
+
+// implementationsOf liefert die Implementierungsentscheidungen für den Auftrag.
+func implementationsOf(b domain.DecisionBatch, orderID string) []domain.Decision {
+	var out []domain.Decision
+	for _, d := range b.Decisions {
+		if d.Action == domain.ActionImplementation && d.Target.ID == orderID {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func implementerOffer(snap supervisor.ProjectSnapshot) (supervisor.RoleOffer, bool) {
+	for _, o := range snap.Roles {
+		if o.Role == domain.RoleImplementer {
+			return o, true
+		}
+	}
+	return supervisor.RoleOffer{}, false
+}
+
+// S7: Beide Aufträge werden implementiert; das Profil folgt dem Zustand. Der kritische, unsichere Auftrag verlangt ein strengeres
+// Profil als der Rollenstandard (stärkeres Modell oder höherer Effort), der triviale, gut beschriebene Auftrag kein stärkeres. Die
+// Prädikate urteilen über die Struktur der Auswahl, nie über den Wortlaut der Begründung.
+func predicatesS7() []Predicate {
+	return []Predicate{
+		{Name: "both_orders_implemented", Statement: "Die unabhängigen, startbaren Aufträge sc7-a und sc7-b werden beide von der Rolle implementer implementiert, jeder mit eigener Aufwandsschätzung (Aufwand getrennt vom Effort)", Check: func(b domain.DecisionBatch, _ supervisor.ProjectSnapshot) []string {
+			var out []string
+			for _, id := range []string{S7A, S7B} {
+				impls := implementationsOf(b, id)
+				if len(impls) == 0 {
+					out = append(out, fmt.Sprintf("S7: keine Implementierung für den unabhängigen, startbaren Auftrag %s", id))
+				}
+				for _, d := range impls {
+					if d.Selection == nil || d.Selection.Role != domain.RoleImplementer {
+						out = append(out, fmt.Sprintf("S7: die Implementierung von %s gehört der Rolle implementer", id))
+					}
+					if d.Estimate == nil {
+						out = append(out, fmt.Sprintf("S7: keine Aufwandsschätzung für %s (der Aufwand ist vom Effort getrennt anzugeben)", id))
+					}
+				}
+			}
+			return out
+		}},
+		{Name: "critical_order_stricter_profile", Statement: "Für den kritischen, unsicheren Auftrag sc7-a wird ein strengeres Profil als der Rollenstandard gewählt (stärkeres Modell oder höherer Effort laut Angebot)", Check: func(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
+			offer, ok := implementerOffer(snap)
+			if !ok {
+				return []string{"S7: kein Angebot für die Rolle implementer im Snapshot"}
+			}
+			impls := implementationsOf(b, S7A)
+			if len(impls) == 0 {
+				return []string{fmt.Sprintf("S7: keine Implementierung für %s, das Profil lässt sich nicht beurteilen", S7A)}
+			}
+			var out []string
+			for _, d := range impls {
+				modelUp, effortUp, problem := profileAgainstDefault(d.Selection, offer)
+				switch {
+				case problem != "":
+					out = append(out, fmt.Sprintf("S7: %s: %s", S7A, problem))
+				case !modelUp && !effortUp:
+					out = append(out, fmt.Sprintf("S7: %s mit %s/%s ist nicht strenger als der Rollenstandard %s/%s", S7A, d.Selection.Model, d.Selection.Effort, offer.Model, offer.Effort))
+				}
+			}
+			return out
+		}},
+		{Name: "trivial_order_not_stronger", Statement: "Für den trivialen, gut beschriebenen Auftrag sc7-b wird kein stärkeres Profil als der Rollenstandard gewählt (weder stärkeres Modell noch höherer Effort)", Check: func(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
+			offer, ok := implementerOffer(snap)
+			if !ok {
+				return []string{"S7: kein Angebot für die Rolle implementer im Snapshot"}
+			}
+			impls := implementationsOf(b, S7B)
+			if len(impls) == 0 {
+				return []string{fmt.Sprintf("S7: keine Implementierung für %s, das Profil lässt sich nicht beurteilen", S7B)}
+			}
+			var out []string
+			for _, d := range impls {
+				modelUp, effortUp, problem := profileAgainstDefault(d.Selection, offer)
+				switch {
+				case problem != "":
+					out = append(out, fmt.Sprintf("S7: %s: %s", S7B, problem))
+				case modelUp || effortUp:
+					out = append(out, fmt.Sprintf("S7: %s mit %s/%s ist stärker als der Rollenstandard %s/%s, obwohl der Auftrag trivial und gut beschrieben ist", S7B, d.Selection.Model, d.Selection.Effort, offer.Model, offer.Effort))
+				}
+			}
+			return out
+		}},
+		pred("rationales_state_profile_reason", "Die Begründungen beider Beauftragungen sind angegeben und nennen den Grund der Profilwahl (geprüft wird nur das Vorhandensein, nicht der Wortlaut)", func(b domain.DecisionBatch) []string {
+			var out []string
+			for _, id := range []string{S7A, S7B} {
+				for _, d := range implementationsOf(b, id) {
+					if strings.TrimSpace(d.Rationale) == "" {
+						out = append(out, fmt.Sprintf("S7: keine Begründung der Profilwahl für %s", id))
+					}
+				}
+			}
+			return out
 		}),
 	}
 }
