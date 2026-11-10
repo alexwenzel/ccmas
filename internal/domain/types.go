@@ -258,6 +258,11 @@ type SessionStarted struct {
 	Model         string `json:"model"`
 	Effort        Effort `json:"effort"`
 	ClaudeVersion string `json:"claude_version"`
+	// Optionale Angaben zur wirksamen Konfiguration (CC-17): Berechtigungsmodus,
+	// gestartetes Binary und Art der Anmeldung (nie Konto-Daten).
+	PermissionMode string     `json:"permission_mode,omitempty"`
+	ClaudeBinary   string     `json:"claude_binary,omitempty"`
+	AuthSource     AuthSource `json:"auth_source,omitempty"`
 }
 
 // Activity ist der Payload von activity.

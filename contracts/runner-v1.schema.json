@@ -142,7 +142,20 @@
         "session_id": { "$ref": "common-v1.schema.json#/$defs/id" },
         "model": { "$ref": "common-v1.schema.json#/$defs/model" },
         "effort": { "$ref": "common-v1.schema.json#/$defs/effort" },
-        "claude_version": { "$ref": "common-v1.schema.json#/$defs/label" }
+        "claude_version": { "$ref": "common-v1.schema.json#/$defs/label" },
+        "permission_mode": {
+          "description": "Wirksamer Berechtigungsmodus der Sitzung laut Init-Meldung der CLI (zum Beispiel dontAsk). Optional, ab CC-17.",
+          "$ref": "common-v1.schema.json#/$defs/label"
+        },
+        "claude_binary": {
+          "description": "Tatsächlich gestartetes Claude-Code-Binary (absoluter Pfad). Optional, ab CC-17.",
+          "$ref": "common-v1.schema.json#/$defs/abs_path"
+        },
+        "auth_source": {
+          "description": "Art der aktiven Anmeldung, nie Konto-, E-Mail- oder Organisationsdaten. claude_ai: Abonnement-Anmeldung; api_key und other werden vom Runner nie als Betriebsweg gemeldet. Optional, ab CC-17.",
+          "enum": ["claude_ai", "api_key", "other"],
+          "x-error-class": "value"
+        }
       }
     },
     "activity": {

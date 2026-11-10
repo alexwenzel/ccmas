@@ -79,7 +79,7 @@ Go → Python: `start`, `answer`, `interrupt`, `stop`. Python → Go: `session_s
 | `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id |
 | `answer` | `Answer` | **answer_id, question_id, text, created_at**; delivery_confirmed_at (wird nie mitgesendet; Go lehnt es beim Senden ab) |
 | `interrupt`, `stop` | `InterruptPayload`, `StopPayload` | **reason** (`user_request`, `timeout`, `shutdown`, `superseded`) |
-| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; model und effort sind die *wirksamen* Werte |
+| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
 | `activity` | `Activity` | **kind** (`assistant_text`, `thinking`, `waiting`, `idle`), **summary** (≤ 512 Zeichen); keine Fortschrittsprozente |
 | `tool_event` | `ToolEvent` | **tool_use_id, tool, phase** (`started`, `finished`, `failed`); summary |
 | `question` | `QuestionPayload` | **question_id, question, context**; recommendation |
