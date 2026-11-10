@@ -33,10 +33,11 @@ make check    # test, race, vet, build, py-test
 
 ## Subagenten
 
-`.claude/agents/` legt die Worker mit festen Parametern fest; der Orchestrator (Hauptsitzung) delegiert dorthin:
+`.claude/agents/` legt Planer, Worker und Reviewer mit festen Parametern fest. Der Orchestrator (Hauptsitzung) beauftragt je Meilenstein einen `ccmas-planner`; dieser setzt Worker und Reviewer ein:
 
 | Agent | Modell / Effort | Rolle |
 |---|---|---|
+| `ccmas-planner` | opus / xhigh | Einen Meilenstein planen und steuern: Worktrees anlegen, Worker und frische Reviewer einsetzen, freigegebene Commits melden; kein Push, kein Merge, kein Asana/Vault |
 | `ccmas-worker` | sonnet / high | Ein Ticket im vorbereiteten Worktree umsetzen, testen, committen; kein Push, kein Merge, kein Asana/Vault |
 | `ccmas-reviewer` | sonnet / high | Unabhängiges, nur lesendes Review des committeten Stands vor dem Push |
 
