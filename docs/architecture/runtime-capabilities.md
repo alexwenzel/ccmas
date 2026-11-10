@@ -21,7 +21,7 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Interrupt/Stop | Interrupt über das Protokoll während eines laufenden Bash-Prozesses: Prozess beendet, genau ein terminales `result` mit `cancelled` (Beleg `live-interrupt.jsonl`) | Stop als eigener Sitzungsabschluss (der Runner behandelt `stop` wie `interrupt`); Prozessbaum bei Schlaf/Absturz | – |
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
 | Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
-| Fremde Quellen (Projektdateien, Connectors, Plugins, Skills) | Im Runner-Lauf (`setting_sources=[]`) laden weder Hook, Projekt-Skill noch Benutzer-Skills/-Plugins aus dem Konfigurationsverzeichnis; `mcp_servers` ist 0; Positivkontrolle mit Quelle `project` zeigt Hook und Skill (Belege `live-roundtrip.jsonl`, `live-structured-output.jsonl`, Abschnitt 5) | Wirkung von `disableClaudeAiConnectors` (Anzahl ist auch ohne die Einstellung 0), Nachladen von Connectors nach dem Init-Frame, Herkunft von 3 Plugins mit Pfad außerhalb des Konfigurationsverzeichnisses, `CLAUDE.md` (keine Positivkontrolle) | – |
+| Fremde Quellen (Projektdateien, Connectors, Plugins, Skills) | Im Runner-Lauf (`setting_sources=[]`) laden weder Hook, Projekt-Skill noch Benutzer-Skills/-Plugins aus dem Konfigurationsverzeichnis; `mcp_servers` ist 0; Positivkontrolle mit Quelle `project` zeigt Hook und Skill (Belege `live-roundtrip.jsonl`, `live-structured-output.jsonl`, Abschnitt 5) | Wirkung von `disableClaudeAiConnectors` (Anzahl ist auch ohne die Einstellung 0), Nachladen von Connectors nach dem Init-Frame, Herkunft von 3 Plugins mit Pfad außerhalb des Konfigurationsverzeichnisses, `CLAUDE.md` (Positivkontrolle nicht deterministisch: Marker erschien in einem Positivlauf nicht, im Review-Lauf schon; Abschnitt 5) | – |
 | Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen, Lesen unter `~/.claude` | **Unbeaufsichtigter Modus:** nicht freigegeben (`scoped_write` ist ein Prüfprofil; Profil `autonomous` wird abgelehnt) |
 | Diagnosen ohne Konto | Abschnitt 6 (Tests ohne Konto-Zugriff) | Abo-Limit gegen die echte CLI (nur mit Fake-Client belegt) | – |
 | Remote Control | nur Dokumentation und `--help` gelesen (Abschnitt 7) | SDK-Sitzungen in Remote Control | – |
@@ -185,12 +185,13 @@ Kompatibilitätsmatrix.
 
 ## 4. Echte SDK-Läufe und Belege
 
-Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-out. In CC-17 sind insgesamt **21 echte
+Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-out. In CC-17 sind insgesamt **25 echte
 Sitzungen** gelaufen: 7 Vorversuche mit Wegwerf-Skripten (Basislauf und Isolationsvergleich, Abschnitt 5), 7 frühere Läufe
-über den Runner (ersetzt, siehe unten) und 7 in der Abschlussrunde vom 2026-11-10. Die Belege stammen ausschließlich aus
-der Abschlussrunde (4 Belegläufe); die übrigen drei Sitzungen der Runde waren Diagnoseläufe ohne Beleg: die rohe
-Read-Meldung (Abschnitt 5), ein erster Roundtrip-Lauf, dessen Quellenurteil zum Befund über die Plugins führte, und die
-Gegenprobe ohne `disableClaudeAiConnectors` (Abschnitt 5).
+über den Runner (ersetzt, siehe unten), 7 in der Abschlussrunde vom 2026-11-10 und 4 im unabhängigen Abschluss-Review
+(siehe „Stand der Läufe“). Die eingecheckten Belege stammen ausschließlich aus der Abschlussrunde (4 Belegläufe); die
+übrigen drei Sitzungen der Runde waren Diagnoseläufe ohne Beleg: die rohe Read-Meldung (Abschnitt 5), ein erster
+Roundtrip-Lauf, dessen Quellenurteil zum Befund über die Plugins führte, und die Gegenprobe ohne
+`disableClaudeAiConnectors` (Abschnitt 5).
 
 **Was der Beleg enthält und was nur der Test prüft:** Die Protokoll-Belege enthalten die Protokollereignisse nach der
 Kopfzeile. Weitere Prüfungen führt der Live-Test selbst aus; sie stehen nicht oder nur teilweise in den Belegen:
@@ -216,8 +217,15 @@ darin. Die Dateien liegen unter `docs/architecture/evidence/` (alle vom 2026-11-
 **Stand der Läufe:** Der erste Lauf der Live-Suite in der Abschlussrunde bestand `test_live_interrupt…`,
 `test_scope_probe` und `test_live_positive_control_and_structured_output`; `test_live_sdk_roundtrip` scheiterte am
 Quellenurteil (Befund zu den Plugins, Abschnitt 5). Nach der Ergänzung der Messgröße `plugins_in_config_dir` in der
-Init-Zeile bestand er im zweiten Lauf. Die Suite wurde wegen der Kontingentgrenze (höchstens 7 Sitzungen) nicht noch
-einmal als Ganzes ausgeführt; die Belege stammen aus diesen beiden Läufen.
+Init-Zeile bestand er im zweiten Lauf. Die Abschlussrunde hat die Suite wegen der Kontingentgrenze (höchstens 7
+Sitzungen) nicht noch einmal als Ganzes ausgeführt; die eingecheckten Belege stammen aus diesen beiden Läufen.
+
+Im unabhängigen Abschluss-Review am 2026-11-10 auf Commit 8171ff8 lief die gesamte Live-Suite dagegen einmal vollständig
+und bestand **4 von 4** (4 Sitzungen). Session-IDs: Roundtrip `b8cf129b-b0d5-4795-aba3-4da64b386599`, Interrupt
+`b354a083-f39b-4425-b4b5-077776fe57da`, Scope-Probe `be1125e2-3c58-44f1-b3a1-c4822211f6b4`, strukturierte
+Ausgabe und Positivkontrolle `2779c89c-bd10-4e01-bf1e-2817a627798a`. Die Belege dieses Laufs lagen nur im Scratchpad des
+Reviews und sind nicht eingecheckt; Aufbau und Schwärzung entsprachen den eingecheckten Belegen. Eine Abweichung der
+Positivkontrolle für `CLAUDE.md` zwischen dem eingecheckten Beleg und dem Review-Lauf steht in Abschnitt 5.
 
 Beobachtung zu Limits: Ein `RateLimitEvent` (Status `allowed`, Fenster `five_hour`, Überziehung `rejected`, Grund
 `org_level_disabled`) zeigt, dass keine Überziehungsabrechnung aktiv ist. Die gemeldeten Kosten werden lokal zum
@@ -292,7 +300,7 @@ Fixture anlegt, und der Skill `ccmas-probe`. Ergebnis im Runner-Lauf:
 | --- | --- | --- |
 | Hook-Markerdatei | nicht entstanden | Projekt-Hook wurde nicht ausgeführt |
 | Skill `ccmas-probe` im Init-Frame | nein | Projekt-Skill nicht geladen |
-| Marker `ZEBRA17` in den Ereignissen | nein | `CLAUDE.md` wurde nicht befolgt (siehe Einschränkung unten) |
+| Marker `ZEBRA17` in den Ereignissen | nein | `CLAUDE.md` wurde nicht befolgt (schwächer belegt als Hook und Skill, da die Positivkontrolle nicht deterministisch ist, siehe Einschränkung unten) |
 | `mcp_servers` | 0 | keine MCP-Server, keine Connectors im Init-Frame |
 | `plugins_in_config_dir` | 0 (bei `plugins` = 3) | kein Plugin aus dem Konfigurationsverzeichnis des Benutzers, auch kein synchronisiertes |
 | Skills des Benutzers (Konfigurationsverzeichnis, eigene und synchronisierte) im Init-Frame | 0 von 1 vorhandenen | Gegenprobe ist nicht leer: es liegt ein solcher Skill lokal vor und wurde nicht geladen |
@@ -300,14 +308,19 @@ Fixture anlegt, und der Skill `ccmas-probe`. Ergebnis im Runner-Lauf:
 
 **Positivkontrolle** (`live-structured-output.jsonl`, Probe-Skript `tests/probe_sources.py`, gleiches Fixture, gleiche Rechte
 wie `readonly`, Bereinigung und Vorprüfung mit den Modulen des Runners, aber `setting_sources=["project"]`): Hook-Markerdatei
-entstand, `ccmas-probe` stand im Init-Frame (20 statt 19 Skills), `mcp_servers` 0, `plugins` 3. Das Ausbleiben im Runner-Lauf
-ist damit eine Wirkung der Konfiguration und nicht einer wirkungslosen Probe.
+entstand, `ccmas-probe` stand im Init-Frame (20 statt 19 Skills), `mcp_servers` 0, `plugins` 3. Das Ausbleiben von Hook und Skill im Runner-Lauf
+ist damit eine Wirkung der Konfiguration und nicht einer wirkungslosen Probe. Für `CLAUDE.md` gilt das nur
+eingeschränkt: der Marker erschien in diesem Positivlauf nicht (siehe Einschränkungen unten).
 
 **Einschränkungen und Befunde:**
 
-- **`CLAUDE.md` ohne Positivkontrolle.** Auch im Positivlauf erschien der Marker nicht im Text (die Antwort war eine
-  strukturierte Ausgabe). Die Aussage „`CLAUDE.md` nicht geladen“ stützt sich auf den Runner-Lauf allein und ist schwächer
-  als die für Hook und Skill.
+- **`CLAUDE.md`: Positivkontrolle nicht deterministisch.** Im eingecheckten Beleg `live-structured-output.jsonl` erschien
+  der Marker `ZEBRA17` im Positivlauf nicht im Text (`claude_md_marker_in_text` false; die Antwort war eine strukturierte
+  Ausgabe). Im Review-Lauf `2779c89c-bd10-4e01-bf1e-2817a627798a` (Abschnitt 4, nicht eingecheckt) erschien er dagegen
+  (Antwort „ok ZEBRA17“, `claude_md_marker_in_text` true). Mit Quelle `project` kann `CLAUDE.md` also wirken, ob der
+  Marker in der Antwort steht, ist aber Modellverhalten und damit nicht deterministisch. Die Negativaussage „`CLAUDE.md`
+  im Runner-Lauf nicht befolgt“ ist deshalb schwächer als die für Hook und Skill, die über Dateistand (Markerdatei)
+  beziehungsweise Init-Frame belegt sind.
 - **3 Plugins im Init-Frame, Herkunft offen (Befund).** `plugins` ist im Runner-Lauf 3, mit und ohne Quelle `project`, und
   der Pfad liegt bei allen drei außerhalb des Konfigurationsverzeichnisses, ohne Marketplace-Kennung (`@…`). Es handelt
   sich damit nicht um synchronisierte oder installierte Plugins des Benutzers (diese lägen unter `~/.claude/plugins/`; der
@@ -376,7 +389,8 @@ Git über Go, Toolchain-Caches, Netzwerk-Allowlist; B ist nicht erprobt.
   9. `~/.claude` bleibt für die Dateiwerkzeuge lesbar (siehe „Read-Grenze und Meldung“).
   10. Ohne CLI-Upgrade steht `permissions.blockWritesOutsideWorkingDirectories` (laut Settings-Doku ab 2.1.314) nicht zur
       Verfügung; die Schreibgrenze der Dateiwerkzeuge beruht auf den pfadgebundenen Regeln.
-  11. Fremde Quellen: Herkunft der 3 Plugins, Nachladen von Connectors, `CLAUDE.md` ohne Positivkontrolle (siehe oben).
+  11. Fremde Quellen: Herkunft der 3 Plugins, Nachladen von Connectors, `CLAUDE.md` mit nicht deterministischer
+      Positivkontrolle (siehe oben).
 
 **Abnahmeexperimente je Lücke (M04, kurz, jeweils mit Kontrolllauf ohne Grenze und echtem Worktree unter dem
 Home-Verzeichnis):**
@@ -475,39 +489,59 @@ sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch 
 
 ## Offene Punkte für M04 (CC-40) und folgende
 
-- **Interrupt-Race:** Ein Interrupt/Stop, der vor dem Senden der Anfrage eintrifft, wird vorgemerkt und direkt nach
-  `client.query` angewendet (Test mit Fake-Client). Nicht live belegt: ob die CLI einen Interrupt unmittelbar nach dem
-  Senden der Anfrage immer vor dem ersten Modellaufruf wirksam abbricht.
-- **Abo-Wartezustand in Go:** Der Runner sendet einen nicht terminalen `error` (`kind: subscription_limit`) und danach
-  ein terminales `result` `controlled_failure`. Wie Go das als Wartezustand ohne Crash-Zählung behandelt, ist offen.
-- **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und
-  Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04.
-- **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
-- **Isolation (Entscheidung A plus Spike B vom 10.11.2026, Abschnitt 5):** Git-Schreibaktionen nur über Go, Toolchain-Caches
-  je Ausführung im erlaubten Bereich, Netzwerk nur über eine Allowlist, Werkzeugkette in der Sandbox, Hooks/MCP, Spike B
-  (äußeres `sandbox-exec`-Profil um Runner und CLI) und eine kontrollierte Umgebung per Allowlist, bevor ein unbeaufsichtigter
-  Modus ausgewiesen wird. Bis dahin ist `scoped_write` ein Prüfprofil.
-- **Lesbarkeit von `~/.claude`:** Die Lesegrenze der Dateiwerkzeuge lässt laut Settings-Doku Skills, Plugins, Regeln, Agents,
-  Commands und `CLAUDE.md` unter `~/.claude` lesbar. Nur dokumentiert, nicht geprobt; die Wirkung (zum Beispiel
-  Konfiguration mit Inhalten, die nicht in eine Sitzung gehören) und die Gegenmaßnahme (eigenes Konfigurationsverzeichnis je
-  Ausführung über `CLAUDE_CONFIG_DIR`, Sandbox-`denyRead`) sind zu entscheiden.
-- **Fremde Quellen:** Herkunft der 3 Plugins im Init-Frame klären; Wirkung von `disableClaudeAiConnectors` und spätes Nachladen
-  von Connectors prüfen; `CLAUDE.md` positiv kontrollieren; ob die mitgelieferten Skills/Agents (19/5) in einer Sitzung mit
-  Positivliste in `tools` nutzbar sind; ob `syncClaudeAiSkills`/`syncClaudeAiPlugins` per `--settings` ohne Verschiebung
-  nach `.trash` wirken würden (nur dann wäre ein Setzen zu erwägen).
-- **Schreibgrenze ohne CLI-Upgrade:** `permissions.blockWritesOutsideWorkingDirectories` (laut Settings-Doku ab 2.1.314) ist
-  mit der lokalen 2.1.311 nicht verfügbar; ein CLI-Upgrade ist keine Entscheidung dieses Tickets. Vor einem Upgrade wäre die
-  Versionssperre (`VERIFIED_CLI_VERSION`) und der gesamte Nachweis zu wiederholen.
-- **Laufzeitgrenze:** Die Aufräumzeit eines abgebrochenen `connect()` im SDK (`disconnect()`) ist nicht vom Runner
-  begrenzt (unbegrenzte SDK-Aufräumzeit); auf einem Rechner im Schlaf oder bei hängendem CLI-Prozess bleibt die
-  Prozessgruppen-Beendigung durch Go (M04) maßgeblich. Randfall: Läuft die Zeitgrenze ab, während ein `_Abort`
-  (zum Beispiel `api_billing_detected`) den Interrupt auslöst, kann der Timeout die Ursache überdecken; das Ergebnis ist dann
-  `max_runtime_exceeded` statt der eigentlichen Diagnose.
-- **Systemprompt:** Ohne `system_prompt` startet das SDK mit `--system-prompt ""`; ob Runner-Sitzungen einen eigenen Prompt
-  oder den Standardprompt von Claude Code bekommen, ist in M02 zu wählen.
-- **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
-- **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
-- **Skills** (`skill_ids`) werden noch nicht angewendet.
-- **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt als Hintergrund dokumentiert; der Betrieb ist durch die Entscheidung
-  des Projektinhabers vom 10.11.2026 angenommen und blockiert M02 bis M04 nicht. Zu beobachten bleibt die Aussage „for now“ der
-  Support-Seite.
+1. **Plugins unbekannter Herkunft (Abschnitt 5, „Fremde Quellen“):** Der Init-Frame nennt 3 Plugins mit Pfad außerhalb des
+   Konfigurationsverzeichnisses, ohne Marketplace-Kennung; vermutlich mit der CLI geliefert, unbestätigt. Herkunft klären
+   (Einträge des Init-Frames, `source`) und, wenn nötig, abschalten.
+2. **Sync-Schalter `syncClaudeAiSkills`/`syncClaudeAiPlugins` bewusst nicht gesetzt (Abschnitt „Der Runner in diesem
+   Stand“, Abschnitt 5):** `false` in Benutzer- oder verwalteten Einstellungen verschiebt laut Settings-Doku bereits
+   synchronisierte Skills und Plugins nach `.trash`. Per `--settings` prüfen, ob die Schalter ohne Verschiebung wirken (nur
+   dann wäre ein Setzen zu erwägen).
+3. **Connectors (Abschnitt 5, „Fremde Quellen“):** Die Wirkung von `disableClaudeAiConnectors` ist nicht belegt (`mcp_servers`
+   ist auch ohne die Einstellung 0). Ein spätes Nachladen von Connectors nach dem Init-Frame ist nicht ausgeschlossen und
+   zu prüfen.
+4. **`CLAUDE.md` und mitgelieferte Skills/Agents (Abschnitt 5, „Fremde Quellen“):** Die Positivkontrolle für `CLAUDE.md` ist
+   nicht deterministisch (Modellverhalten, siehe Einschränkungen); die Negativaussage im Runner-Lauf bleibt schwächer als
+   die für Hook und Skill. Außerdem offen: ob die mitgelieferten Skills/Agents (19/5) in einer Sitzung mit Positivliste in
+   `tools` nutzbar sind.
+5. **`skill_names` in der Init-Zeile auf stderr (Abschnitt „Der Runner in diesem Stand“):** Würde je eine Benutzer- oder
+   Projektquelle geladen, stünden persönliche Skill-Namen im Log, auch in Test-Fehlermeldungen über `proc.stderr`. Die
+   Namen nur hinter einem Diagnose-Schalter ausgeben.
+6. **Lesbarkeit von `~/.claude` (Abschnitt 5, „Read-Grenze und Meldung“):** Die Dateiwerkzeuge können `~/.claude` trotz
+   `blockReadsOutsideWorkingDirectories` lesen (laut Settings-Doku Skills, Plugins, Regeln, Agents, Commands und
+   `CLAUDE.md`). Nur dokumentiert, nicht geprobt; die Wirkung (zum Beispiel Konfiguration mit Inhalten, die nicht in eine
+   Sitzung gehören) und die Gegenmaßnahme (eigenes Konfigurationsverzeichnis je Ausführung über `CLAUDE_CONFIG_DIR`,
+   Sandbox-`denyRead`) sind zu entscheiden.
+7. **Schreibgrenze ohne CLI-Upgrade (Abschnitt 3, Abschnitt 5):** `permissions.blockWritesOutsideWorkingDirectories` gibt es
+   laut Settings-Doku erst ab CLI 2.1.314; die lokale 2.1.311 hat sie nicht, und ein Upgrade ist nicht beschlossen. Vor einem
+   Upgrade wären die Versionssperre (`VERIFIED_CLI_VERSION`) und der gesamte Nachweis zu wiederholen.
+8. **Isolationslücken nach Entscheidung A plus Spike B vom 10.11.2026 (Abschnitt 5, „Isolationsurteil“):** Git-Schreibaktionen
+   nur über Go, Toolchain-Caches je Ausführung im erlaubten Bereich, Netzwerk nur über eine Allowlist, Werkzeugkette in der
+   Sandbox, Hooks/MCP, Spike B (äußeres `sandbox-exec`-Profil um Runner und CLI) und eine kontrollierte Umgebung per
+   Allowlist, bevor ein unbeaufsichtigter Modus ausgewiesen wird.
+9. **`scoped_write` ist ein Prüfprofil, das in Go erzwungen werden muss (Abschnitt „Der Runner in diesem Stand“, Abschnitt 5):**
+   Das Profil ist technisch für jedes Arbeitsverzeichnis startbar. Der Status „Prüfprofil“ ist in Go durchzusetzen, bis ein
+   unbeaufsichtigter Modus nach bestandener Scope-Probe freigegeben ist.
+10. **Laufzeitgrenze (Abschnitt „Der Runner in diesem Stand“, „Grenzen“):** Die Aufräumzeit eines abgebrochenen `connect()` im
+    SDK (`disconnect()`) ist nicht vom Runner begrenzt (unbegrenzte SDK-Aufräumzeit); auf einem Rechner im Schlaf oder bei
+    hängendem CLI-Prozess bleibt die Prozessgruppen-Beendigung durch Go (M04) maßgeblich. Randfall: Läuft die Zeitgrenze ab,
+    während ein `_Abort` (zum Beispiel `api_billing_detected`) den Interrupt auslöst, kann der Timeout die Ursache
+    überdecken; das Ergebnis ist dann `max_runtime_exceeded` statt der eigentlichen Diagnose.
+11. **Systemprompt (Abschnitt „Der Runner in diesem Stand“):** Ohne `system_prompt` startet das SDK mit `--system-prompt ""`;
+    ob Runner-Sitzungen einen eigenen Prompt oder den Standardprompt von Claude Code bekommen, ist in M02 zu wählen.
+12. **Live-Tests nur auf diesem Rechner:** `REAL_CLAUDE` in `tests/support.py` ist fest auf `/opt/homebrew/bin/claude`
+    gesetzt. Die Live-Tests und der Test mit leerem `CLAUDE_CONFIG_DIR` laufen nur auf einem Rechner mit diesem Binary
+    (sonst werden sie übersprungen).
+13. **Interrupt-Race:** Ein Interrupt/Stop, der vor dem Senden der Anfrage eintrifft, wird vorgemerkt und direkt nach
+    `client.query` angewendet (Test mit Fake-Client). Nicht live belegt: ob die CLI einen Interrupt unmittelbar nach dem
+    Senden der Anfrage immer vor dem ersten Modellaufruf wirksam abbricht.
+14. **Abo-Wartezustand in Go:** Der Runner sendet einen nicht terminalen `error` (`kind: subscription_limit`) und danach
+    ein terminales `result` `controlled_failure`. Wie Go das als Wartezustand ohne Crash-Zählung behandelt, ist offen.
+15. **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und
+    Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04.
+16. **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
+17. **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
+18. **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
+19. **Skills** (`skill_ids`) werden noch nicht angewendet.
+20. **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt als Hintergrund dokumentiert; der Betrieb ist durch die Entscheidung
+    des Projektinhabers vom 10.11.2026 angenommen und blockiert M02 bis M04 nicht. Zu beobachten bleibt die Aussage „for now“ der
+    Support-Seite.
