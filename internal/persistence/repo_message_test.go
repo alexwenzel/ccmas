@@ -870,3 +870,56 @@ func TestCreateMessageEveryKindWithItsRequiredLinks(t *testing.T) {
 		}
 	}
 }
+
+// TestMessageJournalIsAppendOnly: Nachrichten und Zustellungen werden nicht gelöscht, auch nicht mit direktem SQL und auch
+// nicht mit ausgeschaltetem Fremdschlüssel-Schalter (Trigger der Migration 003, wie events in 001).
+func TestMessageJournalIsAppendOnly(t *testing.T) {
+	s := msgStore(t)
+	msgCreate(t, s, msgFixture("m-1", "orchestrator", "supervisor"))
+	msgTransition(t, s, "m-1", "orchestrator", domain.DeliveryPending, domain.DeliveryDelivered)
+	msgTransition(t, s, "m-1", "orchestrator", domain.DeliveryDelivered, domain.DeliveryAcknowledged)
+	events := countEvents(t, s)
+
+	for name, stmt := range map[string]string{
+		"Zustellung löschen":    "DELETE FROM message_deliveries WHERE message_id = 'm-1' AND recipient = 'supervisor'",
+		"bestätigte Zustellung": "DELETE FROM message_deliveries WHERE state = 'acknowledged'",
+		"alle Zustellungen":     "DELETE FROM message_deliveries",
+		"Nachricht löschen":     "DELETE FROM messages WHERE message_id = 'm-1'",
+		"alle Nachrichten":      "DELETE FROM messages",
+	} {
+		err := execSQL(t, s, stmt)
+		if err == nil {
+			t.Errorf("%s: gelang", name)
+			continue
+		}
+		wantCode(t, mapErr(err), CodeConstraint)
+	}
+	// Auch mit ausgeschaltetem Fremdschlüssel-Schalter bleiben die Zeilen (die Trigger wirken unabhängig davon).
+	conn, err := s.w.Conn(ctxT(t))
+	must(t, err)
+	if _, err := conn.ExecContext(ctxT(t), "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.ExecContext(ctxT(t), "DELETE FROM messages")
+	if err == nil {
+		t.Error("DELETE ohne Fremdschlüssel-Schalter gelang")
+	} else {
+		wantCode(t, mapErr(err), CodeConstraint)
+	}
+	if _, err := conn.ExecContext(ctxT(t), "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, conn.Close()) // gibt die einzige Schreibverbindung zurück
+
+	if msgCount(t, s, "messages") != 1 || msgCount(t, s, "message_deliveries") != 2 || countEvents(t, s) != events {
+		t.Error("das Journal hat sich verändert")
+	}
+	var state string
+	must(t, s.r.QueryRowContext(ctxT(t), "SELECT state FROM message_deliveries WHERE message_id = 'm-1' AND recipient = 'orchestrator'").Scan(&state))
+	if state != "acknowledged" {
+		t.Errorf("Zustellzustand = %q, erwartet acknowledged", state)
+	}
+	// Weiterschreiben über die Repositories bleibt möglich.
+	msgCreate(t, s, msgFixture("m-2"))
+	msgTransition(t, s, "m-1", "supervisor", domain.DeliveryPending, domain.DeliveryDelivered)
+}

@@ -9,6 +9,8 @@
 --   * message_deliveries.state -> domain.DeliveryState.CanTransition (Test TestDeliveryTriggers)
 --   * outbox.state             -> domain.OutboxState.CanTransition, Startwerte, Zähler und Form je Zustand
 --                                 (Tests TestOutboxInsertTriggers, TestOutboxTransitionTriggers)
+--   * messages, message_deliveries, outbox sind append-only: kein DELETE (wie events in 001)
+--                                 (Tests TestMessageJournalIsAppendOnly, TestOutboxIsAppendOnly)
 -- Nicht in der Datenbank geprüft, sondern in Go: das Format von Absender und Empfänger (domain.CheckAddress), dass die
 -- Ausführung eines Versuchs zum Auftrag der Nachricht gehört (nur das Projekt bindet der Fremdschlüssel) und die
 -- Grenzen der Nutzdaten.
@@ -149,3 +151,23 @@ END;
 
 -- Fällige Aktionen (pending, retry_wait, reconciling) und abgelaufene Claims liest outbox_by_state aus Migration 001
 -- (project_id, state, next_attempt_at); ein weiterer Index ist nicht nötig.
+
+-- ---- Journal: kein Löschen --------------------------------------------------------------------------------
+
+-- Nachrichten, Zustellungen und externe Aktionen sind Journal wie events: Sie werden angehängt und fortgeschrieben, nie
+-- gelöscht (auch ein erledigter oder abgebrochener Eintrag bleibt als Beleg stehen). Kein Codepfad löscht aus diesen Tabellen.
+-- Wechselwirkung mit 001: Dort gibt es kein ON DELETE CASCADE; die Fremdschluessel (messages -> projects, work_orders,
+-- execution_attempts; message_deliveries -> messages; outbox -> projects) verhindern ohnehin das Löschen eines Elternteils, das
+-- noch Kinder hat. Die Trigger schützen zusätzlich die Zeilen selbst, auch mit ausgeschaltetem Fremdschluessel-Schalter.
+CREATE TRIGGER messages_no_delete BEFORE DELETE ON messages
+BEGIN SELECT RAISE(ABORT, 'messages sind Journal und werden nicht geloescht'); END;
+
+CREATE TRIGGER message_deliveries_no_delete BEFORE DELETE ON message_deliveries
+BEGIN SELECT RAISE(ABORT, 'message_deliveries sind Journal und werden nicht geloescht'); END;
+
+CREATE TRIGGER outbox_no_delete BEFORE DELETE ON outbox
+BEGIN SELECT RAISE(ABORT, 'outbox ist Journal und wird nicht geloescht'); END;
+
+-- Grenze: INSERT OR REPLACE löscht eine kollidierende Zeile, ohne dass ein BEFORE-DELETE-Trigger feuert (SQLite feuert
+-- Löschtrigger bei einer Ersetzung nur mit PRAGMA recursive_triggers). Das gilt ebenso für events in 001. Kein Codepfad nutzt
+-- REPLACE; die Trigger schützen gegen DELETE, nicht gegen diesen Umweg.

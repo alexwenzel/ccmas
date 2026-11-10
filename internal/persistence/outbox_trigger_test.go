@@ -208,3 +208,41 @@ func obGetAttempts(state domain.OutboxState) int {
 	}
 	return 1
 }
+
+// TestOutboxIsAppendOnly: Aktionen der Outbox werden nicht gelöscht, auch nicht erledigte oder abgebrochene (Trigger der
+// Migration 003). Das Journal belegt, welche externe Absicht bestand und wie sie endete.
+func TestOutboxIsAppendOnly(t *testing.T) {
+	s := obStore(t)
+	done, open := obAction(t, "wo-1", "done"), obAction(t, "wo-1", "open")
+	obEnqueue(t, s, done)
+	obClaim(t, s, obT0, time.Minute, 1)
+	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
+		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, "gid-1")
+	})
+	obEnqueue(t, s, open)
+	events := countEvents(t, s)
+
+	for name, stmt := range map[string]string{
+		"erledigte Aktion": "DELETE FROM outbox WHERE state = 'succeeded'",
+		"offene Aktion":    "DELETE FROM outbox WHERE action_id = '" + open.ActionID + "'",
+		"alle Aktionen":    "DELETE FROM outbox",
+		"nach Projekt":     "DELETE FROM outbox WHERE project_id = 'ccmas'",
+	} {
+		err := execSQL(t, s, stmt)
+		if err == nil {
+			t.Errorf("%s: gelang", name)
+			continue
+		}
+		wantCode(t, mapErr(err), CodeConstraint)
+	}
+	if obCount(t, s) != 2 || countEvents(t, s) != events {
+		t.Error("das Journal hat sich verändert")
+	}
+	if got := obGet(t, s, done.ActionID); got.State != domain.OutboxSucceeded || got.ExternalRef != "gid-1" {
+		t.Errorf("erledigte Aktion verändert: %+v", got)
+	}
+	// Fortschreiben über die Repositories bleibt möglich.
+	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
+		return tx.CancelOutbox(projectID, open.ActionID, domain.OutboxPending, "nicht mehr nötig")
+	})
+}

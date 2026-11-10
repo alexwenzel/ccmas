@@ -10,6 +10,15 @@ Nachrichten und Outbox sind **Journal**, kein Planungszustand: Sie stehen nicht 
 `projects.state_revision` nicht (siehe [`persistence.md`](persistence.md)). Jede Änderung schreibt ihr Audit-Ereignis in derselben
 Transaktion; die Ereignisse tragen nie Nutzdaten.
 
+**Append-only:** Die Tabellen `messages`, `message_deliveries` und `outbox` kennen kein Löschen. `BEFORE DELETE`-Trigger
+(Migration 003, wie `events` in 001) weisen jedes `DELETE` ab, auch erledigte, bestätigte oder abgebrochene Zeilen und auch bei
+ausgeschaltetem Fremdschlüssel-Schalter; kein Codepfad löscht dort. Wechselwirkung mit Schema 001: Es gibt kein
+`ON DELETE CASCADE`; die Fremdschlüssel (`messages` → `projects`, `work_orders`, `execution_attempts`; `message_deliveries` →
+`messages`; `outbox` → `projects`) verhindern ohnehin, ein Elternteil zu löschen, das noch Kinder hat, und eine Kaskade könnte
+die Trigger nicht umgehen. Grenze: `INSERT OR REPLACE` löscht eine kollidierende Zeile, ohne dass ein Löschtrigger feuert (SQLite
+tut das nur mit `PRAGMA recursive_triggers`); das gilt ebenso für `events`, und kein Codepfad nutzt `REPLACE`. Belege:
+`TestMessageJournalIsAppendOnly`, `TestOutboxIsAppendOnly`.
+
 ## Nachrichten (W45.1)
 
 ### Arten und Adressen
@@ -84,6 +93,17 @@ Ereignisarten (Ebene `message`): `message.created`, `message.delivered`, `messag
 Eine SQLite-Transaktion umfasst keine gleichzeitig atomare Asana- oder GitHub-Aktion. Der Dienst speichert deshalb die
 **Absicht vor der Ausführung** (in derselben Transaktion wie die auslösende fachliche Änderung) und **gleicht unsichere
 Ergebnisse ab**, statt blind erneut anzulegen. Ein Timeout beweist weder Erfolg noch Misserfolg.
+
+### Vertragsform gegenüber dem Ticket
+
+Das Ticket nennt `Outbox.Enqueue(operationKey, payload)`, `Claim`, `Complete` und `Reconcile`. Umgesetzt ist die folgende Abbildung:
+
+| Ticket | Umsetzung |
+| --- | --- |
+| `Outbox.Enqueue(operationKey, payload)` | `orchestrator.Outbox.Enqueue(ctx, domain.OutboxAction)` (eigene Transaktion) und `persistence.Tx.EnqueueOutbox(action)` (in der Transaktion der auslösenden Änderung). Die Aktion entsteht mit `domain.NewOutboxAction(projectID, kind, target, payload, keyParts…)`; der Schlüssel `operation_key` folgt aus Projekt, Art und stabilen Teilen, nicht aus einem freien Argument. |
+| `Claim` | `persistence.Tx.ClaimOutbox(projectID, now, ttl, limit)` (IMMEDIATE-Transaktion); `Outbox.RunOnce` ruft sie je Aktion einzeln auf. |
+| `Complete` | `persistence.Tx.CompleteOutbox(projectID, actionID, from, externalRef)`; Fehlschläge: `FailOutbox`, `MarkOutboxUncertain`, `EscalateOutbox`. |
+| `Reconcile` | `orchestrator.Outbox.Reconcile(ctx, projectID)` (fällige Abgleiche) über `ExternalAdapter.Lookup`; der Zustandswechsel geschieht in `persistence` (`CompleteOutbox` aus `reconciling`, `RequeueOutbox`, `RetryOutboxReconcile`, `EscalateOutbox`). |
 
 ### Zustände und Übergänge
 
@@ -186,6 +206,12 @@ Weg, Akteur und Grund (Ereignis `outbox.resolved`):
 
 Die CLI-Anbindung folgt mit CC-51.
 
+**Offener Punkt für CC-51:** `retry` führt direkt nach `pending` und verantwortet der Mensch („das externe Objekt existiert nicht“).
+Robuster wäre ein Weg `needs_attention` → `reconciling`: Vor dem erneuten Versuch gleicht der Dienst mit dem externen System ab
+(Marker-Suche) und gelangt erst bei belegtem „nicht vorhanden“ nach `pending`. Das verlangt eine zusätzliche Kante in
+`OutboxState.CanTransition`, in den Triggern der Migration 003 (neue Migration, 003 ist ausgeliefert) und in `Resolve`; es ist
+hier bewusst nicht umgesetzt.
+
 ### Teilbatches
 
 Jede Aktion eines Batches ist eine **eigene Zeile** mit eigenem Schlüssel und wird **einzeln** ausgeführt und bestätigt.
@@ -233,7 +259,8 @@ enthalten laut Vertrag keine Zugangsdaten und gehören nicht ins Audit).
   (verzögerter Suchindex), verursacht ein Duplikat. Deshalb schreibt der Adapter den Marker und prüft ihn in `Execute` ein zweites Mal.
 - Läuft ein Aufruf länger als `ClaimTTL`, nimmt ein anderer Prozess die Aktion in den Abgleich. Ein später eintreffender Erfolg
   wird aus `reconciling` übernommen; ein später eintreffender Fehlschlag nicht (die Aktion bleibt im Abgleich).
-- Eine eskalierte Aktion wartet auf einen Menschen; es gibt keinen automatischen Weg aus `needs_attention`.
+- Eine eskalierte Aktion wartet auf einen Menschen; es gibt keinen automatischen Weg aus `needs_attention` (offener Punkt für CC-51:
+  Abgleich vor dem erneuten Versuch, siehe „Klärungsbedarf“).
 - Die Tabelle `outbox` kennt keine Aktionsarten-Liste, nur die Form `<system>.<aktion>` (`CheckOutboxKind`).
 
 ## Prüfbefehle
