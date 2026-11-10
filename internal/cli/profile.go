@@ -207,6 +207,7 @@ func newProfileCommand() *cobra.Command {
 		newProfileShowCommand(&opts),
 		newProfileSetCommand(&opts),
 		newProfileResolveCommand(&opts),
+		newProfileVerifyCommand(&opts),
 	)
 	for _, c := range cmd.Commands() {
 		c.GroupID = groupProfileCommands

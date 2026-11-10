@@ -14,7 +14,7 @@ und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMA
 rechnen beim Anbieter.
 
 Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35) und den Profilen für Modell
-und Effort (CC-46, W46.1). Vorhanden sind die CLI-Hülle
+und Effort (CC-46, W46.1) und dem Go-Adapter zum Runner samt `profile verify` (CC-46, W46.2). Vorhanden sind die CLI-Hülle
 (`version`, `skills`, `profile`, `agent`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
 `runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
@@ -46,7 +46,8 @@ internal/cli/         Befehlsbaum, Ausgabe, Exit-Codes                 vorhanden
 internal/domain/      Gemeinsame Verträge, Zustände, Prüflogik          vorhanden
 internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhanden
 internal/profiles/    Rollenprofile, Agenten, Modell/Effort (CC-46)     vorhanden
-internal/orchestrator/ supervisor/ workers/ git/ integrations/
+internal/workers/     Adapter zum Python-Runner: runner/ (CC-46)        vorhanden (minimal)
+internal/orchestrator/ supervisor/ git/ integrations/
          monitoring/ persistence/ api/ tui/                             geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
@@ -85,10 +86,10 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 **Heute implementiert:** `ccmas version` (`ccmas <version>`, mit `--json` ein JSON-Objekt mit `version`),
 `ccmas --version`, `ccmas --help` und `ccmas help [befehl]` sowie, seit CC-35, `ccmas skills list|show|validate|snapshot`
 (Ausgabe wahlweise als `--json`; Details, Root-Auflösung und Exit-Codes in [`skill-migration.md`](skill-migration.md)).
-Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve` und `ccmas agent list|show|set|unset`
+Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve|verify` und `ccmas agent list|show|set|unset`
 (Lesebefehle mit `--json`; `set` prüft vor dem Speichern und schreibt bei Fehlern nichts; Konfigurationsverzeichnis
 `--config-dir`, `CCMAS_CONFIG_DIR` oder `<Softwareordner>/.ccmas/config`, Einzelheiten in [`profiles.md`](profiles.md)).
-`profile verify` folgt mit W46.2. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
+`ccmas profile verify [--live]` (seit W46.2) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent; mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
 Ihr Aufruf täuscht kein Verhalten vor.
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`
@@ -113,7 +114,7 @@ sind bis dahin die Festlegung dieses Repositorys.
 startet je Agentenausführung einen eigenen Runner mit explizitem Arbeitsverzeichnis, Argumenten und kontrollierter
 Umgebung. Der Runner ruft das offizielle Claude Agent SDK auf und verbindet Sitzungen, Ereignisse, Fragen,
 Ergebnisse und Abbruch mit Go. Er ist keine zweite Aufgabenverwaltung: Limits, SQLite, Worktree-Locks und externe
-Schreibaktionen bleiben in Go. Der Runner-Einstieg (`python -m claude_sdk_runner`) setzt das Protokoll in einem ersten Umfang um (Start, Ereignisse, Interrupt, genau ein terminales Ergebnis); Fragen, Teilnachrichten und vollständige Steuerung folgen in M04. Skills gelangen nur über einen von Go geschriebenen, vom Runner nachgerechneten und im Init-Frame bestätigten Snapshot (CC-35, [`skill-migration.md`](skill-migration.md)) in eine Sitzung. Die Profile `readonly` und `scoped_write` sind Prüfprofile; ein unbeaufsichtigter Modus ist nicht freigegeben (Isolationsarchitektur für M04: innere Grenze in der CLI plus Spike eines äußeren `sandbox-exec`-Profils). Nachweise, Diagnosen, Isolationsbefund und Remote-Vorprüfung: [`runtime-capabilities.md`](runtime-capabilities.md).
+Schreibaktionen bleiben in Go. Der Go-Adapter `internal/workers/runner` (CC-46, minimal; M04 erweitert ihn) startet den Runner-Prozess mit Allowlist-Umgebung und neutralem Arbeitsverzeichnis, führt den `ExecutionTracker` und liefert einen Ausführungsdatensatz ([`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 10). Der Runner-Einstieg (`python -m claude_sdk_runner`) setzt das Protokoll in einem ersten Umfang um (Start, Ereignisse, Interrupt, genau ein terminales Ergebnis); Fragen, Teilnachrichten und vollständige Steuerung folgen in M04. Skills gelangen nur über einen von Go geschriebenen, vom Runner nachgerechneten und im Init-Frame bestätigten Snapshot (CC-35, [`skill-migration.md`](skill-migration.md)) in eine Sitzung. Die Profile `readonly` und `scoped_write` sind Prüfprofile; ein unbeaufsichtigter Modus ist nicht freigegeben (Isolationsarchitektur für M04: innere Grenze in der CLI plus Spike eines äußeren `sandbox-exec`-Profils). Nachweise, Diagnosen, Isolationsbefund und Remote-Vorprüfung: [`runtime-capabilities.md`](runtime-capabilities.md).
 
 ### Gepinnte Abhängigkeiten und Kompatibilität
 

@@ -235,6 +235,12 @@ Beide `session_started`-Felder stehen nur, wenn der Auftrag einen Snapshot trug.
 | `skill_snapshot_mismatch` | Das Verzeichnis weicht von der `snapshot.json` ab (Datei-Hash, `tree_sha256`, `snapshot_id`; fehlende oder zusätzliche Dateien und Verzeichnisse; Symlinks und Sonderdateien; falscher Verzeichnisname; geänderte `plugin.json`), oder der Snapshot passt nicht zum Auftrag (`snapshot_id`, Rolle, Menge der Skill-IDs) |
 | `skills_not_loaded` | Im Init-Frame fehlt das Plugin `ccmas` mit dem Pfad des Snapshots, ein `ccmas:<id>` fehlt, ein nicht freigegebener `ccmas:`-Eintrag oder ein weiteres Plugin namens `ccmas` ist da, oder `plugins`/`skills` fehlen im Frame; Abbruch über den Weg von `api_billing_detected`, bevor ein Werkzeug läuft |
 
+**Go setzt `RunSpec.skill_snapshot` (seit CC-46, W46.2):** Der Adapter `internal/workers/runner` löst bei nicht leeren `skill_ids` des
+`AgentProfile` die Skills der Rolle über `skills.Catalog.Resolve` auf, schreibt den Snapshot mit `Snapshot.Write` in ein angegebenes
+Verzeichnis (kanonischer Pfad, ohne Symlinks) und setzt `skill_snapshot` auf Kennung und Pfad; `skill_ids` und Snapshot enthalten
+dieselben Skills. Bei leeren `skill_ids` fehlt das Feld (kein Snapshot). Der Adapter prüft den `RunSpec` vor dem Senden mit
+`EncodeRunCommand` gegen den Vertrag. Live belegt: [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 10.
+
 Meldungen sind deutsch, nennen Skill und Pfad **innerhalb** des Snapshots (`skills/<id>/<datei>`) und enthalten nie
 Dateiinhalte oder Hashwerte. Ablauf in der Sitzung: [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt „Skills in der Sitzung (CC-35)“.
 
@@ -314,7 +320,7 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
 | Skill-Snapshot: Sortierung und Eindeutigkeit (`SkillSnapshot.Check`), Hashes gegen das Verzeichnis (`skills.VerifySnapshotDir`) | nur Form und Formate | ja | ja (`skill_snapshot.verify_snapshot_dir`, seit CC-35) |
-| `skill_ids` ohne `skill_snapshot`; Snapshot ↔ Auftrag (Kennung, Rolle, Skill-IDs); geladene Skills ↔ Snapshot (Init-Frame) | – | – (Go übergibt den Snapshot, siehe CC-46) | ja (`skill_snapshot.verify_for_spec`, `runtime.check_skills_loaded`) |
+| `skill_ids` ohne `skill_snapshot`; Snapshot ↔ Auftrag (Kennung, Rolle, Skill-IDs); geladene Skills ↔ Snapshot (Init-Frame) | – | – (Go setzt `skill_snapshot` seit CC-46, siehe unten) | ja (`skill_snapshot.verify_for_spec`, `runtime.check_skills_loaded`) |
 
 Der Python-Runner prüft eingehende Kommandos und kann seine ausgehenden Meldungen vor dem Senden mit
 `contracts.validate("from-runner", …)` prüfen. Die Reihenfolge der Meldungen und alle Zustände verantwortet Go.

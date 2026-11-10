@@ -1,10 +1,10 @@
 # CCMAS – Profile: Modell, Effort und Skills (CC-46)
 
-Stand: Ticket CC-46, Teilauftrag W46.1 (Meilenstein M02). **Führend ist die Spezifikation** „Multi Agent Setup“,
+Stand: Ticket CC-46, Teilaufträge W46.1 und W46.2 (Meilenstein M02). **Führend ist die Spezifikation** „Multi Agent Setup“,
 Abschnitte „Aufwand, Modell und Effort“, „Projekt, Profile und Arbeitsauftrag“, „Parameter und Profile“ und
 „Vollständige CLI-Steuerung“. Diese Datei hält fest, was `internal/profiles`, `config/` und die Befehle
-`ccmas profile` und `ccmas agent` heute tun. Noch nicht umgesetzt (Teilauftrag W46.2): die Übergabe des Profils an den
-Go-Runner-Adapter, `profile verify --live` und Live-Läufe; `verify` fehlt deshalb in der CLI.
+`ccmas profile` und `ccmas agent` heute tun. Seit W46.2 übergibt der Go-Adapter `internal/workers/runner` das aufgelöste Profil an
+den Runner, und `ccmas profile verify [--live]` prüft Profile, Runner und Claude-Binary (Abschnitt „Prüfung mit `profile verify`“).
 
 ## Überblick
 
@@ -13,7 +13,8 @@ Go-Runner-Adapter, `profile verify --live` und Live-Läufe; `verify` fehlt desha
 | Auflösung, Konfiguration, Speicher | `internal/profiles` |
 | Beispielkonfigurationen (Startprofile), eingebettet in das Binary | `config/models.example.yaml`, `config/agents.example.yaml`, Paket `config` |
 | Vertrag `AgentProfile` (Schema, Typ, Fixtures) | `contracts/project-v1.schema.json`, `internal/domain`, [`contracts.md`](contracts.md) |
-| Befehle | `internal/cli` (`profile.go`, `agent.go`) |
+| Befehle | `internal/cli` (`profile.go`, `agent.go`, `verify.go`) |
+| Übergabe des Profils an den Runner (Adapter) | `internal/workers/runner`, [`runtime-capabilities.md`](runtime-capabilities.md) Abschnitt 10 |
 
 Modell-IDs stehen **nur** in Konfiguration (`models.yaml`, `agents.yaml`), nie im Go-Code. Die Beispiele enthalten die
 vollen IDs `claude-opus-5-5`, `claude-sonnet-5-5` und `claude-haiku-5-5`. Es gibt keine zweite Modellliste: der
@@ -160,10 +161,43 @@ Fehler nennen den Code in eckigen Klammern. Lesende Befehle haben `--json`.
 | `profile list`, `profile show <rolle>` | gespeicherte Rollenprofile (`--json`) |
 | `profile set <rolle> [--model] [--effort] [--skill …] [--clear-skills] [--policy]` | Rollenstandard ändern; vor dem Speichern wie bei einer Ausführung aufgelöst, ebenso jeder vorhandene Agent der Rolle (ein Agent, der danach unauflösbar wäre, bricht mit Exit 1 ab und wird genannt; nichts wird geschrieben) |
 | `profile resolve --role R [--agent A] [--model] [--effort] [--skill …]` | aufgelöstes Profil mit Herkunft und Reduktion; mit `--json` ein gültiges `AgentProfile`; schreibt nichts |
+| `profile verify [--live] [--role R …] [--claude-binary P] [--json]` | Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary prüfen; mit `--live` je Modell ein Minimallauf (verbraucht Kontingent); Exit 1 bei einem Befund |
 | `agent list`, `agent show <id>` | individuelle Agenten (`--json`; leeres Feld erbt) |
 | `agent set <id> --role R [--model] [--effort] [--skill …] [--change-role]` | Agent anlegen oder nur die genannten Felder ändern; die Rolle eines vorhandenen Agenten wechselt nur mit `--change-role`, sonst Exit 1 (`agent_role_mismatch`) |
 | `agent unset <id> [--model] [--effort] [--skills] [--all]` | Werte entfernen (erben wieder) oder den Agenten löschen |
 
-Gemeinsame Optionen von `profile` und `agent`: `--config-dir`, `--root`. Nicht vorhanden: `profile verify` (W46.2).
+Gemeinsame Optionen von `profile` und `agent`: `--config-dir`, `--root`.
 `models.yaml` wird nicht über die CLI geändert, sondern von Hand gepflegt. Wer sie ändert, erhöht `revision` selbst, damit
 `version` wächst; eine Änderung ohne höhere Revision erkennt das Programm nicht.
+
+## Übergabe an den Runner (W46.2)
+
+Das aufgelöste `AgentProfile` ist die Eingabe des Adapters `internal/workers/runner`. Daraus entstehen im `RunSpec` Modell, Effort,
+Rolle, Policy-Profil, `profile_id` und `profile_version`. Hat das Profil Skills, schreibt der Adapter den Snapshot (`Resolve` plus
+`Write` in ein angegebenes Verzeichnis) und setzt `RunSpec.skill_snapshot`; bei leeren `skill_ids` gibt es keinen Snapshot. Der
+Adapter akzeptiert nur `readonly`; `scoped_write` (Startprofil `implementer`) nur mit einer ausdrücklichen Option für Prüfläufe, sonst
+Fehler vor dem Start. Der Ausführungsdatensatz hält das Profil als unveränderliche Kopie. Aufbau und Verhalten:
+[`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 10.
+
+## Prüfung mit `profile verify`
+
+```bash
+ccmas profile verify                 # kein Prozessstart, kein Kontingent
+ccmas profile verify --live          # je Modell ein Minimallauf (verbraucht Abo-Kontingent)
+ccmas profile verify --role reviewer --json
+```
+
+- **Ohne `--live`** (Stufen „vorhanden“ und „konfiguriert“ im Sinne von „Prüfbefehl status“): `agents.yaml` und `models.yaml` gültig, jede
+  Rolle (und jeder Agent der gewählten Rollen) löst sich auf, das Runner-Projekt `runners/claude_sdk` (mit `pyproject.toml` und `uv.lock`)
+  ist da, `uv` ist im PATH, das Claude-Binary ist gefunden (`--claude-binary`, dann `CCMAS_CLAUDE_BINARY`, dann `claude` im PATH, zum
+  echten Pfad aufgelöst). Es wird kein Prozess gestartet. Die Stufe „funktional nachgewiesen“ steht als „nicht geprüft“ in der Ausgabe.
+- **Mit `--live`**: nur wenn alles Obige in Ordnung ist, genau ein Lauf je eindeutigem Modell der aufgelösten Rollenprofile. Der Lauf
+  ist ein Minimallauf: Policy `readonly`, keine Skills, kurzer Prompt, `--max-turns 3`, Effort `low` (der niedrigste vom Modell
+  unterstützte, schont das Kontingent). Er belegt **Verfügbarkeit, Anmeldung (`claude_ai`) und das wirksame Modell**; weicht
+  `session_started.model` vom konfigurierten ab, ist das ein Befund (`model_mismatch`). Er belegt **nicht den Effort**, weil das
+  SDK ihn nicht meldet. Abo-Limit, fehlende Anmeldung und andere terminale Fehler des Runners erscheinen als Diagnose; es gibt
+  keinen Fallback und keine API-Abrechnung. Modelle, die nur ein individueller Agent trägt, werden nicht eigens geprüft.
+- Die Ausgabe nennt `checked_at`: der Nachweis gilt nur für diesen Zeitpunkt und diese Modelle. `--live` ist der ausdrückliche Wunsch,
+  Kontingent zu verbrauchen; es gibt keinen Zwang über eine Umgebungsvariable (die Go-Live-Tests laufen dagegen nur mit `CCMAS_LIVE_TESTS=1`).
+- Exit-Code 0 ohne Befund, 1 bei einem Befund (Konfiguration, fehlende Werkzeuge, Diagnose eines Live-Laufs), 2 bei einem Bedienfehler.
+- Belegte Läufe mit den Startprofilen (Modell-IDs bestätigt): [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 10.
