@@ -498,6 +498,8 @@ def test_early_interrupt_is_applied_once_the_session_is_ready(tmp_path: Path, fx
     binary, _ = make_stub_cli(tmp_path)
     script = [init_message(), Wait(), result_message(subtype="error_during_execution", is_error=True,
                                                      terminal_reason="aborted_streaming", result=None)]
+    FakeClient.created.clear()
+
     def slow_query(options):
         client = FakeClient(options, script)
         client.query_delay = 0.5  # das Kommando wird gelesen, während die Anfrage noch gesendet wird
