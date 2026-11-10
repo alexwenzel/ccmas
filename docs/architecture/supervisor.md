@@ -72,13 +72,15 @@ der Validator rechnet selbst. Die Kennung ist reserviert: ein Konzeptstand mit d
 den Bericht des Reviewers (`concept_version`, Skill `ccmas-code-review`) und die Integrationsanforderung, damit die Bindung in `PushAllowed`
 (`CheckReview`) greift; eine Übernahme der Berichtsversion gibt es nicht.
 
-**Vom Orchestrator (M03) zu liefern.** Der Snapshot ist eine Schnittstelle: Befüllt wird er aus dem führenden Zustand. Was erst
-M03 kennt, ist hier als Feld vorbereitet, aber noch nicht produktiv befüllt: Ausführungsdatensätze (aktive Ausführungen, Rolle der
-Reviewer-Ausführung, Ausführung der Implementierung), Kopf-Commit und Branch, PR- und CI-Stand, Abschlussnachweise
-(`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die offenen Fragen. Der PR-Stand trägt optional
+**Vom Orchestrator (M03) zu liefern.** Der Snapshot ist eine Schnittstelle: Befüllt wird er aus dem führenden Zustand. Seit CC-42
+befüllt der Snapshot-Bauer (`orchestrator.BuildSnapshot`, `orchestrator.StoreSnapshotSource`) die Felder, die erst der Orchestrator kennt,
+aus SQLite: Ausführungsdatensätze (aktive Ausführungen, Rolle der Reviewer-Ausführung, Ausführung der Implementierung), Kopf-Commit und Branch,
+PR- und CI-Stand, Abschlussnachweise (`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die
+offenen Fragen. Offen bleibt die Befüllung aus Asana und den Adaptern: PR- und CI-Stand, Abschlussnachweise und Kopf-Commit werden
+geschrieben, sobald M05/M06 sie liefern; bis dahin sind diese Felder leer. Einzelheiten: [`orchestrator.md`](orchestrator.md), Abschnitt
+„Snapshot-Bauer“, und [`persistence.md`](persistence.md), Abschnitt „Abbildung des `ProjectSnapshot`“. Der PR-Stand trägt optional
 den Kopf-Commit des PR (`pr.head_commit`); ohne ihn lehnt der Validator bei einem offenen PR jede erneute Integration ab (fail-safe, siehe
-„Keine Dublette bei der Integration“). Der Bauer ist umgesetzt (CC-42): `orchestrator.BuildSnapshot` und
-`orchestrator.StoreSnapshotSource` ([`orchestrator.md`](orchestrator.md)). **Konzeptfreigabe abhängiger Aufträge:** Der Snapshot-Bauer überträgt den freigegebenen Konzeptstand (Version,
+„Keine Dublette bei der Integration“). **Konzeptfreigabe abhängiger Aufträge:** Der Snapshot-Bauer überträgt den freigegebenen Konzeptstand (Version,
 Einstufung, Freigabe) auf Aufträge, die von einem Konzeptauftrag abhängen; ohne diesen Konzeptstand am Auftrag bleiben sie fail-safe blockiert
 (Implementierung, Review und Integration abgelehnt, `review_concept_version` leer). Der Validator
 verlässt sich nur auf den Snapshot, nie auf Angaben des Modells. Die Echtheit der Kennungen und Nachweise im Snapshot
@@ -241,7 +243,7 @@ planen und lässt den Validator das Ergebnis prüfen. Ohne Supervisor oder ohne 
 | Schnittstelle | Aufgabe | Produktiv / Test |
 | --- | --- | --- |
 | `Runtime` | `Execute(ctx, runner.Request) (runner.Execution, error)` | `*runner.Runner` / Fake |
-| `SnapshotSource` | `CurrentSnapshot(ctx, projectID)`: aktueller Zustand zur Validierung und nach veralteter Revision | Orchestrator (M03) / Fake |
+| `SnapshotSource` | `CurrentSnapshot(ctx, projectID)`: aktueller Zustand zur Validierung und nach veralteter Revision | `orchestrator.StoreSnapshotSource` (seit CC-42) / Fake |
 | `ProfileResolver` | `ResolveProfile` der Rolle `supervisor`; Standard `Policy.Resolver` (`*profiles.Resolver`) | `profiles.Resolver` |
 | Skill-Katalog | `*skills.Catalog`, **muss** mit `skills.LoadChecked` geladen sein | `skills.LoadChecked` |
 
