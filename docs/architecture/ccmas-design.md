@@ -117,7 +117,7 @@ Dienstzustand (folgt mit CC-51) sowie Werkzeuge, Anmeldung und Projektzuordnung 
 (`checked_at`, `execution_dir`, `ok`, `state`, `not_checked`). Die Stufen der Spezifikation (vorhanden, konfiguriert, angemeldet, funktional
 nachgewiesen) gelten für den SQLite-Zustand bis „funktional nachgewiesen“ **nur für den Lesepfad**; der Schreibpfad bleibt ungeprüft, „angemeldet“ entfällt.
 Exit-Codes: 0 Datenbank fehlt oder ohne Befund (ausstehende Migrationen sind nur ein Hinweis), 1 mindestens ein Befund (zu neue Schemaversion,
-geänderte Migration, abweichende Historie, `quick_check`, Fremdschlüssel, unsichere Rechte, unlesbare oder fremde Datei), 2 Bedienfehler. Die nur
+geänderte Migration, abweichende Historie, fremde Datenbank ohne Migrationshistorie, `quick_check`, Fremdschlüssel, unsichere Rechte, unlesbare oder fremde Datei), 2 Bedienfehler. Die nur
 lesende Prüfung, die Befundcodes und das Verhalten bei offenem Schreiber stehen in [`persistence.md`](persistence.md).
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`

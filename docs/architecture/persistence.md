@@ -87,7 +87,7 @@ Schemavertrag geprüft; Spalten für Zugangsdaten gibt es nicht (`TestNoSecretCo
 | `tasks` | Asana-Abbild (GID, Titel, Priorität, Section, Zeit der letzten Synchronisation); kein fachlicher Zustand |
 | `executions`, `execution_attempts` | logische Ausführung; Versuch mit Ausführungszustand, Session-ID, Prozessidentität, beobachtetem Prozesszustand, Worktree, terminalem Ergebnis, prompt-freiem Spec-Datensatz |
 | `plans`, `decisions` | Planungsergebnis (`DecisionBatch`) mit Urteil des Validators und der Revision, auf der es beruht; einzelne Entscheidungen |
-| `questions`, `answers` | Fragen mit Zustand und Zustellbestätigung; Antworten (unveränderlich) |
+| `questions`, `answers` | Fragen mit Zustand und Zustellbestätigung; Antworten (unveränderlich). `questions.answer_id` ist ein Fremdschlüssel `(project_id, answer_id, question_id)` auf `answers`: die Antwort muss zur selben Frage und zum selben Projekt gehören (bei `answer_id IS NULL` ohne Wirkung; Reihenfolge Frage, Antwort, Aktualisierung der Frage) |
 | `review_reports` | Review-Berichte (Urteil, Commit, Konzeptversion) |
 | `events` | Auditverlauf, nur anhängbar (Trigger sperren Ändern und Löschen) |
 | `leases` | Reservierungen (Tabelle und Einschränkungen vorhanden, **Logik folgt in CC-42**); Zustandstyp `domain.LeaseState` |
@@ -131,6 +131,14 @@ Prozessidentität (PID und Startzeit, beide oder keins; am Versuch) und Agentenv
 Spalten mit getrennten Typen (`internal/domain`) und getrennten Methoden. Nichts wird abgeleitet oder gemeinsam geändert:
 Ein Prozessende mit Exit-Code 0 beendet weder Versuch noch Auftrag. Übergänge prüfen `CanTransition` der Ebene (sonst `state`)
 und den erwarteten Ist-Zustand (sonst `conflict`); jede Ebene schreibt ihr eigenes Ereignis.
+
+## Anfangszustand eines Auftrags
+
+`CreateWorkOrder` nimmt **nur den Anfangszustand `waiting`** an. Jeder andere Zustand liefert den Code `state`, und es wird nichts
+geschrieben (kein Auftrag, kein Ereignis, keine Revision). Fortschritt gibt es nur über `TransitionWorkOrder` (Übergangstabelle,
+erwarteter Ist-Zustand, Audit-Ereignis); Testhelfer und Seeds (`persistencetest`) führen Aufträge deshalb über Übergänge in ihren
+Zustand. Ein späterer Import bereits abgeschlossener Asana-Tickets (M06) braucht einen **eigenen, auditierten Weg** und darf
+diese Regel nicht aufweichen (Test `TestCreateWorkOrderOnlyInWaiting`).
 
 ## Festlegung: Arbeitsauftrag statt Task
 
@@ -260,8 +268,32 @@ startet nichts, schreibt nichts und führt keine Agentenausführung aus. Der Abs
 
 Ausdrücklich **nicht geprüft** und so ausgewiesen (`not_checked` im JSON): Dienstzustand (folgt mit CC-51) sowie Werkzeuge,
 Anmeldung und Projektzuordnung (folgen mit M06). Exit-Codes: 0 (Datenbank fehlt oder ohne Befund; ausstehende Migrationen sind
-ein Hinweis), 1 (mindestens ein Befund), 2 (Bedienfehler, auch ein nicht bestimmbarer Ausführungsbereich). Neue Exit-Codes
-kommen erst mit CC-51 (4, 5, 6).
+ein Hinweis), 1 (mindestens ein Befund), 2 (Bedienfehler, auch ein nicht bestimmbarer Ausführungsbereich). Weitere Exit-Codes
+(4, 5, 6) hat der Projektinhaber für CC-51 festgelegt; sie gehören nicht zu CC-27 und sind nicht Aussage der Spezifikation.
+
+## Migrationsnummern und Schemagrenzen für die Folgetickets
+
+Die Migrationsnummern der parallelen Folgetickets sind vergeben, damit sie nicht kollidieren: **CC-42 → `002`**, **CC-45 → `003`**,
+**CC-51 → `004`** (falls nötig). Eine bereits angewandte Migration wird nie geändert (Prüfsumme, `migration_checksum_mismatch`);
+Änderungen kommen als neue Migration. Nur `001` durfte noch geändert werden, solange es keine produktive Datenbank gibt.
+
+**Tabellen-Umbauten** (neue Tabelle anlegen, Zeilen kopieren, alte löschen, umbenennen) brauchen wegen `foreign_keys=ON`
+`PRAGMA defer_foreign_keys = ON` am Anfang der Migration: Das Löschen einer referenzierten Tabelle gilt sonst als Verstoß, und
+`PRAGMA foreign_keys` selbst lässt sich innerhalb einer Transaktion nicht umschalten. Die Prüfung wird damit bis zum Festschreiben
+aufgeschoben; verletzte Bezüge brechen das Festschreiben ab.
+
+**Was das Schema nicht erzwingt und CC-42/CC-45 deshalb in Go prüfen müssen:**
+
+- **Lease und Versuch:** `leases.(project_id, execution_id, attempt)` verweist auf einen Versuch **desselben Projekts**, nicht
+  auf einen Versuch desselben **Auftrags**. Dass die Ausführung zum Auftrag der Lease gehört, prüft die Reservierungslogik.
+- **Outbox:** `outbox.operation_key` ist **global** eindeutig (`UNIQUE`), nicht je Projekt. Der Schlüssel muss das Projekt
+  enthalten, sonst kollidieren gleiche Operationen verschiedener Projekte als `conflict`.
+
+## Plattformnachweis
+
+Die Tests laufen auf **darwin/arm64** grün (Go 1.27.3, SQLite 3.54.1, `modernc.org/sqlite` v1.61.0). Linux und Windows sind nur
+**cross-gebaut** (`make build-all`), nicht ausgeführt; das Verhalten von `mode=ro`/`immutable` und der Rechteprüfungen dort ist
+nicht gemessen.
 
 ## Was erst später folgt
 
@@ -269,7 +301,7 @@ kommen erst mit CC-51 (4, 5, 6).
 | --- | --- |
 | **CC-42** | Reservierung und Leases (Logik auf `leases`, Übergangstabelle für `LeaseState`), Snapshot-Bauer (`ProjectSnapshot` aus der Datenbank), Orchestrator-Aufruf des Validators |
 | **CC-45** | Nachrichten, Zustellung, Outbox (Logik auf `messages`, `message_deliveries`, `outbox`); die Übergangstabellen (`CanTransition`) für `DeliveryState` und `OutboxState` |
-| **CC-51** | Dienst (Schreiber der Datenbank, Steuer-Socket unter `<Ausführungsbereich>/run/`), Idempotenz von Kommandos, die weiteren Exit-Codes von `status` |
+| **CC-51** | Dienst (Schreiber der Datenbank, Steuer-Socket unter `<Ausführungsbereich>/run/`), Idempotenz von Kommandos, die weiteren Exit-Codes von `status` (4, 5, 6; vom Projektinhaber festgelegt) |
 
 ## Prüfbefehle
 
