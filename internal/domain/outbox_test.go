@@ -381,6 +381,22 @@ func TestRedactSecrets(t *testing.T) {
 		"Hex lang":                {"Signatur deadbeefdeadbeefdeadbeefdeadbeef01 ungültig", "deadbeefdeadbeefdeadbeefdeadbeef01"},
 		"Base64 lang":             {"Wert QWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3 ungültig", "QWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3"},
 		"Base64 mit Plus":         {"x=Zm9vYmFyK2Zvb2JhciUvZm9vYmFyK2Zvb2Jhcg==", "Zm9vYmFyK2Zvb2JhciUvZm9vYmFyK2Zvb2Jhcg"},
+		"Base64url":               {"Wert Zk93mQ71xT-aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3u ungültig", "Zk93mQ71xT-aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3u"},
+		"Base64url mit Unterstr.": {"Wert Zk93mQ71xT_aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3u ungültig", "Zk93mQ71xT_aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3u"},
+		"Hex 41":                  {"Schlüssel 0123456789abcdef0123456789abcdef01234567a ungültig", "0123456789abcdef0123456789abcdef01234567a"},
+		"Hex 63":                  {"Schlüssel 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde"},
+		"Hex 65":                  {"Schlüssel 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0"},
+		"Hex 32":                  {"Schlüssel 0123456789abcdef0123456789abcdef ungültig", "0123456789abcdef0123456789abcdef"},
+		"Hex in Pfad":             {"GET /v1/files/0123456789abcdef0123456789abcdef01 fehlt", "0123456789abcdef0123456789abcdef01"},
+		"Basic JSON-Header":       {`headers {"Authorization": "Basic dXNlcjpwYXNzd29yZA==", "Accept": "x"}`, "dXNlcjpwYXNzd29yZA"},
+		"Bearer JSON-Header":      {`{"authorization":"Bearer ey-erfunden.abc123"}`, "ey-erfunden.abc123"},
+		"x-api-key":               {"X-Api-Key: erfundener-Schluessel-77 abgelehnt", "erfundener-Schluessel-77"},
+		"api-key Header":          {"api-key: erfunden99 abgelehnt", "erfunden99"},
+		"x-api-key JSON":          {`{"x-api-key": "erfunden-wert-5"}`, "erfunden-wert-5"},
+		"sk-ant":                  {"Schlüssel sk-ant-api03-ErfundenerWert_abc123 abgelehnt", "ErfundenerWert_abc123"},
+		"xoxb":                    {"Slack xox" + "b-1234567890-erfundenerWert abgelehnt", "erfundenerWert"},
+		"xoxp":                    {"Slack xox" + "p-1234567890-erfundenerWert abgelehnt", "erfundenerWert"},
+		"AKIA":                    {"Schlüssel-ID AKIAABCDEFGHIJKLMNOP abgelehnt", "AKIAABCDEFGHIJKLMNOP"},
 	}
 	for name, c := range cases {
 		got := RedactSecrets(c.in)
@@ -409,10 +425,37 @@ func TestRedactSecrets(t *testing.T) {
 		"mailto:team@example.org",
 		"verboten",
 		"",
+		// Branch-, Referenz- und Commit-Namen der GitHub-Adapter bleiben lesbar (Befund F-A).
+		"branch feature/CC-45-outbox-abgleich-und-nachrichten already exists",
+		"Reference refs/heads/fix/CC-27-sqlite-zustand-mit-migrationen-und-audit already exists",
+		"Reference refs/heads/docs/CC-46-Modelle-und-Effort-als-Rollenprofile-v2 already exists",
+		"branch feature/CC-14-Supervisor-mit-plan-v1-Validator-Planner-und-Nachweis-M02 existiert bereits",
+		"commit CC-45: Fehlertexte der Outbox auf Geheimnisse maskieren vor Speichern und Kuerzen gescheitert",
+		"push nach refs/heads/feature/CC-45-outbox-abgleich-und-nachrichten abgelehnt (non-fast-forward)",
+		"Branch Feature_CC_45_Outbox_Abgleich_Und_Nachrichten_Teil2 gefunden",
+		"https://github.com/o/r/pull/12 und https://github.com/o/r/tree/feature/CC-45-outbox-abgleich-und-nachrichten",
+		// Ein vollständiger Commit-Hash (40) und ein SHA-256 (64) sind kein Geheimnis.
+		"merge base 0123456789abcdef0123456789abcdef01234567 nicht gefunden",
+		"digest sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef passt nicht",
+		"revision DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF fehlt",
+		// Nur diese Header-Namen haben die Doppelpunkt-Regel.
+		"key: nicht vorhanden",
+		"invalid x api key format",
 	} {
 		if got := RedactSecrets(plain); got != plain {
 			t.Errorf("gewöhnliche Meldung verändert: %q -> %q", plain, got)
 		}
+	}
+}
+
+func TestRedactSecretsKeepsHeaderShape(t *testing.T) {
+	// Der JSON-Stil bleibt lesbar: Name und Struktur stehen weiter da, nur der Wert ist ersetzt.
+	got := RedactSecrets(`{"Authorization": "Basic dXNlcjpwYXNz", "Accept": "x"}`)
+	if want := `{"Authorization": [redigiert], "Accept": "x"}`; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := RedactSecrets("x-api-key: abc123 weiter"); got != "x-api-key: [redigiert] weiter" {
+		t.Errorf("x-api-key: %q", got)
 	}
 }
 
