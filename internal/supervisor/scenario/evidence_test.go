@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,8 +33,10 @@ const (
 	repoRoot    = "../../.."
 	evidenceDir = "../../../docs/architecture/evidence/supervisor"
 
-	// SessionLimit ist das Budget echter Sitzungen für den Nachweis M02 und die Profilwahl S7 zusammen (einschließlich Neuplanungen
-	// und Fehlversuchen). Es war 16 für S1 bis S6 und ist mit S7 auf höchstens 10 Sitzungen in CC-14 begrenzt.
+	// SessionLimit begrenzt, wie viele echte Sitzungen die Belege dieses Verzeichnisses und ein Live-Testlauf zusammen enthalten
+	// dürfen (einschließlich Neuplanungen und Fehlversuchen): je Live-Testlauf, nicht für das ganze Ticket. Die Belege S1 bis S7
+	// enthalten 9 Sitzungen (8 für S1 bis S6, 1 für S7). Das Ticketbudget von 12 bis 16 echten Sitzungen in CC-14 umfasst zusätzlich
+	// den Rauchlauf haiku/low aus W14.2, der hier nicht gezählt wird (1 + 8 + 1 = 10 Sitzungen, das Budget ist eingehalten).
 	SessionLimit = 10
 
 	supervisorModel = "claude-opus-5-5" // laut Auftrag das Modell des Supervisorprofils der Beispielkonfiguration
@@ -514,6 +518,16 @@ func (e *evEnv) checkScenario(t tb, id scenario.ID, ev scenarioEvidence, wantPro
 		(last.PredicatesMet != nil && *ev.Final.PredicatesMet != *last.PredicatesMet) {
 		t.Errorf("Endergebnis %+v passt nicht zum letzten Lauf (%s, %d Versuche)", ev.Final, last.Outcome, len(last.Attempts))
 	}
+	// 2b. Der Nachweis M02 gilt nur, wenn das Szenario mit einem angenommenen Plan endet und alle Prädikate erfüllt sind.
+	if last.Outcome != "accepted" || last.PredicatesMet == nil || !*last.PredicatesMet {
+		t.Errorf("Der Nachweis M02 gilt nicht mehr: Szenario %s endet nicht mit einem angenommenen Plan und erfüllten Prädikaten (Ergebnis %q, Prädikate erfüllt: %v)", id, last.Outcome, last.PredicatesMet != nil && *last.PredicatesMet)
+	}
+	if id == scenario.S6 {
+		first := last.Attempts[0]
+		if first.Verdict != string(supervisor.VerdictRejected) || !slices.Contains(first.Validation.Codes, supervisor.CodeStaleRevision) {
+			t.Errorf("Der Nachweis M02 gilt nicht mehr: S6 braucht als ersten Versuch eine Ablehnung mit stale_revision (Urteil %q, Codes %v)", first.Verdict, first.Validation.Codes)
+		}
+	}
 	if decidingBatch != nil {
 		signatures[id] = planSignature(*decidingBatch)
 	}
@@ -649,10 +663,69 @@ func (e *evEnv) checkAttempt(t tb, id scenario.ID, base supervisor.ProjectSnapsh
 			t.Errorf("%s: angenommen, aber mit Ablehnungen im Beleg", where)
 		}
 		// Die rohe Ausgabe und der gestempelte Batch gehören zusammen (Go setzt nur Schemaversion, Batch-ID, Projekt, Revision).
-		if len(a.RawOutput) == 0 {
-			t.Errorf("%s: keine rohe strukturierte Ausgabe", where)
-		}
+		checkRawMatchesStamped(t, where, a, planning)
 	}
+}
+
+// decodeRawBatch liest die rohe Ausgabe wie der Planer (decodeModelBatch in internal/supervisor): unbekannte Felder und
+// Folgedaten sind Fehler.
+func decodeRawBatch(raw []byte) (domain.DecisionBatch, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var b domain.DecisionBatch
+	if err := dec.Decode(&b); err != nil {
+		return domain.DecisionBatch{}, err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return domain.DecisionBatch{}, errors.New("Daten nach dem Planungsergebnis")
+	}
+	return b, nil
+}
+
+// checkRawMatchesStamped liest die rohe Ausgabe zu einem Batch und vergleicht ihn mit dem gestempelten Batch des Versuchs. Gleich
+// sein müssen alle Felder bis auf die von Go gesetzten (Schemaversion, Batch-ID, Projekt, Revision); diese werden aus dem
+// Planungs-Snapshot und der Nummer des Versuchs erwartet. Eine von Hand geänderte Entscheidung im gestempelten Batch fällt so auf.
+func checkRawMatchesStamped(t tb, where string, a attemptEvidence, planning supervisor.ProjectSnapshot) {
+	t.Helper()
+	if len(a.RawOutput) == 0 {
+		t.Errorf("%s: keine rohe strukturierte Ausgabe", where)
+		return
+	}
+	raw, err := decodeRawBatch(a.RawOutput)
+	if err != nil {
+		t.Errorf("%s: die rohe Ausgabe ist kein Planungsergebnis, es gibt aber einen gestempelten Batch: %v", where, err)
+		return
+	}
+	// Was Go setzt, ersetzen wir auf der rohen Ausgabe durch den erwarteten Wert (Planer: stamp).
+	raw.SchemaVersion = 1
+	raw.BatchID = fmt.Sprintf("plan-r%d-v%d", planning.StateRevision, a.Number)
+	raw.ProjectID, raw.StateRevision = planning.ProjectID, planning.StateRevision
+	ds := make([]domain.Decision, len(raw.Decisions))
+	for i, d := range raw.Decisions {
+		d.SchemaVersion = 1
+		d.ProjectID, d.StateRevision = planning.ProjectID, planning.StateRevision
+		ds[i] = d
+	}
+	raw.Decisions = ds
+
+	got, _ := json.Marshal(a.StampedBatch)
+	want, _ := json.Marshal(raw)
+	if !bytes.Equal(got, want) {
+		t.Errorf("%s: der gestempelte Batch ist nicht die rohe Ausgabe des Modells mit den von Go gesetzten Feldern (Schemaversion, Batch-ID, Projekt, Revision); der Beleg wurde verändert oder ist inkonsistent. Entscheidungen im Beleg: %s, aus der rohen Ausgabe: %s", where, decisionSummary(*a.StampedBatch), decisionSummary(raw))
+	}
+}
+
+// decisionSummary nennt Aktion, Ziel, Rolle, Modell und Effort je Entscheidung für die Fehlermeldung.
+func decisionSummary(b domain.DecisionBatch) string {
+	var parts []string
+	for _, d := range b.Decisions {
+		s := fmt.Sprintf("%s %s %s", d.DecisionID, d.Action, d.Target.ID)
+		if d.Selection != nil {
+			s += fmt.Sprintf(" (%s, %s/%s, Skills %v)", d.Selection.Role, d.Selection.Model, d.Selection.Effort, d.Selection.SkillIDs)
+		}
+		parts = append(parts, s)
+	}
+	return "[" + strings.Join(parts, "; ") + "]"
 }
 
 // checkRun prüft den Lauf als Ganzes: Ergebnis, angenommener Batch und Prädikate.

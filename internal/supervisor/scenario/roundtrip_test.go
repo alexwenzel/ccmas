@@ -170,6 +170,33 @@ func TestEvidenceChainWritesEvidenceTheOfflineCheckAccepts(t *testing.T) {
 		ev.Runs[0].AcceptedBatch.Decisions = ev.Runs[0].AcceptedBatch.Decisions[:1]
 		ev.Runs[0].Attempts[0].StampedBatch.Decisions = ev.Runs[0].Attempts[0].StampedBatch.Decisions[:1]
 	}, "Prädikat")
+	// Rohe Ausgabe und gestempelter Batch gehören zusammen: Eine von Hand geänderte Auswahl fällt auf, auch wenn der angenommene
+	// Batch gleich mitgeändert wurde und der Validator die geänderte Auswahl annimmt (Effort xhigh liegt im Angebot).
+	const rawMismatch = "der gestempelte Batch ist nicht die rohe Ausgabe des Modells"
+	tamper("Auswahl nur im gestempelten Batch", func(ev *scenarioEvidence) {
+		ev.Runs[0].Attempts[0].StampedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+	}, rawMismatch)
+	tamper("Auswahl im gestempelten und im angenommenen Batch, rohe Ausgabe unverändert", func(ev *scenarioEvidence) {
+		ev.Runs[0].Attempts[0].StampedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+		ev.Runs[0].AcceptedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+	}, rawMismatch)
+	tamper("Auswahl nur im angenommenen Batch", func(ev *scenarioEvidence) {
+		ev.Runs[0].AcceptedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+	}, "der angenommene Batch ist nicht der gestempelte")
+	tamper("rohe Ausgabe verändert, Batches unverändert", func(ev *scenarioEvidence) {
+		ev.Runs[0].Attempts[0].RawOutput = []byte(strings.Replace(string(ev.Runs[0].Attempts[0].RawOutput), "Begründung des Beispielplans.", "Andere Begründung.", 1))
+	}, rawMismatch)
+	tamper("Batch-ID im gestempelten Batch verändert", func(ev *scenarioEvidence) {
+		ev.Runs[0].Attempts[0].StampedBatch.BatchID = "plan-r1-v9"
+	}, rawMismatch)
+	tamper("rohe Ausgabe fehlt", func(ev *scenarioEvidence) { ev.Runs[0].Attempts[0].RawOutput = nil }, "keine rohe strukturierte Ausgabe")
+	tamper("Szenario nicht mehr angenommen", func(ev *scenarioEvidence) {
+		ev.Runs[0].Outcome, ev.Final.Outcome = "suspended", "suspended"
+	}, "Der Nachweis M02 gilt nicht mehr")
+	tamper("Prädikat nicht erfüllt", func(ev *scenarioEvidence) {
+		no := false
+		ev.Runs[0].PredicatesMet, ev.Final.PredicatesMet = &no, &no
+	}, "Der Nachweis M02 gilt nicht mehr")
 	tamper("Pfad im Beleg", func(ev *scenarioEvidence) { ev.Invocation = "/Users/jemand/x" }, "nicht redigiert")
 
 	// Der Schreiber selbst weist Pfade ab.
@@ -212,4 +239,54 @@ func TestRepeatIsBoundToAnInfrastructureFailure(t *testing.T) {
 			t.Errorf("%s: Wiederholung zulässig = %v, Fehler: %v", c.name, err == nil, err)
 		}
 	}
+}
+
+// TestCommittedEvidenceRejectsHandEditedSelection: derselbe Eingriff an den eingecheckten Belegen (nicht an den geschriebenen der
+// Fake-Runtime). Die Entscheidung dec-1 in S1 bekommt im gestempelten und im angenommenen Batch einen anderen Effort, die rohe
+// Ausgabe bleibt; der Validator nimmt den Batch weiterhin an, die Offline-Prüfung muss ihn trotzdem ablehnen. Der unveränderte
+// Beleg besteht (Gegenprobe).
+func TestCommittedEvidenceRejectsHandEditedSelection(t *testing.T) {
+	e := newEvEnv(t)
+	dir := t.TempDir()
+	for _, id := range scenario.IDs() {
+		raw, err := os.ReadFile(evidenceFile(evidenceDir, id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(evidenceFile(dir, id), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := &recorder{}
+	guard(func() { checkEvidenceDir(rec, e, dir) })
+	if len(rec.problems) != 0 {
+		t.Fatalf("die eingecheckten Belege bestehen die Prüfung nicht: %v", rec.problems)
+	}
+
+	path := evidenceFile(dir, scenario.S1)
+	ev, err := loadEvidence(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := ev.Runs[0].Attempts[0].StampedBatch.Decisions[0].Selection.Effort
+	if was == domain.EffortXHigh {
+		t.Fatalf("Effort schon %s, die Probe ändert nichts", was)
+	}
+	ev.Runs[0].Attempts[0].StampedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+	ev.Runs[0].AcceptedBatch.Decisions[0].Selection.Effort = domain.EffortXHigh
+	raw, err := marshalEvidence(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = &recorder{}
+	guard(func() { checkEvidenceDir(rec, e, dir) })
+	if !slices.ContainsFunc(rec.problems, func(p string) bool {
+		return strings.Contains(p, "S1: ") && strings.Contains(p, "der gestempelte Batch ist nicht die rohe Ausgabe des Modells")
+	}) {
+		t.Fatalf("der verfälschte Beleg wird nicht erkannt: %v", rec.problems)
+	}
+	t.Logf("erkannt: %s", rec.problems[0])
 }
