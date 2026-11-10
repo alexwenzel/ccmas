@@ -26,7 +26,7 @@ Je Feld **einzeln** (Modell, Effort, Skills) gilt die erste gesetzte Stufe:
 
 1. ausdrücklicher Auftragswert (`Overrides.Order`, CLI: `profile resolve --model/--effort/--skill`)
 2. individueller Agentenwert (`agents.<id>` in `agents.yaml`)
-3. Wahl des Supervisors (`Overrides.Supervisor`)
+3. Wahl des Supervisors (`Overrides.Supervisor`; CLI seit CC-14: `profile resolve --supervisor-model/--supervisor-effort/--supervisor-skill`)
 4. Rollenstandard (`roles.<rolle>` in `agents.yaml`)
 
 Alles nur innerhalb der Rollenerlaubnis: `allowed_models` und `allowed_efforts` des Rollenprofils; fehlt die Angabe,
@@ -98,7 +98,7 @@ echten Skill-Katalog auf.
 ```go
 r, err := profiles.NewResolver(cfg, skillCatalog)                // prüft cfg, kopiert sie tief
 p, err := r.ResolveProfile(role, agentID, profiles.Overrides{Order: …, Supervisor: …}, caps)
-cat := profiles.BuildCatalog(caps, skillCatalog)                  // domain.Catalog für Decision.Check (CC-14)
+cat := profiles.BuildCatalog(caps, skillCatalog)                  // domain.Catalog für Decision.Check (seit CC-14 mit Fallbacks und Skill-Rollen)
 ```
 
 - **Empfänger.** `ResolveProfile` hat einen Zeiger-Empfänger auf `*Resolver`. Der Resolver hält den Skill-Katalog (selbst
@@ -111,9 +111,11 @@ cat := profiles.BuildCatalog(caps, skillCatalog)                  // domain.Cata
   `agents.yaml` plus Revision von `models.yaml` minus 1. Sie ist 1 nach `profile init` und wächst mit jeder Änderung
   einer der beiden Dateien. `requested_model` gleicht immer `model`; `value_sources` benennt je Feld die Herkunft.
 - **Absicherung.** Jedes Ergebnis besteht `Catalog.CheckProfile` aus denselben Quellen.
-- **Hinweis für CC-14.** Der Domain-Katalog kennt keine Fallbacks: `Decision.Check` weist einen nicht unterstützten
-  Effort auch dort ab, wo `models.yaml` eine Reduktion genehmigt. Ob die Wahl des Supervisors Fallbacks nutzen darf, ist
-  offen.
+- **Domain-Katalog und Fallbacks (seit CC-14).** `BuildCatalog` übernimmt die genehmigten Reduktionen aus `models.yaml`
+  (`Catalog.Fallbacks`) und je freigegebenem Skill die Rollen, die er erhalten darf (`Catalog.SkillRoles`). `Decision.Check`
+  erkennt deshalb eine genehmigte Reduktion an (`CheckEffective` liefert die wirksame Stufe und `EffortFallback`) und weist einen
+  Skill zurück, der für die Rolle der Auswahl nicht erlaubt ist. Die Wahl des Supervisors darf Fallbacks wie jede andere Stufe
+  nutzen; die Reduktion steht sichtbar im aufgelösten Profil.
 
 ### Fehlercodes
 

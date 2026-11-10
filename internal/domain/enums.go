@@ -11,6 +11,7 @@ const (
 	ActionConceptWork        Action = "concept_work"        // Konzeptarbeit beauftragen
 	ActionImplementation     Action = "implementation"      // Implementierung anfordern
 	ActionReview             Action = "review"              // Review anfordern
+	ActionDocumentationWork  Action = "documentation_work"  // Dokumentationsarbeit beauftragen (seit CC-14)
 	ActionAskQuestion        Action = "ask_question"        // Rückfrage stellen
 	ActionRequestIntegration Action = "request_integration" // Integration anfordern
 	ActionWait               Action = "wait"                // warten
@@ -20,13 +21,34 @@ const (
 // DecisionActions liefert genau die vereinbarten Aktionen.
 func DecisionActions() []Action {
 	return []Action{
-		ActionPlanExtend, ActionConceptWork, ActionImplementation, ActionReview,
+		ActionPlanExtend, ActionConceptWork, ActionImplementation, ActionReview, ActionDocumentationWork,
 		ActionAskQuestion, ActionRequestIntegration, ActionWait, ActionRequestCompletion,
 	}
 }
 
 // Valid meldet, ob a eine vereinbarte Aktion ist.
 func (a Action) Valid() bool { return contains(DecisionActions(), a) }
+
+// RequiresSelection meldet, ob die Aktion eine Auswahl (Rolle, Skills, Modell, Effort) verlangt, weil sie eine
+// Ausführung beauftragt: concept_work, implementation, review und documentation_work. Das Schema erzwingt
+// die Auswahl bei genau diesen Aktionen.
+func (a Action) RequiresSelection() bool { return len(a.Roles()) > 0 }
+
+// Roles nennt die Rollen, die eine Aktion mit Auswahl beauftragen darf (leer bei Aktionen ohne Auswahl).
+// Decision.Check prüft die Rolle der Auswahl gegen diese Liste.
+func (a Action) Roles() []Role {
+	switch a {
+	case ActionConceptWork:
+		return []Role{RoleConcept}
+	case ActionImplementation:
+		return []Role{RoleImplementer}
+	case ActionReview:
+		return []Role{RoleReviewer, RoleConceptReviewer}
+	case ActionDocumentationWork:
+		return []Role{RoleDocumentation}
+	}
+	return nil
+}
 
 // Role ist eine Agentenrolle.
 type Role string

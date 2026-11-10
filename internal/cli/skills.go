@@ -154,7 +154,10 @@ func withCodes(err error) error {
 	return &codedError{lines: lines}
 }
 
-// loadCatalog löst den Softwareordner auf und lädt den Katalog.
+// loadCatalog löst den Softwareordner auf und lädt den Katalog (skills.Load: Manifest, Dateien, Hashes und jeden
+// Vertrag in sich). Es ist der Weg für alles, was den Bestand nur anzeigt oder Profile prüft und speichert
+// (skills list, skills show, profile resolve/set, agent): Wer einen Bestand ansehen will, muss das auch tun
+// können, wenn die Plattformregeln gerade fehlen oder verletzt sind, und diese Befehle starten keine Ausführung.
 func loadCatalog(flagRoot string) (*skills.Catalog, error) {
 	root, err := resolveSoftwareRoot(flagRoot)
 	if err != nil {
@@ -162,6 +165,19 @@ func loadCatalog(flagRoot string) (*skills.Catalog, error) {
 	}
 	c, err := skills.Load(root)
 	return c, withCodes(err)
+}
+
+// loadCheckedCatalog lädt Katalog und Rollenregeln und prüft sie gegeneinander (skills.LoadChecked). Es ist der Weg
+// aller produktiven Pfade, die Snapshots für Ausführungen schreiben oder eine Ausführung vorbereiten
+// (skills snapshot, profile verify): Auf einem Bestand ohne gültige Plattformregeln entscheidet die Plattform nichts
+// (fail-safe), und es wird kein Snapshot geschrieben. Alle Befunde werden mit ihrem Code gemeldet.
+func loadCheckedCatalog(flagRoot string) (*skills.Catalog, *skills.Rules, error) {
+	root, err := resolveSoftwareRoot(flagRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, rules, err := skills.LoadChecked(root)
+	return c, rules, withCodes(err)
 }
 
 func newSkillsListCommand(root *string) *cobra.Command {
@@ -357,7 +373,9 @@ func newSkillsSnapshotCommand(root *string) *cobra.Command {
 			"<verzeichnis>/<snapshot_id ohne sha256:>/ (Plugin-kompatibles Layout). Ohne --skill gilt die " +
 			"Standardausstattung der Rolle, sonst genau die genannten Skills. Nur freigegebene (approved) Skills, " +
 			"die die Rolle erlaubt, werden aufgenommen. Ein vorhandener gleicher Snapshot wird geprüft und " +
-			"wiederverwendet, nie überschrieben. Ausgegeben werden snapshot_id und Pfad.",
+			"wiederverwendet, nie überschrieben. Ausgegeben werden snapshot_id und Pfad.\n\n" +
+			"Der Bestand wird wie bei 'skills validate' geprüft geladen (Manifest, Dateien, Rollenregeln " +
+			"rules/roles.yaml und Workflow-Verträge): Bei einem Befund wird kein Snapshot geschrieben (Exit-Code 1).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if role == "" {
@@ -370,7 +388,7 @@ func newSkillsSnapshotCommand(root *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, err := loadCatalog(*root)
+			c, _, err := loadCheckedCatalog(*root)
 			if err != nil {
 				return err
 			}

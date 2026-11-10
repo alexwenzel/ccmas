@@ -1,16 +1,14 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/alexwenzel/ccmas/internal/domain"
+	"github.com/alexwenzel/ccmas/internal/skills/skilltest"
 )
 
 // Test-Skills des synthetischen Softwareordners: so hängen die Tests nicht vom Stand des echten
@@ -21,39 +19,16 @@ const (
 	tsPlan = "ccmas-t-plan" // pending_adaptation; supervisor
 )
 
-// syntheticRoot legt einen Softwareordner mit drei Test-Skills an.
+// syntheticRoot legt einen gültigen Softwareordner mit drei Test-Skills an (skilltest: Manifest, Hashes, Rollenregeln
+// und Verträge). Er besteht skills.LoadChecked, damit auch die Befehle, die geprüft laden (skills snapshot,
+// profile verify), ohne Befund laufen.
 func syntheticRoot(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
-	type sk struct{ id, status, adapt, cat, roles, def string }
-	list := []sk{
-		{tsDoc, "approved", "", "knowledge", "[documentation]", "[documentation]"},
-		{tsImpl, "approved", "", "delivery", "[implementer]", "[implementer]"},
-		{tsPlan, "pending_adaptation", "wird angepasst", "planning", "[supervisor]", "[]"},
-	}
-	var b strings.Builder
-	b.WriteString("schema_version: 1\nskills:\n")
-	for _, s := range list {
-		content := fmt.Sprintf("---\nname: %s\ndescription: Beschreibung von %s\n---\n\n# %s\n", s.id, s.id, s.id)
-		dir := filepath.Join(root, ".claude", "skills", s.id)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		sum := sha256.Sum256([]byte(content))
-		fh := hex.EncodeToString(sum[:])
-		tree := sha256.Sum256([]byte(fh + "  SKILL.md\n"))
-		fmt.Fprintf(&b, "  - id: %s\n    version: 1\n    status: %s\n    adaptation: %q\n    category: %s\n    roles: %s\n    default_for: %s\n",
-			s.id, s.status, s.adapt, s.cat, s.roles, s.def)
-		fmt.Fprintf(&b, "    external_writes: []\n    tree_sha256: %s\n    files:\n      - path: SKILL.md\n        sha256: %s\n", hex.EncodeToString(tree[:]), fh)
-		fmt.Fprintf(&b, "    source:\n      package: Skills/x.skill\n      package_sha256: %s\n      derived: \"2026-11-09\"\n      changes: Test\n", strings.Repeat("ab", 32))
-	}
-	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "manifest.yaml"), []byte(b.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
+	return skilltest.NewRoot(t,
+		skilltest.Skill{ID: tsDoc, Category: "knowledge", Roles: []domain.Role{domain.RoleDocumentation}, DefaultFor: []domain.Role{domain.RoleDocumentation}},
+		skilltest.Skill{ID: tsImpl, Category: "delivery", Roles: []domain.Role{domain.RoleImplementer}, DefaultFor: []domain.Role{domain.RoleImplementer}},
+		skilltest.Skill{ID: tsPlan, Status: "pending_adaptation", Adaptation: "wird angepasst", Category: "planning", Roles: []domain.Role{domain.RoleSupervisor}},
+	)
 }
 
 // profileEnv ist eine isolierte Umgebung: eigener Softwareordner, eigenes Konfigurationsverzeichnis.

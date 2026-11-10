@@ -50,7 +50,11 @@ _GO: dict[str, Path] = {}
 
 def write_catalog(root: Path, skills: dict[str, str]) -> None:
     """Legt `<root>/.claude/skills/manifest.yaml` und je Skill einen Ordner mit `SKILL.md` an (Rolle `PROBE_ROLE`,
-    Kategorie `knowledge`, status `approved`, keine Standardausstattung)."""
+    Kategorie `knowledge`, status `approved`, keine Standardausstattung). Die Rollenregeln `rules/roles.yaml` kommen
+    aus dem Repository: `ccmas skills snapshot` lädt seit CC-14 geprüft (`skills.LoadChecked`) und braucht sie."""
+    rules = root / "rules"
+    rules.mkdir(parents=True)
+    shutil.copyfile(REPO_ROOT / "rules" / "roles.yaml", rules / "roles.yaml")
     base = root / ".claude" / "skills"
     entries = []
     for sid, body in skills.items():

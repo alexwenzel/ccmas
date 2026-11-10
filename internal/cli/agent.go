@@ -173,7 +173,7 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 					return err
 				}
 			}
-			ids, err := skillValues(skillIDs)
+			ids, err := skillValues("--skill", skillIDs)
 			if err != nil {
 				return err
 			}

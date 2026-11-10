@@ -1,6 +1,6 @@
 # CCMAS – Daten- und Nachrichtenverträge (v1)
 
-Stand: Ticket CC-24 (Meilenstein M01). **Führend ist die Spezifikation** „Multi Agent Setup“
+Stand: Ticket CC-24 (Meilenstein M01), ergänzt um CC-14 (W14.1: Planungsergebnis, Aufwand, Dokumentationsarbeit). **Führend ist die Spezifikation** „Multi Agent Setup“
 (Version 1.2.0), Abschnitte „Verbindliche Ausführungsverträge“, „Intelligente Arbeitsverteilung“,
 „Prozessübersicht“, „Unabhängiges Review vor dem Push“ und „Kommunikation und Persistenz“. Diese
 Datei hält fest, wie das Repository diese Verträge umsetzt, und ist keine Kopie der Spezifikation.
@@ -35,6 +35,7 @@ gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als n
 | `common-v1.schema.json` | Gemeinsame Bausteine: ID, Pfade, Modell, Effort, Rolle, Zeitstempel, Commit, Textlängen; Liste der Fehlerklassen |
 | `runner-v1.schema.json` | Runner-Umschlag beider Richtungen, alle Payloads, `ReviewReport` |
 | `decision-v1.schema.json` | `Decision`, `IntegrationRequest` |
+| `plan-v1.schema.json` | `DecisionBatch`: Planungsergebnis des Supervisors mit 1–32 Entscheidungen (seit CC-14) |
 | `project-v1.schema.json` | `ProjectConfig`, `AgentProfile`, `WorkOrder` |
 | `skill-snapshot-v1.schema.json` | `snapshot.json` eines Skill-Snapshots (`SkillSnapshot`, seit CC-35) |
 
@@ -118,23 +119,59 @@ Der Supervisor liefert ein strukturiertes Ergebnis nach `decision-v1`.
 | `decision_id`, `project_id` | ID |
 | `state_revision` | Ganzzahl ≥ 0 |
 | `target` | `kind` (`ticket`, `feature`, `milestone`, `work_order`) und `id` |
-| `action` | genau eine von acht Aktionen (unten) |
+| `action` | genau eine von neun Aktionen (unten) |
 | `preconditions` | bis 32 Einträge `kind` (`work_order_completed`, `concept_version_approved`, `review_approved`, `ci_passed`, `capacity_available`), `ref` optional |
 | `rationale` | 1–1000 Zeichen (kurze, überprüfbare Begründung) |
-| `selection` | Rolle, `skill_ids`, `model`, `effort`; Pflicht bei `concept_work`, `implementation`, `review` |
+| `selection` | Rolle, `skill_ids`, `model`, `effort`; Pflicht bei `concept_work`, `implementation`, `review`, `documentation_work` |
 | `review_target` | `work_order_id`, `commit`, `concept_version`; Pflicht bei `review` |
 | `question` | `text`, `context`, `recommendation`; Pflicht bei `ask_question` |
+| `expected_outcome` | optional (seit CC-14), 1–512 Zeichen: erwartetes, überprüfbares Ergebnis |
+| `estimate` | optional (seit CC-14): `size` (`xs`, `s`, `m`, `l`, `xl`), `complexity` und `uncertainty` (je `low`, `medium`, `high`), alle drei Pflicht. Aufwand der Arbeit, **getrennt** vom Modell-Effort der `selection` und keine garantierte Laufzeit |
+| `plan_extension` | optional (seit CC-14), **nur bei `plan_extend`** (sonst Klasse `value`): `work_orders` mit 1–32 neuen Aufträgen, je `ref` (neue ID), `kind` (`partial`, `correction`, `repair`), `title`, `goal`, `acceptance_criteria` (1–32), `depends_on` (ID-Liste, auch leer) und optional `mode` (`pr`/`auto`) |
 
 Aktionen: `plan_extend` (Plan ergänzen), `concept_work` (Konzeptarbeit beauftragen), `implementation`
-(Implementierung anfordern), `review` (Review anfordern), `ask_question` (Rückfrage stellen),
-`request_integration` (Integration anfordern), `wait` (warten), `request_completion` (Zielabschluss anfordern).
-Alles andere ist ein Fehler der Klasse `action`.
+(Implementierung anfordern), `review` (Review anfordern), `documentation_work` (Dokumentationsarbeit beauftragen, seit CC-14),
+`ask_question` (Rückfrage stellen), `request_integration` (Integration anfordern), `wait` (warten), `request_completion`
+(Zielabschluss anfordern). Alles andere ist ein Fehler der Klasse `action`. Die Rolle der Auswahl ist je Aktion festgelegt
+(`Action.Roles()`): `concept_work` → `concept`, `implementation` → `implementer`, `review` → `reviewer` oder
+`concept_reviewer`, `documentation_work` → `documentation`. Damit ist die Rolle `documentation` über eine Entscheidung erreichbar
+(`rules/roles.yaml`: Folgeschritt des Supervisors).
+
+**v1-kompatibel.** `expected_outcome`, `estimate`, `plan_extension` und die Aktion `documentation_work` sind neue optionale Felder
+beziehungsweise ein neuer Aufzählungswert; jede bisher gültige Entscheidung bleibt gültig (Test: `decision--implementation.json`
+trägt keines der Felder und wird weiter angenommen). `plan_extension.work_orders[].kind` und die Pflichtfelder innerhalb der neuen
+Objekte gelten nur für das neue Feld.
+
+### Planungsergebnis (`DecisionBatch`, `plan-v1`, seit CC-14)
+
+Der Supervisor liefert mehrere Entscheidungen als ein Planungsergebnis (Prüfziel `decision-batch`, Go: `domain.DecisionBatch`,
+`ParseDecisionBatch`):
+
+| Feld | Regel |
+| --- | --- |
+| `schema_version` | genau `1` |
+| `batch_id`, `project_id` | ID |
+| `state_revision` | Ganzzahl ≥ 0 |
+| `goal` | Zielbezug: `kind` (`ticket`, `feature`, `milestone`) und `id` |
+| `rationale` | 1–1000 Zeichen: kurze Begründung des Plans |
+| `decisions` | 1–32 Entscheidungen nach `decision-v1` (jede mit eigener `state_revision`; der Abgleich mit dem Snapshot ist Sache des Validators) |
+
+Ob ein Batch ausführbar ist, entscheidet der Validator in `internal/supervisor` ([`supervisor.md`](supervisor.md)); das
+Schema prüft nur die Form.
 
 Eine formal gültige Decision ist **keine Ausführungsfreigabe**. `Decision.Check(DecisionContext)` prüft in Go:
 Projektbezug (`id`), unveränderte Zustandsrevision (`revision`), bekannte und zur Aktion passende Rolle
-(`role`), Modell und Effort gegen den konfigurierten `Catalog` (`model`, `effort`) und bekannte Skills
-(`value`). Voraussetzungen, Zyklenfreiheit, Kapazität, Locks und Qualitätsbelege prüft der Orchestrator (M03)
-mit denselben Typen. Ungültige oder veraltete Entscheidungen werden protokolliert und nicht ausgeführt.
+(`role`), Modell und Effort gegen den konfigurierten `Catalog` (`model`, `effort`) und Skills: bekannt und freigegeben
+(`value`) sowie, seit CC-14, **für die Rolle der Auswahl erlaubt** (`role`; `Catalog.SkillRoles`). Ein vom Modell nicht
+unterstützter Effort ist seit CC-14 zulässig, wenn `models.yaml` genau diese Reduktion genehmigt (`Catalog.Fallbacks`,
+befüllt von `profiles.BuildCatalog`, keine zweite Liste). `CheckEffective` liefert dann die wirksame Auswahl:
+angeforderter und wirksamer Effort und die Reduktion (`EffortFallback`); die Reduktion bleibt sichtbar, `Check`
+verändert die Entscheidung nie. Ein Katalog ohne `SkillRoles` (nil) führt keine Rolleninformation und prüft nur, ob der
+Skill bekannt ist; `BuildCatalog` setzt die Abbildung immer. Voraussetzungen, Zyklenfreiheit, Kapazität, Doppelstart,
+Umfang, Modus, Review vor dem Push, Abschluss, Reparaturbudget, Profile und die Deckung durch die Rollenregeln prüft der
+Validator in `internal/supervisor` gegen einen `ProjectSnapshot` ([`supervisor.md`](supervisor.md)); Locks und
+Qualitätsbelege über den Snapshot hinaus der Orchestrator (M03). Ungültige oder veraltete Entscheidungen werden protokolliert
+und nicht ausgeführt.
 
 ## Projekt, Profile, Arbeitsauftrag
 
@@ -315,7 +352,8 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | Richtung der Nachrichtentypen | ja (zwei Umschläge) | ja | ja |
 | Typisiertes Dekodieren ohne unbekannte Felder (Schutz vor Drift zwischen Schema und Typ) | – | ja | – |
 | Modell bekannt, Effort vom Modell unterstützt, Skills/Policies bekannt; Profil: angefordert/Fallback/Herkunft widerspruchsfrei | – (nur Format und Aufzählungen) | ja (`Catalog`, `CheckProfile`) | – |
-| Projektbezug und Zustandsrevision einer Entscheidung, Rolle ↔ Aktion | – | ja (`Decision.Check`) | – |
+| Projektbezug und Zustandsrevision einer Entscheidung, Rolle ↔ Aktion, Effort mit genehmigtem Fallback, Skills ↔ Rolle der Auswahl | – | ja (`Decision.Check`, `CheckEffective`) | – |
+| Entscheidungen gegen den Snapshot: Bezüge, Voraussetzungen, Zyklen, Kapazität, Doppelstart, Umfang, Modus, Review, Abschluss, Budget, Profil, Rollenregeln | – | ja (`supervisor.Validator`, seit CC-14) | – |
 | Nachrichtenfolge, terminales Ergebnis, veraltete Versuche | – | ja (`ExecutionTracker`) | – |
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
@@ -332,7 +370,7 @@ Pfade sind POSIX-Pfade (v1 gilt für macOS und Linux); Windows-Pfade sind nicht 
 `contracts/fixtures/valid/<ziel>--<name>.json` muss akzeptiert werden,
 `contracts/fixtures/invalid/<ziel>--<fehlerklasse>--<name>.json` muss mit **genau dieser Fehlerklasse** (und
 keiner weiteren) abgewiesen werden. Ziele: `to-runner`, `from-runner`, `project-config`, `agent-profile`,
-`work-order`, `decision`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
+`work-order`, `decision`, `decision-batch`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
 (`test_contract_fixtures`) lesen dieselben Dateien; keine Seite hat eigene Fixtures für dieselbe Regel. Ein
 neues Verhalten wird durch eine neue Fixture beider Seiten belegt. Ungültige Fixtures enthalten genau einen
 Verstoß. Fixtures sind Testdaten und enthalten keine Produktdaten; Beispielaufgaben stehen nur dort.
@@ -365,8 +403,10 @@ abgelegt, sondern in beiden Sprachen im Test erzeugt (`TestMessageSizeLimit`, `t
 
 - **Rollenmenge, Voraussetzungsarten, Zielarten, Fehlerarten, Aktivitätsarten, Interrupt-Gründe** sind in
   der Spezifikation nicht aufgezählt und hier festgelegt. Sie stehen als Aufzählungen im Schema.
-- **`plan_extend`** trägt in v1 nur Ziel, Voraussetzungen und Begründung; die konkreten Planergänzungen
-  (neue Aufträge, Abhängigkeiten) legt M02 fest, weil sie vom Supervisor-Skill abhängen.
+- **`plan_extend`** trug in v1 zunächst nur Ziel, Voraussetzungen und Begründung. Seit CC-14 trägt es optional `plan_extension`
+  mit den neuen Aufträgen (Ref, Art, Titel, Ziel, Akzeptanzkriterien, Abhängigkeiten, optional Modus). Die Art
+  (`partial`, `correction`, `repair`) ist eine Festlegung dieses Repositorys: Neue Milestones oder fachlich andere Vorhaben
+  sind in einer Plan-Ergänzung damit nicht ausdrückbar („Milestones starten“).
 - **`Execution`** (Versuch-ID, Session, Worktree, Prozessidentität, Start/Ende) ist ein Persistenzobjekt des
   Dienstes (M03). Hier definiert sind Zustand, Nachrichtenfolge (`ExecutionTracker`) und Prozessidentität.
 - **`interrupt` und `stop`** führen beide in „wird beendet“; sie unterscheiden sich im Runner (Runde beenden

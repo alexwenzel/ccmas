@@ -249,8 +249,11 @@ Laufende Ausführungen bleiben bei ihrem Snapshot; ein geänderter Bestand gilt 
 
 `ccmas skills list [--role R] [--json]`, `show <id> [--json]`, `validate [--json]`,
 `snapshot --role R [--skill ID …] --out DIR [--json]`. `validate` prüft seit CC-33 zusätzlich die Rollenregeln und die
-Workflow-Verträge gegeneinander (`skills.LoadChecked`, Bericht mit `workflow_contracts`); `list`, `show` und `snapshot`
-laden nur den Katalog (`skills.Load`) und brauchen die Regeldatei nicht.
+Workflow-Verträge gegeneinander (`skills.LoadChecked`, Bericht mit `workflow_contracts`). Seit CC-14 lädt auch `snapshot`
+mit `skills.LoadChecked`: Snapshots sind die Grundlage von Ausführungen, und auf einem Bestand ohne gültige Plattformregeln
+(`missing_rules`, `invalid_rules`, `missing_contract`, `invalid_contract`) wird keiner geschrieben (Exit-Code 1). `list` und
+`show` laden nur den Katalog (`skills.Load`) und brauchen die Regeldatei nicht, damit ein Bestand auch bei verletzten
+Plattformregeln einsehbar bleibt; sie schreiben nichts.
 
 Der Softwareordner ergibt sich aus `--root`, dann der Umgebungsvariable `CCMAS_HOME`, dann dem Verzeichnis über dem
 Binary (`<exe-dir>/..`, Symlinks aufgelöst, nur wenn dort `.claude/skills/manifest.yaml` liegt); sonst endet der
@@ -297,10 +300,11 @@ nur das Schreibschutz-Layout (0444/0555), eine zweite Prüfung gibt es nicht.
   Ressourcen so nutzbar ist, wurde nicht geprüft (der Live-Probe-Skill besteht nur aus `SKILL.md`); ein Freischalten braucht die
   Freigabe des Projektinhabers.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` werden vom
-  Orchestrator über `Resolve` aufgelöst; der heutige `domain.Catalog.Skills` (reine ID-Menge) wird aus dem Katalog
-  gespeist.
+  Orchestrator über `Resolve` aufgelöst; der `domain.Catalog` wird aus dem Katalog gespeist (`profiles.BuildCatalog`) und
+  führt seit CC-14 zusätzlich die Rollen je Skill, sodass `Decision.Check` einen für die Rolle nicht erlaubten Skill ablehnt.
+  Der Runner-Adapter schreibt Snapshots nur aus einem mit `skills.LoadChecked` geladenen Katalog (`Catalog.Checked()`).
 - **Anpassungen der pending-Skills:** W33.2 ist erledigt (`feature-parallel`, `meilenstein-abschluss`,
-  `antworten-abholen`). Offen: CC-14 (`neue-aufgabe-nehmen`, `morgen-briefing`, neue Skills `ccmas-supervisor` und
+  `antworten-abholen`). Offen: CC-14, W14.2/W14.3 (`neue-aufgabe-nehmen`, `morgen-briefing`, neue Skills `ccmas-supervisor` und
   `ccmas-work-assessment`), M07 (`projekt-anlegen`). Konzeptprüfer und Reviewer haben seit CC-33 ihre Skills
   (`ccmas-concept-review`, `ccmas-code-review`).
 - **Adapter statt direkter Schreibzugriffe:** Die Texte der angepassten Skills nennen die Zentrale (`ccmas question`),

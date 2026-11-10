@@ -25,6 +25,7 @@ type Catalog struct {
 	contracts   map[string]Contract // vorhandene contract.yaml, in sich geprüft (Stufe 1, siehe contract.go)
 	hasContract map[string]bool     // Skills mit einer contract.yaml im Verzeichnis
 	declared    map[string]Skill    // alle im Manifest eingetragenen Skills, auch mit Befunden (Querbezüge von ValidateWorkflow)
+	checked     bool                // mit LoadChecked geladen: Plattformregeln und Verträge geprüft
 }
 
 // Option verändert das Laden.
@@ -69,8 +70,14 @@ func LoadChecked(root string, opts ...Option) (*Catalog, *Rules, error) {
 	if len(findings) > 0 {
 		return nil, nil, asError(findings)
 	}
+	c.checked = true
 	return c, rules, nil
 }
+
+// Checked meldet, ob der Katalog mit LoadChecked geladen wurde, also zusammen mit den Rollenregeln und den
+// Workflow-Verträgen geprüft ist. Produktive Pfade, die Snapshots für Ausführungen schreiben, verlangen das
+// (internal/workers/runner); mit Load geladene Kataloge dienen der Anzeige und der Profilprüfung.
+func (c *Catalog) Checked() bool { return c != nil && c.checked }
 
 // load liefert den Katalog auch bei Befunden (dann mit den fehlerfrei geladenen Skills), damit ValidateWorkflow
 // daneben weitere Befunde sammeln kann; Load gibt ihn bei Befunden nicht heraus.

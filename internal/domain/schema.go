@@ -30,6 +30,7 @@ const (
 	TargetAgentProfile       Target = "agent-profile"       // AgentProfile
 	TargetWorkOrder          Target = "work-order"          // WorkOrder
 	TargetDecision           Target = "decision"            // Decision
+	TargetDecisionBatch      Target = "decision-batch"      // DecisionBatch (plan-v1)
 	TargetIntegrationRequest Target = "integration-request" // IntegrationRequest
 	TargetReviewReport       Target = "review-report"       // ReviewReport
 	TargetSkillSnapshot      Target = "skill-snapshot"      // snapshot.json eines Skill-Snapshots
@@ -44,6 +45,7 @@ var targetSpecs = map[Target]targetSpec{
 	TargetAgentProfile:       {"project-v1.schema.json", "agent_profile"},
 	TargetWorkOrder:          {"project-v1.schema.json", "work_order"},
 	TargetDecision:           {"decision-v1.schema.json", "decision"},
+	TargetDecisionBatch:      {"plan-v1.schema.json", "decision_batch"},
 	TargetIntegrationRequest: {"decision-v1.schema.json", "integration_request"},
 	TargetReviewReport:       {"runner-v1.schema.json", "review_report"},
 	TargetSkillSnapshot:      {"skill-snapshot-v1.schema.json", "skill_snapshot"},
@@ -53,7 +55,7 @@ var targetSpecs = map[Target]targetSpec{
 func Targets() []Target {
 	return []Target{
 		TargetToRunner, TargetFromRunner, TargetProjectConfig, TargetAgentProfile,
-		TargetWorkOrder, TargetDecision, TargetIntegrationRequest, TargetReviewReport,
+		TargetWorkOrder, TargetDecision, TargetDecisionBatch, TargetIntegrationRequest, TargetReviewReport,
 		TargetSkillSnapshot,
 	}
 }

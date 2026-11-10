@@ -86,8 +86,17 @@ func preconditionKinds() []domain.PreconditionKind {
 	}
 }
 
+// ActionRoles nennt die Rollen, die eine Aktion tragen darf (Kopie; leer bei Aktionen ohne Rolle). Für Aktionen
+// mit Auswahl ist es die Liste, gegen die domain.Decision.Check die Rolle der Auswahl prüft; plan_extend
+// (supervisor) und request_completion (completion) tragen ihre Rolle ohne Auswahl. Der Validator in
+// internal/supervisor ordnet damit eine Entscheidung ihrem Folgeschritt in den Rollenregeln zu.
+func ActionRoles(a domain.Action) []domain.Role {
+	roles, _ := actionRoles(a)
+	return slices.Clone(roles)
+}
+
 // actionRoles nennt die Rollen, die eine Aktion tragen darf. selection ist wahr, wenn domain.Decision.Check
-// die Rolle der Auswahl gegen diese Liste prüft (concept_work, implementation, review); für die übrigen
+// die Rolle der Auswahl gegen diese Liste prüft (concept_work, implementation, review, documentation_work); für die übrigen
 // Aktionen gilt dieselbe Zuordnung als Regel der Plattform. Eine leere Liste heißt: die Aktion trägt keine
 // Rolle (Frage an den Nutzer, Integration durch die Plattform, Warten).
 func actionRoles(a domain.Action) (roles []domain.Role, selection bool) {
@@ -98,6 +107,8 @@ func actionRoles(a domain.Action) (roles []domain.Role, selection bool) {
 		return []domain.Role{domain.RoleImplementer}, true
 	case domain.ActionReview:
 		return []domain.Role{domain.RoleReviewer, domain.RoleConceptReviewer}, true
+	case domain.ActionDocumentationWork:
+		return []domain.Role{domain.RoleDocumentation}, true
 	case domain.ActionPlanExtend:
 		return []domain.Role{domain.RoleSupervisor}, false
 	case domain.ActionRequestCompletion:

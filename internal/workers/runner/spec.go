@@ -46,7 +46,9 @@ type Request struct {
 	ResumeSessionID   string
 
 	// Catalog und SnapshotDir sind nötig, sobald das Profil Skills hat: aus dem Katalog entsteht
-	// der Snapshot, der in SnapshotDir geschrieben wird.
+	// der Snapshot, der in SnapshotDir geschrieben wird. Produktive Aufrufer laden den Katalog mit
+	// skills.LoadChecked (Katalog, Rollenregeln und Verträge geprüft), wie es die CLI tut (skills snapshot,
+	// profile verify); BuildSpec weist einen nur mit skills.Load geladenen Katalog ab (Catalog.Checked).
 	Catalog     *skills.Catalog
 	SnapshotDir string
 }
@@ -103,6 +105,9 @@ func (r *Runner) BuildSpec(req Request) (domain.RunSpec, error) {
 	}
 	if req.Catalog == nil || req.SnapshotDir == "" {
 		return domain.RunSpec{}, errors.New("das Profil hat Skills: Skill-Katalog und Snapshot-Verzeichnis sind erforderlich")
+	}
+	if !req.Catalog.Checked() {
+		return domain.RunSpec{}, errors.New("der Skill-Katalog ist nicht geprüft geladen: Snapshots für Ausführungen entstehen nur aus einem Katalog, der mit skills.LoadChecked geladen ist (Rollenregeln und Workflow-Verträge geprüft)")
 	}
 	ref, err := writeSnapshot(req.Catalog, p.Role, p.SkillIDs, req.SnapshotDir)
 	if err != nil {

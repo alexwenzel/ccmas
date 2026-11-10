@@ -142,8 +142,10 @@ roles:
           - {action: implementation, role: implementer, requires: [concept_version_approved]}
           - {action: concept_work, role: concept}
           - {action: review, role: reviewer, requires: [work_order_completed]}
+          - {action: documentation_work, role: documentation}
           - {action: request_integration, requires: [review_approved]}
           - {action: request_completion, role: completion}
+          - {action: plan_extend, role: supervisor}
           - {action: wait}
       user_decision_needed:
         next:

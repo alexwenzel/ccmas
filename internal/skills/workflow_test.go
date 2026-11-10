@@ -191,7 +191,7 @@ func TestWorkflowSkillContracts(t *testing.T) {
 							t.Errorf("%s: ungültige Aktion %q", result, f.Action)
 						}
 						switch f.Action {
-						case domain.ActionConceptWork, domain.ActionImplementation, domain.ActionReview:
+						case domain.ActionConceptWork, domain.ActionImplementation, domain.ActionReview, domain.ActionDocumentationWork:
 							if !decisionAcceptsRole(t, f.Action, f.Role) {
 								t.Errorf("%s: Rolle %s passt nicht zur Aktion %s (Decision.Check)", result, f.Role, f.Action)
 							}
@@ -1878,4 +1878,91 @@ func TestWorkflowSkillsAreAdapted(t *testing.T) {
 			}
 		}
 	})
+}
+
+// ---- CC-14: Dokumentationsrolle erreichbar, ActionRoles -------------------------------
+
+// TestDocumentationRoleIsReachableThroughDecisions: Der Supervisor darf Dokumentationsarbeit über die Aktion
+// documentation_work beauftragen; die Rollenregeln führen den Folgeschritt, und Decision.Check nimmt die Rolle an.
+func TestDocumentationRoleIsReachableThroughDecisions(t *testing.T) {
+	_, rules, err := LoadChecked(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, result := range rules.ResultIDs(domain.RoleSupervisor) {
+		steps, err := rules.NextSteps(domain.RoleSupervisor, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(steps, func(s Step) bool {
+			return s.Action == domain.ActionDocumentationWork && s.Role == domain.RoleDocumentation
+		}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("kein Folgeschritt documentation_work/documentation in den Ergebnissen des Supervisors")
+	}
+	if !decisionAcceptsRole(t, domain.ActionDocumentationWork, domain.RoleDocumentation) {
+		t.Error("Decision.Check nimmt die Rolle documentation bei documentation_work nicht an")
+	}
+	for _, r := range domain.Roles() {
+		if r != domain.RoleDocumentation && decisionAcceptsRole(t, domain.ActionDocumentationWork, r) {
+			t.Errorf("Rolle %s darf documentation_work nicht tragen", r)
+		}
+	}
+}
+
+func TestActionRolesExport(t *testing.T) {
+	for _, a := range domain.DecisionActions() {
+		got := ActionRoles(a)
+		roles, _ := actionRoles(a)
+		if !slices.Equal(got, roles) {
+			t.Errorf("%s: ActionRoles %v, intern %v", a, got, roles)
+		}
+		if a.RequiresSelection() != (len(a.Roles()) > 0) {
+			t.Errorf("%s: RequiresSelection passt nicht zu Roles", a)
+		}
+		if len(a.Roles()) > 0 && !slices.Equal(a.Roles(), got) {
+			t.Errorf("%s: domain.Action.Roles %v, ActionRoles %v", a, a.Roles(), got)
+		}
+	}
+	got := ActionRoles(domain.ActionPlanExtend)
+	got[0] = domain.RoleCompletion
+	if ActionRoles(domain.ActionPlanExtend)[0] != domain.RoleSupervisor {
+		t.Error("ActionRoles liefert keine Kopie")
+	}
+	if len(ActionRoles(domain.ActionWait)) != 0 {
+		t.Error("wait trägt keine Rolle")
+	}
+}
+
+// TestCatalogRemembersCheckedLoading: Nur LoadChecked liefert einen geprüft geladenen Katalog. Produktive Pfade, die
+// Snapshots für Ausführungen schreiben (Runner-Adapter), verlangen das.
+func TestCatalogRemembersCheckedLoading(t *testing.T) {
+	loaded, err := Load(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Checked() {
+		t.Error("Load darf den Katalog nicht als geprüft ausweisen: die Plattformregeln wurden nicht angewendet")
+	}
+	checked, _, err := LoadChecked(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checked.Checked() {
+		t.Error("LoadChecked muss den Katalog als geprüft ausweisen")
+	}
+	var nilCatalog *Catalog
+	if nilCatalog.Checked() {
+		t.Error("ein fehlender Katalog ist nie geprüft")
+	}
+	// Ein Katalog, bei dem die Prüfung Befunde ergibt, wird nicht herausgegeben.
+	f := newCatalogFixture(t, defaultTestSkills())
+	f.removeRules()
+	if c, _, err := LoadChecked(f.root); err == nil || c != nil {
+		t.Errorf("LoadChecked ohne Regeln: %v, %v", c, err)
+	}
 }

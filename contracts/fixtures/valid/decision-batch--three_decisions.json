@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "batch_id": "batch-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "goal": {
+    "kind": "milestone",
+    "id": "ms-1"
+  },
+  "rationale": "Kurze Begründung des Plans.",
+  "decisions": [
+    {
+      "schema_version": 1,
+      "decision_id": "dec-1",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "implementation",
+      "preconditions": [
+        {
+          "kind": "concept_version_approved",
+          "ref": "concept-1"
+        }
+      ],
+      "rationale": "Kurze, überprüfbare Begründung.",
+      "selection": {
+        "role": "implementer",
+        "skill_ids": [
+          "ccmas-feature-parallel"
+        ],
+        "model": "model-a",
+        "effort": "high"
+      },
+      "expected_outcome": "Der Auftrag ist umgesetzt.",
+      "estimate": {
+        "size": "m",
+        "complexity": "medium",
+        "uncertainty": "low"
+      }
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-2",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-2"
+      },
+      "action": "concept_work",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung.",
+      "selection": {
+        "role": "concept",
+        "skill_ids": [
+          "ccmas-concept-ticket"
+        ],
+        "model": "model-a",
+        "effort": "high"
+      }
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-3",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "milestone",
+        "id": "ms-1"
+      },
+      "action": "plan_extend",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung.",
+      "plan_extension": {
+        "work_orders": [
+          {
+            "ref": "wo-new-1",
+            "kind": "partial",
+            "title": "Teilauftrag Schema",
+            "goal": "Das Schema um die neuen Felder ergänzen.",
+            "acceptance_criteria": [
+              "Schema und Fixtures stimmen überein."
+            ],
+            "depends_on": [
+              "wo-1"
+            ]
+          },
+          {
+            "ref": "wo-new-2",
+            "kind": "repair",
+            "title": "Reparatur nach Review",
+            "goal": "Die Befunde des Reviews beheben.",
+            "acceptance_criteria": [
+              "Alle Befunde sind behoben.",
+              "Tests laufen grün."
+            ],
+            "depends_on": [
+              "wo-new-1"
+            ],
+            "mode": "pr"
+          }
+        ]
+      }
+    }
+  ]
+}

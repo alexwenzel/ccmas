@@ -97,6 +97,36 @@ func TestRunWithoutSkillsWritesNoSnapshot(t *testing.T) {
 	}
 }
 
+// TestSnapshotsNeedACheckedCatalog: Der Adapter schreibt Snapshots für Ausführungen nur aus einem Katalog, der mit
+// skills.LoadChecked geladen ist (Katalog, Rollenregeln und Verträge geprüft). Ein nur mit Load geladener Katalog
+// ist keine Grundlage, auch wenn er in sich gültig ist; es wird weder ein Snapshot geschrieben noch ein Prozess gestartet.
+func TestSnapshotsNeedACheckedCatalog(t *testing.T) {
+	loaded, err := skills.Load(syntheticRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, "ok")
+	req := testRequest(t)
+	req.Profile = implementerProfile(skillImpl)
+	req.Catalog = loaded
+	req.SnapshotDir = filepath.Join(t.TempDir(), "snapshots")
+	_, err = h.r.Start(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "LoadChecked") {
+		t.Fatalf("err = %v", err)
+	}
+	if h.exists("start.json") {
+		t.Error("Prozess gestartet")
+	}
+	if _, statErr := os.Stat(req.SnapshotDir); statErr == nil {
+		t.Error("Snapshot-Verzeichnis angelegt")
+	}
+	// Ohne Skills braucht es keinen Katalog und keine Prüfung.
+	req = testRequest(t)
+	if _, err := h.r.BuildSpec(req); err != nil {
+		t.Fatalf("Profil ohne Skills: %v", err)
+	}
+}
+
 func TestSkillsNeedCatalogAndSnapshotDir(t *testing.T) {
 	for name, mod := range map[string]func(*Request){
 		"ohne Katalog":              func(r *Request) { r.Catalog = nil },

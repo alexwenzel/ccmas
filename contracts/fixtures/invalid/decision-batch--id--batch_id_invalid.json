@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "batch_id": "batch 1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "goal": {
+    "kind": "milestone",
+    "id": "ms-1"
+  },
+  "rationale": "Kurze Begründung des Plans.",
+  "decisions": [
+    {
+      "schema_version": 1,
+      "decision_id": "dec-1",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    }
+  ]
+}

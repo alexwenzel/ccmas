@@ -89,6 +89,24 @@ type Catalog struct {
 	Models   map[string][]Effort
 	Skills   map[string]bool
 	Policies map[string]bool
+
+	// Fallbacks sind die in models.yaml ausdrücklich genehmigten Effort-Reduktionen (seit CC-14). Die Daten
+	// liefert profiles.BuildCatalog; es gibt keine zweite Liste.
+	Fallbacks []CatalogFallback
+	// SkillRoles nennt je Skill die Rollen, die ihn erhalten dürfen (seit CC-14). Ist die Abbildung gesetzt
+	// (nicht nil), muss ein Skill der Auswahl dort mit der Rolle der Auswahl stehen; ein Skill ohne Eintrag
+	// ist dann für keine Rolle erlaubt. Ist sie nil, kennt der Katalog keine Rolleninformation und prüft nur,
+	// ob der Skill bekannt (freigegeben) ist. profiles.BuildCatalog setzt sie immer.
+	SkillRoles map[string][]Role
+}
+
+// CatalogFallback ist eine genehmigte Reduktion: Fordert jemand für Model die Stufe Requested an und
+// unterstützt das Modell sie nicht, läuft es mit Effective. Die Genehmigung gilt nur für genau dieses Paar.
+type CatalogFallback struct {
+	Model     string
+	Requested Effort
+	Effective Effort
+	Source    string // Quelle der Genehmigung (zum Beispiel die Dokumentation)
 }
 
 // CheckModelEffort unterscheidet Modellfehler (unbekanntes Modell) von Effort-Fehlern
@@ -107,10 +125,53 @@ func (c Catalog) CheckModelEffort(model string, effort Effort) error {
 	return nil
 }
 
+// EffectiveEffort liefert die wirksame Stufe für ein Modell und eine angeforderte Stufe. Unterstützt das
+// Modell die Stufe, ist sie wirksam. Sonst gilt nur eine ausdrücklich genehmigte Reduktion für genau dieses
+// Paar (Catalog.Fallbacks); sie wird als EffortFallback ausgewiesen, damit die Reduktion sichtbar bleibt.
+// Ohne Genehmigung, bei unbekanntem Modell oder unbekannter Stufe ist es derselbe Fehler wie
+// CheckModelEffort. Ein Modell wird nie ersetzt.
+func (c Catalog) EffectiveEffort(model string, requested Effort) (Effort, *EffortFallback, error) {
+	err := c.CheckModelEffort(model, requested)
+	if err == nil {
+		return requested, nil, nil
+	}
+	supported := c.Models[model]
+	if supported == nil || !requested.Valid() {
+		return "", nil, err
+	}
+	for _, f := range c.Fallbacks {
+		if f.Model != model || f.Requested != requested {
+			continue
+		}
+		// Eine Genehmigung gilt nur, wenn sie in sich stimmt: reduziert und vom Modell unterstützt.
+		if contains(supported, f.Effective) && effortRank(f.Effective) < effortRank(requested) {
+			return f.Effective, &EffortFallback{Kind: FallbackEffortReduction, From: requested, To: f.Effective, Source: f.Source}, nil
+		}
+	}
+	return "", nil, err
+}
+
 func (c Catalog) checkSkills(ids []string) error {
 	for _, id := range ids {
 		if !c.Skills[id] {
 			return newError(CatValue, "", "Skill %q ist nicht bekannt", id)
+		}
+	}
+	return nil
+}
+
+// checkSkillsForRole prüft, dass jeder Skill bekannt (freigegeben) und, wenn der Katalog Rolleninformation
+// führt, für die Rolle erlaubt ist.
+func (c Catalog) checkSkillsForRole(ids []string, role Role, location string) error {
+	if err := c.checkSkills(ids); err != nil {
+		return err
+	}
+	if c.SkillRoles == nil {
+		return nil
+	}
+	for _, id := range ids {
+		if !contains(c.SkillRoles[id], role) {
+			return newError(CatRole, location, "Skill %q ist für die Rolle %q nicht erlaubt", id, role)
 		}
 	}
 	return nil
@@ -124,7 +185,7 @@ func (c Catalog) CheckProfile(p AgentProfile) error {
 	if err := c.CheckModelEffort(p.Model, p.Effort); err != nil {
 		return err
 	}
-	if err := c.checkSkills(p.SkillIDs); err != nil {
+	if err := c.checkSkillsForRole(p.SkillIDs, p.Role, "/skill_ids"); err != nil {
 		return err
 	}
 	if !c.Policies[p.PolicyProfile] {
@@ -202,46 +263,58 @@ type DecisionContext struct {
 	Catalog       Catalog
 }
 
-// rolesFor nennt die Rollen, die eine Aktion mit Auswahl beauftragen darf.
-func rolesFor(a Action) []Role {
-	switch a {
-	case ActionConceptWork:
-		return []Role{RoleConcept}
-	case ActionImplementation:
-		return []Role{RoleImplementer}
-	case ActionReview:
-		return []Role{RoleReviewer, RoleConceptReviewer}
-	}
-	return nil
+// EffectiveSelection ist die wirksame Auswahl einer geprüften Entscheidung. Effort ist die wirksame Stufe;
+// weicht sie von RequestedEffort ab, steht die genehmigte Reduktion in Fallback. Ein Modell wird nie ersetzt.
+type EffectiveSelection struct {
+	Model           string
+	RequestedEffort Effort
+	Effort          Effort
+	Fallback        *EffortFallback
 }
 
 // Check prüft eine formal gültige Decision gegen den aktuellen Zustand: Projektbezug,
 // unveränderte Zustandsrevision sowie Rolle, Modell, Effort und Skills der Auswahl. Weitere
-// Prüfungen (Voraussetzungen, Kapazität, Locks, Belege) gehören zum Orchestrator.
+// Prüfungen (Voraussetzungen, Kapazität, Locks, Belege) gehören zum Orchestrator beziehungsweise zum
+// Validator in internal/supervisor. Check ändert die Entscheidung nicht.
+//
+// Der Effort der Auswahl ist zulässig, wenn das Modell ihn unterstützt oder models.yaml genau diese
+// Reduktion genehmigt (Catalog.Fallbacks); CheckEffective liefert dann zusätzlich den wirksamen Wert. Die
+// Skills müssen freigegeben und für die Rolle der Auswahl erlaubt sein.
 func (d Decision) Check(ctx DecisionContext) error {
+	_, err := d.CheckEffective(ctx)
+	return err
+}
+
+// CheckEffective prüft wie Check und liefert die wirksame Auswahl: Modell, angeforderten und wirksamen
+// Effort sowie eine genehmigte Reduktion (sichtbar, nie still). Ohne Auswahl ist das Ergebnis nil.
+func (d Decision) CheckEffective(ctx DecisionContext) (*EffectiveSelection, error) {
 	if !d.Action.Valid() {
-		return newError(CatAction, "/action", "unbekannte Aktion %q", d.Action)
+		return nil, newError(CatAction, "/action", "unbekannte Aktion %q", d.Action)
 	}
 	if d.ProjectID != ctx.ProjectID {
-		return newError(CatID, "/project_id", "Entscheidung gehört zu Projekt %q, nicht zu %q", d.ProjectID, ctx.ProjectID)
+		return nil, newError(CatID, "/project_id", "Entscheidung gehört zu Projekt %q, nicht zu %q", d.ProjectID, ctx.ProjectID)
 	}
 	if d.StateRevision != ctx.StateRevision {
-		return newError(CatRevision, "/state_revision", "Zustandsrevision %d ist veraltet, aktuell ist %d", d.StateRevision, ctx.StateRevision)
+		return nil, newError(CatRevision, "/state_revision", "Zustandsrevision %d ist veraltet, aktuell ist %d", d.StateRevision, ctx.StateRevision)
 	}
 	if d.Selection == nil {
-		return nil
+		return nil, nil
 	}
 	s := d.Selection
 	if !s.Role.Valid() {
-		return newError(CatRole, "/selection/role", "unbekannte Rolle %q", s.Role)
+		return nil, newError(CatRole, "/selection/role", "unbekannte Rolle %q", s.Role)
 	}
-	if allowed := rolesFor(d.Action); allowed != nil && !contains(allowed, s.Role) {
-		return newError(CatRole, "/selection/role", "Rolle %q passt nicht zur Aktion %q", s.Role, d.Action)
+	if allowed := d.Action.Roles(); allowed != nil && !contains(allowed, s.Role) {
+		return nil, newError(CatRole, "/selection/role", "Rolle %q passt nicht zur Aktion %q", s.Role, d.Action)
 	}
-	if err := ctx.Catalog.CheckModelEffort(s.Model, s.Effort); err != nil {
-		return err
+	effective, fallback, err := ctx.Catalog.EffectiveEffort(s.Model, s.Effort)
+	if err != nil {
+		return nil, err
 	}
-	return ctx.Catalog.checkSkills(s.SkillIDs)
+	if err := ctx.Catalog.checkSkillsForRole(s.SkillIDs, s.Role, "/selection/skill_ids"); err != nil {
+		return nil, err
+	}
+	return &EffectiveSelection{Model: s.Model, RequestedEffort: s.Effort, Effort: effective, Fallback: fallback}, nil
 }
 
 // ---- Review und Integration -------------------------------------------------

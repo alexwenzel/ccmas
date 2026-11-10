@@ -190,7 +190,7 @@ def test_error_exposes_location():
 
 def test_decision_actions_match_the_agreed_set():
     agreed = {
-        "plan_extend", "concept_work", "implementation", "review",
+        "plan_extend", "concept_work", "implementation", "review", "documentation_work",
         "ask_question", "request_integration", "wait", "request_completion",
     }
     schema = json.loads((contracts.contracts_dir() / "decision-v1.schema.json").read_text())
@@ -201,7 +201,7 @@ def test_decision_actions_match_the_agreed_set():
         "target": {"kind": "work_order", "id": "wo-1"}, "action": "wait", "preconditions": [],
         "rationale": "Kurz.",
     }
-    for action in sorted(agreed - {"implementation", "concept_work", "review", "ask_question"}):
+    for action in sorted(agreed - {"implementation", "concept_work", "review", "documentation_work", "ask_question"}):
         d = copy.deepcopy(decision)
         d["action"] = action
         contracts.validate("decision", json.dumps(d))
@@ -290,3 +290,87 @@ def test_agent_profile_cc46_field_violations(label, mutate, expected):
     profile = copy.deepcopy(load_fixture("valid", "agent-profile--effort_fallback.json"))
     mutate(profile)
     check("agent-profile", profile, expected)
+
+
+# ---- Decision und DecisionBatch (seit CC-14, v1-kompatibel) -------------------------------
+
+
+def test_decision_without_cc14_fields_stays_valid():
+    # Jede bisher gültige Entscheidung bleibt gültig: expected_outcome, estimate und plan_extension sind optional.
+    decision = load_fixture("valid", "decision--implementation.json")
+    for field in ("expected_outcome", "estimate", "plan_extension"):
+        assert field not in decision
+    contracts.validate("decision", json.dumps(decision))
+
+
+def test_decision_cc14_fields_are_accepted():
+    for name in (
+        "decision--documentation_work.json",
+        "decision--expected_outcome_and_estimate.json",
+        "decision--plan_extend_with_extension.json",
+    ):
+        contracts.validate("decision", json.dumps(load_fixture("valid", name)))
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate", "expected"),
+    [
+        ("documentation_work ohne Auswahl", lambda d: d.pop("selection"), "field"),
+        ("plan_extension bei einer anderen Aktion", lambda d: d.update(action="wait"), "value"),
+        ("estimate.size unbekannt", lambda d: d["estimate"].update(size="xxl"), "value"),
+        ("estimate ohne uncertainty", lambda d: d["estimate"].pop("uncertainty"), "field"),
+        ("expected_outcome zu lang", lambda d: d.update(expected_outcome="x" * 513), "size"),
+        ("plan_extension.ref ungültig", lambda d: d["plan_extension"]["work_orders"][0].update(ref="../x"), "id"),
+        ("plan_extension.kind unbekannt", lambda d: d["plan_extension"]["work_orders"][0].update(kind="milestone"), "value"),
+        ("plan_extension ohne depends_on", lambda d: d["plan_extension"]["work_orders"][0].pop("depends_on"), "field"),
+        ("plan_extension.mode unbekannt", lambda d: d["plan_extension"]["work_orders"][0].update(mode="merge"), "value"),
+        ("plan_extension leer", lambda d: d["plan_extension"].update(work_orders=[]), "value"),
+        ("plan_extension mit zusätzlichem Feld", lambda d: d["plan_extension"]["work_orders"][0].update(extra=1), "unknown_field"),
+    ],
+)
+def test_decision_cc14_field_violations(label, mutate, expected):
+    decision = copy.deepcopy(load_fixture("valid", "decision--plan_extend_with_extension.json"))
+    if label == "documentation_work ohne Auswahl":
+        decision = copy.deepcopy(load_fixture("valid", "decision--documentation_work.json"))
+    elif label.startswith("estimate") or label.startswith("expected"):
+        decision = copy.deepcopy(load_fixture("valid", "decision--expected_outcome_and_estimate.json"))
+    mutate(decision)
+    check("decision", decision, expected)
+
+
+def _batch():
+    return copy.deepcopy(load_fixture("valid", "decision-batch--three_decisions.json"))
+
+
+def test_decision_batch_fixtures_are_valid_and_registered():
+    assert "decision-batch" in contracts.TARGETS
+    for name in ("decision-batch--minimal.json", "decision-batch--three_decisions.json"):
+        contracts.validate("decision-batch", json.dumps(load_fixture("valid", name)))
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate", "expected"),
+    [
+        ("Version", lambda b: b.update(schema_version=2), "version"),
+        ("batch_id fehlt", lambda b: b.pop("batch_id"), "field"),
+        ("Zielbezug fehlt", lambda b: b.pop("goal"), "field"),
+        ("Begründung fehlt", lambda b: b.pop("rationale"), "field"),
+        ("Zielart work_order", lambda b: b["goal"].update(kind="work_order"), "value"),
+        ("keine Entscheidungen", lambda b: b.update(decisions=[]), "value"),
+        ("zusätzliches Feld", lambda b: b.update(extra=1), "unknown_field"),
+        ("Aktion unbekannt", lambda b: b["decisions"][0].update(action="deploy"), "action"),
+        ("Revision negativ", lambda b: b.update(state_revision=-1), "value"),
+    ],
+)
+def test_decision_batch_violations(label, mutate, expected):
+    batch = _batch()
+    mutate(batch)
+    check("decision-batch", batch, expected)
+
+
+def test_decision_batch_accepts_at_most_32_decisions():
+    batch = _batch()
+    batch["decisions"] = [dict(batch["decisions"][1], decision_id=f"dec-{i}") for i in range(32)]
+    contracts.validate("decision-batch", json.dumps(batch))
+    batch["decisions"].append(dict(batch["decisions"][0], decision_id="dec-x"))
+    check("decision-batch", batch, "size")

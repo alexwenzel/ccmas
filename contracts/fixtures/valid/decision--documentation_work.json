@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "decision_id": "dec-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "target": {
+    "kind": "work_order",
+    "id": "wo-1"
+  },
+  "action": "documentation_work",
+  "preconditions": [
+    {
+      "kind": "work_order_completed",
+      "ref": "wo-1"
+    }
+  ],
+  "rationale": "Kurze, überprüfbare Begründung.",
+  "selection": {
+    "role": "documentation",
+    "skill_ids": [
+      "ccmas-obsidian-seite"
+    ],
+    "model": "model-a",
+    "effort": "high"
+  }
+}

@@ -36,6 +36,7 @@ TARGETS: dict[str, tuple[str, str]] = {
     "agent-profile": ("project-v1.schema.json", "agent_profile"),
     "work-order": ("project-v1.schema.json", "work_order"),
     "decision": ("decision-v1.schema.json", "decision"),
+    "decision-batch": ("plan-v1.schema.json", "decision_batch"),
     "integration-request": ("decision-v1.schema.json", "integration_request"),
     "review-report": ("runner-v1.schema.json", "review_report"),
     "skill-snapshot": ("skill-snapshot-v1.schema.json", "skill_snapshot"),
