@@ -31,6 +31,12 @@ sind abgeschaltet; beim Init schreibt der Runner Anzahlen der geladenen Quellen 
 exakt der nachgewiesenen entspricht, sind schreibende Profile gesperrt. `--max-turns N` (1 bis 200) begrenzt die Runden der
 Sitzung. Befunde und Belege: `docs/architecture/runtime-capabilities.md`.
 
+Skills (CC-35): `skill_ids` brauchen einen `skill_snapshot` im Start (Kennung und Pfad des von `ccmas skills snapshot` geschriebenen
+Verzeichnisses). `claude_sdk_runner.skill_snapshot` rechnet vor dem Start alle Hashes nach und gleicht Kennung, Rolle und Skill-IDs ab
+(Fehler `skill_snapshot_missing`, `skill_snapshot_invalid`, `skill_snapshot_mismatch`); die Sitzung lädt das Plugin `ccmas` mit genau
+diesen Skills (`ccmas:<id>`) und bricht ab, wenn der Init-Frame etwas anderes zeigt (`skills_not_loaded`). Ohne Snapshot ist kein Skill
+aufrufbar. Live-Tests: `CCMAS_LIVE_TESTS=1 uv run --frozen pytest -q -m live -k skill`.
+
 ```bash
 uv run --frozen pytest tests/test_runtime_smoke.py -q                              # ohne Konto, ohne Netzwerk
 CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # 4 echte Läufe (Unterprozess, Allowlist-Umgebung), verbraucht Abo-Kontingent

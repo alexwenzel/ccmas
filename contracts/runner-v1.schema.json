@@ -95,6 +95,16 @@
         "cwd": { "$ref": "common-v1.schema.json#/$defs/abs_path" },
         "claude_binary": { "$ref": "common-v1.schema.json#/$defs/abs_path" },
         "prompt": { "type": "string", "minLength": 1, "maxLength": 200000 },
+        "skill_snapshot": {
+          "description": "Unveränderlicher Skill-Snapshot der Ausführung (Plugin-Layout, siehe docs/architecture/skill-migration.md). Optional, ab CC-35. Der Runner prüft ihn vor dem Start gegen snapshot.json und lädt genau dessen Skills; skill_ids ohne skill_snapshot ist ein Fehler des Runners (skill_snapshot_missing), kein Vertragsverstoß.",
+          "type": "object",
+          "required": ["snapshot_id", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "snapshot_id": { "$ref": "skill-snapshot-v1.schema.json#/$defs/snapshot_id" },
+            "path": { "$ref": "common-v1.schema.json#/$defs/abs_path" }
+          }
+        },
         "resume_session_id": { "$ref": "common-v1.schema.json#/$defs/id" },
         "max_runtime_seconds": {
           "type": "integer", "minimum": 1, "maximum": 86400, "x-error-class": "limit"
@@ -155,6 +165,14 @@
           "description": "Art der aktiven Anmeldung, nie Konto-, E-Mail- oder Organisationsdaten. claude_ai: Abonnement-Anmeldung; api_key und other werden vom Runner nie als Betriebsweg gemeldet. Optional, ab CC-17.",
           "enum": ["claude_ai", "api_key", "other"],
           "x-error-class": "value"
+        },
+        "skill_snapshot_id": {
+          "description": "Snapshot, aus dem die Skills dieser Sitzung geladen wurden; nur bei einem Skill-Snapshot im Auftrag. Optional, ab CC-35.",
+          "$ref": "skill-snapshot-v1.schema.json#/$defs/snapshot_id"
+        },
+        "skills": {
+          "description": "Skill-IDs ohne Plugin-Präfix, die die CLI laut Init-Meldung wirksam geladen hat (gleich der Menge im Snapshot; weicht sie ab, bricht der Runner mit skills_not_loaded ab). Nur bei einem Skill-Snapshot im Auftrag; eine leere Liste heißt: keine Skills geladen. Optional, ab CC-35.",
+          "$ref": "common-v1.schema.json#/$defs/skill_ids"
         }
       }
     },

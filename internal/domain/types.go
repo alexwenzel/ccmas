@@ -230,6 +230,16 @@ type RunSpec struct {
 	Prompt            string   `json:"prompt"`
 	ResumeSessionID   string   `json:"resume_session_id,omitempty"`
 	MaxRuntimeSeconds int      `json:"max_runtime_seconds"`
+	// SkillSnapshot verweist auf den unveränderlichen Skill-Snapshot der Ausführung (CC-35). Pflicht
+	// für den Runner, sobald SkillIDs nicht leer ist; der Vertrag erzwingt das nicht (siehe contracts.md).
+	SkillSnapshot *SkillSnapshotRef `json:"skill_snapshot,omitempty"`
+}
+
+// SkillSnapshotRef benennt einen geschriebenen Skill-Snapshot: seine Kennung und das Verzeichnis
+// (absoluter, kanonischer Pfad; Layout und Hashes: docs/architecture/skill-migration.md).
+type SkillSnapshotRef struct {
+	SnapshotID string `json:"snapshot_id"`
+	Path       string `json:"path"`
 }
 
 // Answer ist die Antwort auf eine Frage (Payload von answer). DeliveryConfirmedAt wird
@@ -263,6 +273,12 @@ type SessionStarted struct {
 	PermissionMode string     `json:"permission_mode,omitempty"`
 	ClaudeBinary   string     `json:"claude_binary,omitempty"`
 	AuthSource     AuthSource `json:"auth_source,omitempty"`
+	// Skills der Sitzung (CC-35): Snapshot, aus dem geladen wurde, und die Skill-IDs (ohne
+	// Plugin-Präfix), die die CLI laut Init-Meldung wirksam geladen hat. Nur gesetzt, wenn der
+	// Auftrag einen Snapshot trug; eine leere Liste heißt dort „keine Skills“ und fällt in Go mit
+	// einem fehlenden Feld zusammen.
+	SkillSnapshotID string   `json:"skill_snapshot_id,omitempty"`
+	Skills          []string `json:"skills,omitempty"`
 }
 
 // Activity ist der Payload von activity.

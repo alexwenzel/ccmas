@@ -23,6 +23,10 @@ INVALID_CWD = "invalid_cwd"
 MAX_RUNTIME = "max_runtime_exceeded"
 SESSION_FAILED = "session_failed"
 INTERNAL = "internal_error"
+SKILL_SNAPSHOT_MISSING = "skill_snapshot_missing"
+SKILL_SNAPSHOT_INVALID = "skill_snapshot_invalid"
+SKILL_SNAPSHOT_MISMATCH = "skill_snapshot_mismatch"
+SKILLS_NOT_LOADED = "skills_not_loaded"
 
 
 class RuntimeDiagnostic(Exception):

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -343,4 +344,47 @@ func TestCommandEncodingValidatesBeforeSend(t *testing.T) {
 	fromRunner.Type = MsgResult
 	_, err = EncodeRunCommand(fromRunner, spec)
 	wantCategory(t, err, CatMessageType)
+}
+
+// Die Skill-Felder (CC-35) werden typisiert gelesen und bleiben beim Senden und Lesen erhalten; der
+// Pfad des Snapshots muss absolut und kanonisch sein, die Kennung das Format sha256:<64 Hex> haben.
+func TestSkillSnapshotFieldsOfRunSpecAndSessionStarted(t *testing.T) {
+	const id = "sha256:86d0863c2d5453dc486b3701f9f7c018733b482965ad822ea2b66de8accaeab2"
+	cmd, err := ParseRunCommand(readFixture(t, "valid", "to-runner--start_with_skill_snapshot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := cmd.Payload.(RunSpec)
+	if spec.SkillSnapshot == nil || spec.SkillSnapshot.SnapshotID != id || spec.SkillSnapshot.Path != "/work/exec/skill-snapshots/86d0863c2d5453dc486b3701f9f7c018733b482965ad822ea2b66de8accaeab2" {
+		t.Fatalf("skill_snapshot = %#v", spec.SkillSnapshot)
+	}
+	raw, err := EncodeRunCommand(cmd.Envelope, spec)
+	if err != nil {
+		t.Fatalf("erneutes Senden: %v", err)
+	}
+	if again, err := ParseRunCommand(raw); err != nil || again.Payload.(RunSpec).SkillSnapshot == nil {
+		t.Fatalf("Round-Trip verliert skill_snapshot: %v", err)
+	}
+	bad := spec
+	bad.SkillSnapshot = &SkillSnapshotRef{SnapshotID: id, Path: "relativ/pfad"}
+	_, err = EncodeRunCommand(cmd.Envelope, bad)
+	wantCategory(t, err, CatPath)
+	bad.SkillSnapshot = &SkillSnapshotRef{SnapshotID: "sha256:XYZ", Path: spec.SkillSnapshot.Path}
+	_, err = EncodeRunCommand(cmd.Envelope, bad)
+	wantCategory(t, err, CatValue)
+	// Ohne Snapshot bleibt das Feld weg (v1-kompatibel).
+	bad.SkillSnapshot = nil
+	raw, err = EncodeRunCommand(cmd.Envelope, bad)
+	if err != nil || strings.Contains(string(raw), "skill_snapshot") {
+		t.Fatalf("ohne Snapshot darf das Feld nicht erscheinen: %v %s", err, raw)
+	}
+
+	ev, err := ParseRunEvent(readFixture(t, "valid", "from-runner--session_started_skills.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := ev.Payload.(SessionStarted)
+	if started.SkillSnapshotID != id || !slices.Equal(started.Skills, []string{"ccmas-demo-know", "ccmas-demo-track"}) {
+		t.Fatalf("session_started = %#v", started)
+	}
 }

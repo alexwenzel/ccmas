@@ -411,12 +411,248 @@ def test_max_runtime_exceeded_is_terminal_error(tmp_path: Path, fx: Path):
     assert FakeClient.created[0].interrupt_calls == 1
 
 
-def test_skill_ids_produce_a_warning_not_silent_ignore(tmp_path: Path, fx: Path):
-    binary, _ = make_stub_cli(tmp_path)
-    _, events, _, _ = run_runner([start_line(str(fx), binary, skill_ids=["ccmas-x"])], dict(BASE_ENV),
+# --- Skills aus einem geprüften Snapshot (CC-35) ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def snap(tmp_path: Path) -> Path:
+    return support.copy_example_snapshot(tmp_path / "snap")
+
+
+def _no_session(binary: str, events, log: Path) -> None:
+    """Terminaler Fehler schon in der Vorprüfung: keine Sitzung, kein Modellaufruf, kein Werkzeug."""
+    assert not any(e["type"] in ("session_started", "tool_event", "result", "activity") for e in events)
+    assert "SESSION-REQUESTED" not in (log.read_text() if log.exists() else "") and "session" not in [k for k, _ in support.stub_calls(binary)]
+    assert FakeClient.created == []  # nicht einmal ein Client wurde gebaut
+
+
+def test_skill_ids_without_a_snapshot_end_the_attempt_in_the_preflight(tmp_path: Path, fx: Path):
+    binary, log = make_stub_cli(tmp_path)
+    code, events, err, out = run_runner([start_line(str(fx), binary, skill_ids=["ccmas-x"])], dict(BASE_ENV),
+                                        client_factory=fake_factory([init_message(), result_message()]))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "skill_snapshot_missing" and t["payload"]["terminal"] and code == 0
+    assert "ccmas-x" in t["payload"]["message"]
+    assert not any(e["payload"].get("code") == "skills_not_applied" for e in events if e["type"] == "error")  # alte Warnung entfällt
+    _no_session(binary, events, log)
+
+
+@pytest.mark.parametrize("manipulate,code", [
+    (lambda s: (s / "skills" / support.EXAMPLE_SKILLS[0] / "scripts" / "check.py").write_text("x"), "skill_snapshot_mismatch"),
+    (lambda s: (s / "snapshot.json").unlink(), "skill_snapshot_invalid"),
+])
+def test_a_broken_snapshot_ends_the_attempt_in_the_preflight_without_a_session(tmp_path: Path, fx: Path, snap: Path, manipulate, code: str):
+    manipulate(snap)
+    binary, log = make_stub_cli(tmp_path)
+    run_code, events, err, out = run_runner([support.skill_start_line(str(fx), binary, snap)], dict(BASE_ENV),
+                                            client_factory=fake_factory([init_message(), result_message()]))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["payload"]["code"] == code and t["payload"]["terminal"] and run_code == 0
+    assert "scripts/check.py" in t["payload"]["message"] or code == "skill_snapshot_invalid"
+    _no_session(binary, events, log)
+
+
+@pytest.mark.parametrize("over,fragment", [
+    ({"role": "implementer"}, "Rolle"),
+    ({"skill_ids": [support.EXAMPLE_SKILLS[0]]}, "nicht angeforderte Skills"),
+    ({"skill_ids": [*support.EXAMPLE_SKILLS, "ccmas-demo-mehr"]}, "fehlen die Skills"),
+    ({"snapshot_id": "sha256:" + "7" * 64}, "snapshot_id"),
+])
+def test_snapshot_that_does_not_match_the_order_ends_the_attempt_in_the_preflight(tmp_path: Path, fx: Path, snap: Path, over, fragment: str):
+    binary, log = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([support.skill_start_line(str(fx), binary, snap, **over)], dict(BASE_ENV),
                                  client_factory=fake_factory([init_message(), result_message()]))
-    assert any(e["type"] == "error" and e["payload"]["code"] == "skills_not_applied" and not e["payload"]["terminal"]
-               for e in events)
+    (t,) = terminals(events)
+    assert t["payload"]["code"] == "skill_snapshot_mismatch" and fragment in t["payload"]["message"]
+    _no_session(binary, events, log)
+
+
+def test_without_a_snapshot_the_session_has_an_explicit_empty_skill_list_and_unchanged_rights(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path)
+    code, events, _, _ = run_runner([start_line(str(fx), binary, policy_profile="readonly")], dict(BASE_ENV),
+                                    client_factory=fake_factory([init_message(), result_message()]))
+    opts = FakeClient.created[0].options
+    pol = policy.build_policy("readonly", str(fx))
+    assert opts.skills == [] and opts.plugins == []  # ausdrücklich: kein Skill aufrufbar
+    assert opts.tools == pol.tools == ["Read"] and "Skill" not in opts.tools
+    assert opts.allowed_tools == pol.allowed_tools and opts.setting_sources == []
+    started = next(e["payload"] for e in events if e["type"] == "session_started")
+    assert "skill_snapshot_id" not in started and "skills" not in started
+
+
+@pytest.mark.parametrize("profile", ["readonly", "scoped_write"])
+def test_with_a_snapshot_the_plugin_the_allowlist_and_the_skill_tool_are_set_and_nothing_else_changes(tmp_path: Path, fx: Path, snap: Path, profile: str):
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, out = run_runner([support.skill_start_line(str(fx), binary, snap, policy_profile=profile)], dict(BASE_ENV),
+                                   client_factory=fake_factory([support.init_with_skills(snap, [f"ccmas:{i}" for i in support.EXAMPLE_SKILLS]), result_message()]))
+    validate_all(out)
+    opts = FakeClient.created[0].options
+    pol = policy.build_policy(profile, str(fx))
+    assert opts.plugins == [{"type": "local", "path": os.path.realpath(snap)}]
+    assert opts.skills == ["ccmas:ccmas-demo-know", "ccmas:ccmas-demo-track"]
+    assert opts.tools == [*pol.tools, "Skill"]
+    # Rechte: unverändert gegenüber dem Profil; insbesondere kein Lesezugriff auf das Snapshot-Verzeichnis.
+    assert opts.allowed_tools == pol.allowed_tools and opts.disallowed_tools == pol.disallowed_tools
+    assert opts.permission_mode == pol.permission_mode and opts.sandbox == pol.sandbox
+    assert json.loads(opts.settings) == pol.settings and opts.setting_sources == []
+    everything = json.dumps([opts.allowed_tools, opts.sandbox, opts.settings])
+    assert str(snap) not in everything and os.path.realpath(snap) not in everything
+    (t,) = terminals(events)
+    assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded", t
+
+
+def test_the_plugin_path_is_the_resolved_path_of_the_snapshot(tmp_path: Path, fx: Path, snap: Path):
+    """Liegt der Snapshot hinter einem Symlink im Elternpfad (macOS: `/var` ist `/private/var`), erhält die CLI den
+    aufgelösten Pfad; so lässt sich der Init-Frame eindeutig vergleichen."""
+    parent = tmp_path / "eltern"
+    parent.symlink_to(snap.parent)
+    via_link = parent / snap.name
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([support.skill_start_line(str(fx), binary, via_link)], dict(BASE_ENV),
+                                 client_factory=fake_factory([support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS)), result_message()]))
+    assert FakeClient.created[0].options.plugins == [{"type": "local", "path": os.path.realpath(snap)}]
+    assert any(e["type"] == "session_started" for e in events)
+
+
+def test_a_symlink_as_the_snapshot_path_is_refused(tmp_path: Path, fx: Path, snap: Path):
+    alias = tmp_path / "alias"
+    alias.symlink_to(snap)
+    binary, log = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([support.skill_start_line(str(fx), binary, alias)], dict(BASE_ENV),
+                                 client_factory=fake_factory([init_message(), result_message()]))
+    (t,) = terminals(events)
+    assert t["payload"]["code"] == "skill_snapshot_invalid"
+    _no_session(binary, events, log)
+
+
+def test_session_started_reports_the_snapshot_and_the_loaded_skills(tmp_path: Path, fx: Path, snap: Path):
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, out = run_runner([support.skill_start_line(str(fx), binary, snap)], dict(BASE_ENV),
+                                   client_factory=fake_factory([support.init_with_skills(snap, list(reversed([f"ccmas:{i}" for i in support.EXAMPLE_SKILLS]))), result_message()]))
+    validate_all(out)
+    started = next(e["payload"] for e in events if e["type"] == "session_started")
+    assert started["skill_snapshot_id"] == support.EXAMPLE_SNAPSHOT_ID
+    assert started["skills"] == list(support.EXAMPLE_SKILLS)  # ohne Plugin-Präfix, aufsteigend
+    assert not any(s.startswith("ccmas:") for s in started["skills"])
+
+
+def test_the_init_check_accepts_a_path_given_through_a_symlink(tmp_path: Path, fx: Path, snap: Path):
+    alias = tmp_path / "alias"
+    alias.symlink_to(snap)
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([support.skill_start_line(str(fx), binary, snap)], dict(BASE_ENV),
+                                 client_factory=fake_factory([support.init_with_skills(snap, [f"ccmas:{i}" for i in support.EXAMPLE_SKILLS], plugin_path=str(alias)), result_message()]))
+    assert any(e["type"] == "session_started" for e in events)
+
+
+def _init_aborts(tmp_path: Path, fx: Path, snap: Path | None, init, **start_over):
+    """Init-Frame passt nicht: Abbruch über den `_Abort`-Weg, kein Werkzeug läuft, genau ein terminaler Fehler."""
+    binary, _ = make_stub_cli(tmp_path)
+    line = support.skill_start_line(str(fx), binary, snap, **start_over) if snap is not None else start_line(str(fx), binary, **start_over)
+    script = [init, tool_use("toolu_01", "Read", file_path=str(fx / "a.txt")), tool_result("toolu_01"), result_message()]
+    code, events, _, out = run_runner([line], dict(BASE_ENV), client_factory=fake_factory(script))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "skills_not_loaded" and t["payload"]["terminal"] and code == 0
+    assert not any(e["type"] in ("session_started", "tool_event", "result") for e in events)
+    assert FakeClient.created[0].interrupt_calls == 1
+    return t["payload"]["message"]
+
+
+def _fq(*ids: str) -> list[str]:
+    return [f"ccmas:{i}" for i in ids]
+
+
+def test_init_without_the_plugin_aborts(tmp_path: Path, fx: Path, snap: Path):
+    message = _init_aborts(tmp_path, fx, snap, support.init_with_skills(snap, None))
+    assert "Plugin" in message
+
+
+def test_init_with_the_plugin_at_another_path_aborts(tmp_path: Path, fx: Path, snap: Path):
+    other = tmp_path / "anderes"
+    other.mkdir()
+    _init_aborts(tmp_path, fx, snap, support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS), plugin_path=str(other)))
+
+
+def test_init_with_a_missing_skill_aborts_and_names_it(tmp_path: Path, fx: Path, snap: Path):
+    message = _init_aborts(tmp_path, fx, snap, support.init_with_skills(snap, _fq(support.EXAMPLE_SKILLS[0])))
+    assert support.EXAMPLE_SKILLS[1] in message
+
+
+def test_init_with_an_additional_ccmas_skill_aborts_and_names_it(tmp_path: Path, fx: Path, snap: Path):
+    message = _init_aborts(tmp_path, fx, snap, support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS, "ccmas-demo-heimlich")))
+    assert "ccmas-demo-heimlich" in message
+
+
+def test_init_with_another_plugin_named_ccmas_aborts(tmp_path: Path, fx: Path, snap: Path):
+    init = support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS))
+    init.data["plugins"].append({"name": "ccmas", "path": "/opt/fremd/ccmas"})
+    _init_aborts(tmp_path, fx, snap, init)
+
+
+@pytest.mark.parametrize("missing", ["plugins", "skills"])
+def test_init_frame_without_plugin_or_skill_lists_fails_closed(tmp_path: Path, fx: Path, missing: str):
+    init = init_message()
+    del init.data[missing]
+    message = _init_aborts(tmp_path, fx, None, init)
+    assert "lassen sich nicht prüfen" in message
+
+
+def test_plugin_load_errors_of_the_init_frame_are_named_by_type_only(fx: Path, snap: Path):
+    snapshot = runtime.verify_for_spec({"role": support.EXAMPLE_ROLE, "skill_ids": list(support.EXAMPLE_SKILLS),
+                                        "skill_snapshot": {"snapshot_id": support.EXAMPLE_SNAPSHOT_ID, "path": str(snap)}})
+    data = dict(support.init_with_skills(snap, None).data, plugin_errors=[{"plugin": "ccmas@x", "type": "manifest-validation-error",
+                                                                          "message": "GEHEIM", "path": "/Users/jemand/x"}])
+    with pytest.raises(RuntimeDiagnostic) as e:
+        runtime.check_skills_loaded(data, snapshot)
+    assert e.value.code == "skills_not_loaded" and "manifest-validation-error" in e.value.message
+    assert "GEHEIM" not in e.value.message and "/Users/jemand" not in e.value.message
+
+
+def test_init_with_a_ccmas_skill_but_no_snapshot_aborts(tmp_path: Path, fx: Path):
+    """Auch ohne Snapshot darf nie ein `ccmas:`-Skill geladen sein."""
+    _init_aborts(tmp_path, fx, None, support.init_with_skills(None, ["ccmas:ccmas-demo-know"], plugin_path="/opt/fremd/ccmas"))
+
+
+def test_skill_tool_events_name_the_skill_so_a_rejected_call_is_visible(tmp_path: Path, fx: Path, snap: Path):
+    binary, _ = make_stub_cli(tmp_path)
+    script = [support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS)),
+              tool_use("toolu_01", "Skill", skill="ccmas:ccmas-demo-know"), tool_result("toolu_01"),
+              tool_use("toolu_02", "Skill", skill="code-review"),
+              tool_result("toolu_02", is_error=True, content="Skill code-review is not in this session's skills allowlist"),
+              result_message()]
+    _, events, _, out = run_runner([support.skill_start_line(str(fx), binary, snap)], dict(BASE_ENV), client_factory=fake_factory(script))
+    validate_all(out)
+    tools = [(e["payload"]["tool_use_id"], e["payload"]["phase"], e["payload"].get("summary")) for e in events if e["type"] == "tool_event"]
+    assert tools == [("toolu_01", "started", "ccmas:ccmas-demo-know"), ("toolu_01", "finished", None),
+                     ("toolu_02", "started", "code-review"), ("toolu_02", "failed", "Skill code-review is not in this session's skills allowlist")]
+
+
+def test_foreign_skills_of_the_cli_do_not_fail_the_check_but_are_not_reported(tmp_path: Path, fx: Path, snap: Path):
+    """Mitgelieferte Skills stehen im Init-Frame (siehe runtime-capabilities.md); das Skill-Werkzeug weist sie über die
+    Allowlist ab. Gemeldet werden nur die Skills des Snapshots."""
+    binary, _ = make_stub_cli(tmp_path)
+    init = support.init_with_skills(snap, _fq(*support.EXAMPLE_SKILLS), other=["frage-stellen", "x:y"])
+    _, events, _, _ = run_runner([support.skill_start_line(str(fx), binary, snap)], dict(BASE_ENV),
+                                 client_factory=fake_factory([init, result_message()]))
+    started = next(e["payload"] for e in events if e["type"] == "session_started")
+    assert started["skills"] == list(support.EXAMPLE_SKILLS)
+
+
+def test_a_snapshot_without_skills_loads_no_plugin_and_reports_an_empty_list(tmp_path: Path, fx: Path):
+    from test_skill_snapshot import _empty_snapshot
+    empty = _empty_snapshot(tmp_path / "leer", role="implementer")
+    sid = json.loads((empty / "snapshot.json").read_text())["snapshot_id"]
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, out = run_runner([support.skill_start_line(str(fx), binary, empty, snapshot_id=sid, skill_ids=[], role="implementer")],
+                                   dict(BASE_ENV), client_factory=fake_factory([init_message(), result_message()]))
+    validate_all(out)
+    opts = FakeClient.created[0].options
+    assert opts.plugins == [] and opts.skills == [] and "Skill" not in opts.tools
+    started = next(e["payload"] for e in events if e["type"] == "session_started")
+    assert started["skill_snapshot_id"] == sid and started["skills"] == []
 
 
 # --- Genau ein terminales Ergebnis -------------------------------------------------------------------------------------

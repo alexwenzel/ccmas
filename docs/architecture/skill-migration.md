@@ -1,6 +1,6 @@
 # CCMAS – Skill-Bestand, Manifest und Snapshots
 
-Stand: Ticket CC-35, Teil 1 (Katalog, Manifest, Snapshot, CLI). **Führend ist die Spezifikation**
+Stand: Ticket CC-35, Teil 1 (Katalog, Manifest, Snapshot, CLI) und Teil 2 (Einbringung in die Laufzeit). **Führend ist die Spezifikation**
 „Multi Agent Setup“, Abschnitt „Skills, Regeln und Rollen“ (Entscheidungen des Projektinhabers vom 09.11. und
 10.11.2026). Diese Datei hält fest, wie das Repository den Bestand führt und prüft; sie ist keine Kopie der
 Spezifikation.
@@ -178,8 +178,8 @@ Snapshot weder im Speicher noch im Verzeichnis. Ein neuer Stand ergibt eine neue
 
 **Gemeinsame Beispiel-Struktur:** `contracts/fixtures/skill-snapshots/example/` ist ein vollständiges Snapshot-
 Verzeichnis aus einem kleinen Test-Katalog. `TestExampleSnapshotFixture` erzeugt es neu und vergleicht Byte für
-Byte (mit `-update` neu schreiben); `VerifySnapshotDir` akzeptiert es. Die Python-Seite rechnet daran in W35.2 dieselben
-Hashes nach. Git speichert keine Dateirechte; ausgechecktes Fixture-Material hat deshalb normale Rechte.
+Byte (mit `-update` neu schreiben); `VerifySnapshotDir` akzeptiert es. Die Python-Seite rechnet daran dieselben
+Hashes nach (`runners/claude_sdk/tests/test_skill_snapshot.py`) und prüft zusätzlich einen Snapshot, den die echte Go-CLI schreibt. Git speichert keine Dateirechte; ausgechecktes Fixture-Material hat deshalb normale Rechte.
 
 ## Ablauf bei einer Skill-Änderung
 
@@ -210,11 +210,40 @@ Fehlermeldungen gehen nach stderr, bei Skill-Fehlern mit dem Code in eckigen Kla
 `validate --json` schreibt den Bericht (`ok`, `findings[]` mit `code`, `skill`, `path`, `message`) auch bei Befunden
 nach stdout und endet dann mit Exit-Code 1.
 
-## Offene Punkte (W35.2)
+## Einbringung in die Laufzeit (umgesetzt in W35.2)
 
-- **Laufzeit-Einbringung:** Der Python-Runner stellt den Snapshot der Ausführung bereit (Plugin-Pfad, nur die
-  gewählten Skills), rechnet die Hashes aus diesem Dokument nach und weist Abweichungen ab. Live-Nachweis, dass nur
-  die ausgewählten Skills sichtbar sind.
+Skills gelangen nur über einen geprüften Snapshot in eine Sitzung; Projekt-, Benutzer- und synchronisierte Skills bleiben
+über `setting_sources=[]` aus. Das Protokoll trägt den Snapshot im Start (`skill_snapshot`: Kennung und Pfad) und meldet
+in `session_started`, was geladen wurde (`skill_snapshot_id`, `skills`); Felder und Fehlercodes: [`contracts.md`](contracts.md),
+Abschnitt „Skills im Protokoll“.
+
+1. **Vorprüfung** (`runners/claude_sdk/src/claude_sdk_runner/skill_snapshot.py`, vor jedem Sitzungsstart, ohne Modellaufruf):
+   `skill_ids` ohne Snapshot ist ein terminaler Fehler. Mit Snapshot prüft Python die `snapshot.json` gegen den Vertrag
+   `skill-snapshot`, rechnet alle Datei-Hashes, `tree_sha256` und `snapshot_id` nach den Definitionen oben nach (dieselben
+   wie in Go; am gemeinsamen Beispiel und an einem von Go geschriebenen Snapshot getestet), erkennt fehlende und zusätzliche
+   Dateien und Verzeichnisse, Symlinks und Sonderdateien und gleicht Kennung, Rolle und Menge der Skill-IDs mit dem Auftrag
+   ab. Die `snapshot_id` im Auftrag ist der Anker: ein in sich stimmig umgeschriebener Snapshot hat eine andere Kennung.
+2. **Optionen:** Mit Snapshot (und mindestens einem Skill) gilt `plugins=[{"type":"local","path":<realpath>}]`,
+   `skills=["ccmas:<id>", …]` und `"Skill"` in `tools`. Ohne Snapshot (oder ohne Skills darin) ist `skills=[]`
+   ausdrücklich gesetzt: kein Skill ist aufrufbar. Plugin-Skills heißen `<plugin>:<skill>`, hier `ccmas:<id>`
+   (Plugin-Name aus `.claude-plugin/plugin.json`). Die Rechte des Policy-Profils bleiben unverändert; das SDK ergänzt nur die
+   Regeln `Skill(<name>)` der Allowlist.
+3. **Init-Frame:** Das Plugin `ccmas` mit genau dem Pfad des Snapshots ist geladen, jeder `ccmas:<id>` steht in `skills`, und es
+   gibt keinen weiteren `ccmas:`-Eintrag und kein weiteres Plugin namens `ccmas`; sonst Abbruch mit `skills_not_loaded`, bevor ein
+   Werkzeug läuft. Nachweis in der echten Sitzung: [`runtime-capabilities.md`](runtime-capabilities.md), „Skills in der Sitzung (CC-35)“.
+
+Laufende Ausführungen bleiben bei ihrem Snapshot: der Snapshot ist ein eigenes Verzeichnis je Kennung, ein geänderter
+Bestand erzeugt eine neue Kennung. Der Runner prüft einmal vor dem Start; zwischen Prüfung und Lesen durch die CLI schützt
+nur das Schreibschutz-Layout (0444/0555), eine zweite Prüfung gibt es nicht.
+
+## Offene Punkte
+
+- **Go-Adapter für den Runner (CC-46):** Go schreibt den Snapshot (`Snapshot.Write`) und setzt `RunSpec.SkillSnapshot`
+  (`SkillSnapshotRef`); der Adapter selbst folgt in CC-46. Bis dahin tragen nur die Typen und Fixtures das Feld.
+- **Ressourcen neben `SKILL.md`** (zum Beispiel `scripts/…`): Die Dateien liegen im Snapshot, aber der Runner gibt dem Modell
+  **keinen** Lesezugriff auf das Snapshot-Verzeichnis (Profile `readonly`/`scoped_write` unverändert). Ob ein Skill mit
+  Ressourcen so nutzbar ist, wurde nicht geprüft (der Live-Probe-Skill besteht nur aus `SKILL.md`); ein Freischalten braucht die
+  Freigabe des Projektinhabers.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` werden vom
   Orchestrator über `Resolve` aufgelöst; der heutige `domain.Catalog.Skills` (reine ID-Menge) wird aus dem Katalog
   gespeist.
