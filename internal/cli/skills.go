@@ -246,7 +246,11 @@ func newSkillsShowCommand(root *string) *cobra.Command {
 			fmt.Fprintf(out, "Standard für:   %s\n", join(s.DefaultFor))
 			fmt.Fprintf(out, "Externe Schreibzugriffe (Inventar, keine Berechtigung): %s\n", join(s.ExternalWrites))
 			fmt.Fprintf(out, "Beschreibung:   %s\n", s.Description)
-			fmt.Fprintf(out, "Herkunft:       %s (sha256 %s)\n", s.Source.Package, s.Source.PackageSHA256)
+			if s.Source.Package == skills.NoPackage {
+				fmt.Fprintln(out, "Herkunft:       kein Originalpaket (neu in CCMAS)")
+			} else {
+				fmt.Fprintf(out, "Herkunft:       %s (sha256 %s)\n", s.Source.Package, s.Source.PackageSHA256)
+			}
 			fmt.Fprintf(out, "Abgeleitet:     %s – %s\n", s.Source.Derived, s.Source.Changes)
 			fmt.Fprintf(out, "tree_sha256:    %s\n", s.TreeSHA256)
 			fmt.Fprintln(out, "Dateien:")
@@ -271,9 +275,10 @@ func newSkillsValidateCommand(root *string) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "validate",
-		Short: "Manifest und Skill-Dateien prüfen",
+		Short: "Manifest, Skill-Dateien, Workflow-Verträge und Rollenregeln prüfen",
 		Long: "Prüft das Manifest und den Bestand: eindeutige IDs, Frontmatter, Dateien und Prüfsummen, " +
-			"nicht registrierte ccmas-Verzeichnisse und die Rollenregeln. Alle Befunde werden ausgegeben; " +
+			"nicht registrierte ccmas-Verzeichnisse, die Rollenregeln (rules/roles.yaml) und den Workflow-Vertrag " +
+			"(contract.yaml) jedes Workflow-Skills. Alle Befunde werden ausgegeben; " +
 			"bei Befunden endet der Befehl mit Exit-Code 1.",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -299,6 +304,7 @@ func newSkillsValidateCommand(root *string) *cobra.Command {
 					report["skills"] = len(c.Skills())
 					report["approved"] = approved
 					report["pending_adaptation"] = len(c.Skills()) - approved
+					report["workflow_contracts"] = len(c.Contracts())
 				}
 				if err := writeJSON(out, report); err != nil {
 					return err
@@ -310,8 +316,8 @@ func newSkillsValidateCommand(root *string) *cobra.Command {
 						approved++
 					}
 				}
-				fmt.Fprintf(out, "Skill-Bestand in %s ist gültig: %d Skills (%d approved, %d pending_adaptation)\n",
-					c.Root(), len(c.Skills()), approved, len(c.Skills())-approved)
+				fmt.Fprintf(out, "Skill-Bestand in %s ist gültig: %d Skills (%d approved, %d pending_adaptation), %d Workflow-Verträge, Rollenregeln rules/roles.yaml\n",
+					c.Root(), len(c.Skills()), approved, len(c.Skills())-approved, len(c.Contracts()))
 			} else {
 				errOut := cmd.ErrOrStderr()
 				for _, f := range findings {

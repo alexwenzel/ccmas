@@ -40,6 +40,27 @@ const (
 	CodeInvalidSnapshot Code = "invalid_snapshot"
 	// CodeSnapshotWrite: Der Snapshot konnte nicht geschrieben werden (Dateisystem).
 	CodeSnapshotWrite Code = "snapshot_write"
+
+	// CodeMissingRules: rules/roles.yaml fehlt oder ist nicht lesbar.
+	CodeMissingRules Code = "missing_rules"
+	// CodeInvalidRules: rules/roles.yaml verletzt Format, Querbezüge oder feste Regeln.
+	CodeInvalidRules Code = "invalid_rules"
+	// CodeMissingContract: Ein Workflow-Skill hat keine contract.yaml.
+	CodeMissingContract Code = "missing_contract"
+	// CodeInvalidContract: Eine contract.yaml verletzt Format, Querbezüge oder die Rollenregeln.
+	CodeInvalidContract Code = "invalid_contract"
+	// CodePlatformLimit: Regeldatei oder Vertrag versucht, eine Plattformgrenze (Worker-Limit,
+	// Integrationsmodus, Policy-Profil, Berechtigungen, Zielbranch) zu setzen oder zu erweitern.
+	CodePlatformLimit Code = "platform_limit"
+
+	// CodeReviewMissing: Für den Push liegt kein Review-Bericht vor.
+	CodeReviewMissing Code = "review_missing"
+	// CodeReviewInvalid: Der Review-Bericht trägt die Integration nicht (anderer Stand, BEFUNDE, inkonsistent).
+	CodeReviewInvalid Code = "review_invalid"
+	// CodeReviewNotIndependent: Das Review stammt nicht nachweislich von einer anderen Ausführung als die Implementierung.
+	CodeReviewNotIndependent Code = "review_not_independent"
+	// CodeConceptApprovalInvalid: Die Konzeptfreigabe gilt nicht (andere Version, falscher Freigeber).
+	CodeConceptApprovalInvalid Code = "concept_approval_invalid"
 )
 
 // Error ist der einheitliche Fehlertyp des Pakets. Skill und Path sind leer, wenn der

@@ -50,7 +50,11 @@ _GO: dict[str, Path] = {}
 
 def write_catalog(root: Path, skills: dict[str, str]) -> None:
     """Legt `<root>/.claude/skills/manifest.yaml` und je Skill einen Ordner mit `SKILL.md` an (Rolle `PROBE_ROLE`,
-    Kategorie `knowledge`, status `approved`, keine Standardausstattung)."""
+    Kategorie `knowledge`, status `approved`, keine Standardausstattung). Dazu die Rollenregeln des Repositorys unter
+    `<root>/rules/roles.yaml`: der Go-Katalog lädt sie seit CC-33 immer mit (fail-safe), Wissens-Skills brauchen aber
+    keinen Workflow-Vertrag."""
+    (root / "rules").mkdir(parents=True)
+    shutil.copyfile(REPO_ROOT / "rules" / "roles.yaml", root / "rules" / "roles.yaml")
     base = root / ".claude" / "skills"
     entries = []
     for sid, body in skills.items():

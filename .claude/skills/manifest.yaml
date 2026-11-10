@@ -4,26 +4,31 @@
 # Prüfen mit `ccmas skills validate`. Jede Änderung an einer Skill-Datei erhöht `version`
 # und zieht die Hashes hier nach (Datei: sha256 der Bytes; tree_sha256: sha256 über die
 # sortierten Zeilen "<sha256>  <pfad>"). `source.package` ist vault-relativ und nur eine
-# Inventarangabe; Go liest zur Laufzeit nie den Vault. `external_writes` ist ebenfalls nur
-# Inventar für die späteren Adapter, keine Berechtigung.
+# Inventarangabe; Go liest zur Laufzeit nie den Vault. Skills ohne Originalpaket (neu in CCMAS)
+# tragen `package: none` und `package_sha256` aus 64 Nullen, nie eine erfundene Prüfsumme.
+# `external_writes` ist ebenfalls nur Inventar für die späteren Adapter, keine Berechtigung.
+# Workflow-Skills (Kategorien concept, review, delivery, completion, questions) haben zusätzlich
+# `contract.yaml` (Datei des Skills, damit in Hash und Snapshot); Rollenregeln: rules/roles.yaml.
 schema_version: 1
 skills:
   - id: ccmas-concept-ticket
-    version: 1
+    version: 2
     status: approved
     category: concept
     roles: [concept]
     default_for: [concept]
     external_writes: [asana, vault]
-    tree_sha256: dbfd6ee975eefdb519d0ab8bb8d4de01c0b7ead1fe610b750978fe3bfa2fa007
+    tree_sha256: c778e2308e62a043bb4f3f9000b862dfc3925c3459bd630f184dc1c61fd8c211
     files:
       - path: SKILL.md
-        sha256: 3e4414f01e50635306b40b1afd3bf927fab84fa7143963924b9d7af4c978ef9b
+        sha256: 70cfe2ecedf875be7d81a9cb3f5d75823685b9bce9f88c54cd222367b542db3c
+      - path: contract.yaml
+        sha256: ab5af9e95d4514f3d9f2fb127749c4ddcc55a96b5eea54d8d66191c761c10678
     source:
       package: Fachwissen/Claude/Skills/concept-ticket.skill
       package_sha256: f1b1be418cf8c21e7ba8eaaaf60ef3f10d089a2d5cf7b1f4b38a1f853e835370
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md um Einstufung, Konzeptprüfung und Ausführungskontext erweitert (Abschnitt 7 und neuer Schlussabschnitt)."
   - id: ccmas-obsidian-seite
     version: 1
     status: approved
@@ -126,53 +131,95 @@ skills:
       derived: "2026-11-09"
       changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
   - id: ccmas-feature-parallel
-    version: 1
+    version: 2
     status: pending_adaptation
     adaptation: "CC-33: zentrale Delegation statt Fan-out, Review vor Push"
     category: delivery
     roles: [implementer]
     default_for: []
     external_writes: [git, github]
-    tree_sha256: 8313c4da97ac7af4b0ab6cecd65bc41379fb79ab8f4ef465960d04b7692f6659
+    tree_sha256: 8851654a25ac700777cc49a42ac4b93c89a67b63f69ae8820d5645c869b32608
     files:
       - path: SKILL.md
         sha256: 2c9e649d99da8861eb5bf180a00f1b27ca07f8dd3574c17d2ad3a134e1431200
+      - path: contract.yaml
+        sha256: f80aa391c91eb47510de08f4a7dec1be903e5f2b01cda420c26fa3ddac2894f2
     source:
       package: Fachwissen/Claude/Skills/feature-parallel.skill
       package_sha256: 83a4d21dc72efa6e3453e100a675ebc7b89357e8ff0bed0f6dbc7993a555dbf3
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
   - id: ccmas-meilenstein-abschluss
-    version: 1
+    version: 2
     status: pending_adaptation
     adaptation: "CC-33: PR-/Auto-Modus, Feature-Abschluss, keine GitHub-Milestones und Termine"
     category: completion
     roles: [completion]
     default_for: []
     external_writes: [asana, vault]
-    tree_sha256: 7df5af38caab7aa6e1c31f6bce850c1f0f30fce25476685119de087b463cd61d
+    tree_sha256: b0bf24fa158e3ff41773fad85acf5fb4f2b239f673a1a7e803db2ecb79fa16aa
     files:
       - path: SKILL.md
         sha256: 7266ba2bd57d506ae9c96cdc9f7bfe4ee45386e1260a0eb13de0b3a98a4d10f8
+      - path: contract.yaml
+        sha256: 129c7066fff5b3521c46692c05fe219f59caa53a02d23589c9c23b794f5fc6ad
     source:
       package: Fachwissen/Claude/Skills/meilenstein-abschluss.skill
       package_sha256: 168cdc363814ea7444a97b2c0df8ad0722dc9cf2aea5c212d895fc2ef873dc87
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
   - id: ccmas-antworten-abholen
-    version: 1
+    version: 2
     status: pending_adaptation
     adaptation: "CC-33: Fragenweiterleitung über die Zentrale, PR-/Auto-Modus"
     category: questions
     roles: [question_handler]
     default_for: []
     external_writes: [asana, vault]
-    tree_sha256: 7f79a37040ed2e7688e38fe219024b62b4bcbc1a4a9e6e582c1f10b760037cbc
+    tree_sha256: dec8129c344dcef5571b38dfcfa18db222027017f71ebf5cad68e5c4a1955bee
     files:
       - path: SKILL.md
         sha256: 66176a0293521d14f5124ca1a399095e799a1bed07eb88a218ed664f4bbff5fc
+      - path: contract.yaml
+        sha256: 4ca64e2a82b453f6cf5d6920b698e157caf99c0dd5b27d92d9c813ee0f4a4212
     source:
       package: Fachwissen/Claude/Skills/antworten-abholen.skill
       package_sha256: 2870c248baf8b1e13ec8730dcfbee0c89c38b3e54e63a368198b583386ce0f72
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
+  - id: ccmas-concept-review
+    version: 1
+    status: approved
+    category: review
+    roles: [concept_reviewer]
+    default_for: [concept_reviewer]
+    external_writes: []
+    tree_sha256: aa42f26b71c81b4908b084608b3e4790d5591487bff4c024f2b2ca5e05980376
+    files:
+      - path: SKILL.md
+        sha256: 34b735022e81b79ee2be50d58b4491b8c4b8eed62c6d2e17ca911d8031a2ae4e
+      - path: contract.yaml
+        sha256: a0e87baf0ed89b00ba46b7e05f95163c77ad43f255162386ff4ea7ee1460944f
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängige Konzeptprüfung nach der Spezifikation (Rollen und Ergebnisse, Konzeptprüfer)."
+  - id: ccmas-code-review
+    version: 1
+    status: approved
+    category: review
+    roles: [reviewer]
+    default_for: [reviewer]
+    external_writes: []
+    tree_sha256: 60797c5af7f5d43ced4827b6d668911da9b58343f17fb2cfee3f545fce300c9d
+    files:
+      - path: SKILL.md
+        sha256: cbd76f5c30036bb5631c5b0568638cbaba82ec18431fe23fa4b114b4f39c0a54
+      - path: contract.yaml
+        sha256: 58709145c0efc9b0e15cf84e803c91ba5567f2e5c080fb803df82850eb3a41cf
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push)."

@@ -22,6 +22,8 @@ type Catalog struct {
 	skills      []Skill // aufsteigend nach ID
 	byID        map[string]int
 	now         func() time.Time
+	rules       *Rules              // rules/roles.yaml, geprüft
+	contracts   map[string]Contract // contract.yaml der Workflow-Skills, geprüft
 }
 
 // Option verändert das Laden.
@@ -33,8 +35,9 @@ func WithClock(now func() time.Time) Option {
 }
 
 // Load liest <root>/.claude/skills/manifest.yaml und prüft den Bestand gegen die Invarianten
-// (siehe docs/architecture/skill-migration.md). root ist der CCMAS-Softwareordner. Es wird nie
-// das Arbeitsverzeichnis oder ein Zielprojekt gelesen.
+// (siehe docs/architecture/skill-migration.md) sowie die Rollenregeln <root>/rules/roles.yaml und
+// die Workflow-Verträge (contract.yaml je Workflow-Skill, siehe docs/architecture/workflow-rules.md).
+// root ist der CCMAS-Softwareordner. Es wird nie das Arbeitsverzeichnis oder ein Zielprojekt gelesen.
 //
 // Bei Befunden ist der Katalog nil und der Fehler ein *Error oder Findings; FindingsOf liefert
 // die Einzelbefunde.
@@ -76,12 +79,15 @@ func load(root string, opts ...Option) (*Catalog, []*Error) {
 	}
 
 	registered := map[string]bool{}
+	entries := map[string]manifestEntry{}
+	contractData := map[string][]byte{}
 	for _, e := range doc.Skills {
 		if registered[e.ID] {
 			findings = append(findings, newErr(CodeInvalidManifest, e.ID, manifestRel, "Manifest: Skill-ID %s kommt mehrfach vor", e.ID))
 			continue
 		}
 		registered[e.ID] = true
+		entries[e.ID] = e
 		entryFindings := validateEntry(e)
 		findings = append(findings, entryFindings...)
 		sk := e.skill()
@@ -90,12 +96,24 @@ func load(root string, opts ...Option) (*Catalog, []*Error) {
 		findings = append(findings, fsFindings...)
 		if len(fsFindings) == 0 {
 			findings = append(findings, c.checkFrontmatter(&sk, files)...)
+			for _, f := range files {
+				if f.path == contractFile {
+					contractData[e.ID] = f.data
+				}
+			}
 		}
 		if len(entryFindings) == 0 && len(fsFindings) == 0 {
 			c.skills = append(c.skills, sk)
 		}
 	}
 	findings = append(findings, unregisteredSkills(abs, registered)...)
+
+	rules, ruleFindings := loadRules(abs)
+	findings = append(findings, ruleFindings...)
+	if rules != nil {
+		c.rules = rules
+		findings = append(findings, c.checkWorkflow(rules, entries, contractData)...)
+	}
 
 	if len(findings) > 0 {
 		return nil, findings

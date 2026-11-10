@@ -808,6 +808,7 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 	}
 
 	type want struct {
+		version    int
 		status     Status
 		category   Category
 		roles      []domain.Role
@@ -815,17 +816,20 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 		writes     []string
 	}
 	R := func(rs ...domain.Role) []domain.Role { return rs }
+	// Version 2: contract.yaml ergänzt (CC-33); die beiden Prüfskills sind neu in CC-33.
 	inventory := map[string]want{
-		"ccmas-concept-ticket":        {StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
-		"ccmas-obsidian-seite":        {StatusApproved, CategoryKnowledge, R("concept", "documentation"), R("concept", "documentation"), []string{"vault"}},
-		"ccmas-asana-ticket":          {StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), nil, []string{"asana"}},
-		"ccmas-regeln-pflegen":        {StatusApproved, CategoryRules, R("documentation"), nil, []string{"vault"}},
-		"ccmas-projekt-anlegen":       {StatusPendingAdaptation, CategorySetup, R("project_setup"), nil, []string{"asana", "vault"}},
-		"ccmas-neue-aufgabe-nehmen":   {StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, []string{"asana", "vault"}},
-		"ccmas-morgen-briefing":       {StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, nil},
-		"ccmas-feature-parallel":      {StatusPendingAdaptation, CategoryDelivery, R("implementer"), nil, []string{"git", "github"}},
-		"ccmas-meilenstein-abschluss": {StatusPendingAdaptation, CategoryCompletion, R("completion"), nil, []string{"asana", "vault"}},
-		"ccmas-antworten-abholen":     {StatusPendingAdaptation, CategoryQuestions, R("question_handler"), nil, []string{"asana", "vault"}},
+		"ccmas-concept-ticket":        {2, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
+		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation"), R("concept", "documentation"), []string{"vault"}},
+		"ccmas-asana-ticket":          {1, StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), nil, []string{"asana"}},
+		"ccmas-regeln-pflegen":        {1, StatusApproved, CategoryRules, R("documentation"), nil, []string{"vault"}},
+		"ccmas-projekt-anlegen":       {1, StatusPendingAdaptation, CategorySetup, R("project_setup"), nil, []string{"asana", "vault"}},
+		"ccmas-neue-aufgabe-nehmen":   {1, StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, []string{"asana", "vault"}},
+		"ccmas-morgen-briefing":       {1, StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, nil},
+		"ccmas-feature-parallel":      {2, StatusPendingAdaptation, CategoryDelivery, R("implementer"), nil, []string{"git", "github"}},
+		"ccmas-meilenstein-abschluss": {2, StatusPendingAdaptation, CategoryCompletion, R("completion"), nil, []string{"asana", "vault"}},
+		"ccmas-antworten-abholen":     {2, StatusPendingAdaptation, CategoryQuestions, R("question_handler"), nil, []string{"asana", "vault"}},
+		"ccmas-code-review":           {1, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
+		"ccmas-concept-review":        {1, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
 	}
 	got := c.Skills()
 	if len(got) != len(inventory) {
@@ -837,7 +841,7 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 			t.Errorf("unerwarteter Skill %s", s.ID)
 			continue
 		}
-		if s.Version != 1 || s.Status != w.status || s.Category != w.category ||
+		if s.Version != w.version || s.Status != w.status || s.Category != w.category ||
 			!slices.Equal(s.Roles, w.roles) || !slices.Equal(nonNil(s.DefaultFor), nonNil(w.defaultFor)) ||
 			!slices.Equal(nonNil(s.ExternalWrites), nonNil(w.writes)) {
 			t.Errorf("%s: Manifest weicht vom beschlossenen Inventar ab: %+v", s.ID, s)
@@ -921,6 +925,16 @@ func TestRepoRoleSelection(t *testing.T) {
 	}
 	if _, err := c.Resolve(domain.RoleConcept, []string{"ccmas-concept-ticket", "ccmas-asana-ticket"}); err != nil {
 		t.Errorf("ausdrücklich angeforderter asana-ticket für concept: %v", err)
+	}
+	// Die Prüfrollen erhalten ihre eigenen Prüfskills (CC-33), und nur diese.
+	for role, id := range map[domain.Role]string{domain.RoleReviewer: "ccmas-code-review", domain.RoleConceptReviewer: "ccmas-concept-review"} {
+		p, err := c.Resolve(role, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(p.SkillIDs(), []string{id}) {
+			t.Errorf("Standard %s = %v, erwartet [%s]", role, p.SkillIDs(), id)
+		}
 	}
 	// regeln-pflegen nur auf ausdrücklichen Auftrag.
 	d, _ := c.Resolve(domain.RoleDocumentation, nil)
