@@ -18,6 +18,14 @@ import (
 // ManifestSchemaVersion ist die unterstützte schema_version des Manifests.
 const ManifestSchemaVersion = 1
 
+// Kennzeichnung eines Skills ohne Originalpaket (neu in CCMAS). Der Snapshot-Vertrag verlangt
+// source.package als Pfad und source.package_sha256 als 64 Hexziffern; die Kennzeichnung erfüllt
+// beides, ohne eine Paketprüfsumme zu erfinden: Pfad "none" und 64 Nullen gelten nur zusammen.
+const (
+	NoPackage       = "none"
+	NoPackageSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+)
+
 // Orte relativ zum CCMAS-Softwareordner.
 const (
 	skillsDirRel    = ".claude/skills"
@@ -274,11 +282,18 @@ func validateEntry(e manifestEntry) []*Error {
 	if !sha256Pattern.MatchString(e.TreeSHA256) {
 		bad("tree_sha256 ist kein SHA-256 in Hex-Kleinbuchstaben")
 	}
-	if err := domain.CheckRelativePath(e.Source.Package); err != nil || !utf8.ValidString(e.Source.Package) {
-		bad("source.package %q ist kein vault-relativer Pfad", e.Source.Package)
-	}
-	if !sha256Pattern.MatchString(e.Source.PackageSHA256) {
-		bad("source.package_sha256 ist kein SHA-256 in Hex-Kleinbuchstaben")
+	if e.Source.Package == NoPackage || e.Source.PackageSHA256 == NoPackageSHA256 {
+		// Skill ohne Originalpaket: beide Angaben müssen die Kennzeichnung tragen.
+		if e.Source.Package != NoPackage || e.Source.PackageSHA256 != NoPackageSHA256 {
+			bad("source: Kennzeichnung ohne Originalpaket verlangt package %q und package_sha256 aus 64 Nullen, beides zusammen", NoPackage)
+		}
+	} else {
+		if err := domain.CheckRelativePath(e.Source.Package); err != nil || !utf8.ValidString(e.Source.Package) {
+			bad("source.package %q ist kein vault-relativer Pfad", e.Source.Package)
+		}
+		if !sha256Pattern.MatchString(e.Source.PackageSHA256) {
+			bad("source.package_sha256 ist kein SHA-256 in Hex-Kleinbuchstaben")
+		}
 	}
 	if _, err := time.Parse("2006-01-02", e.Source.Derived); err != nil {
 		bad("source.derived %q ist kein Datum (JJJJ-MM-TT)", e.Source.Derived)

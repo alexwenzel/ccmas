@@ -1,0 +1,252 @@
+# Rollenregeln der CCMAS-Plattform (schema_version 1).
+#
+# Maschinenlesbarer Auszug der verbindlichen Regeln (Spezifikation "Multi Agent Setup", Abschnitte
+# "Skills, Regeln und Rollen", "Unabhängiges Review vor dem Push", "Merge Queue und Abschluss",
+# "Fragen und Entscheidungen"; Regeldatei CLAUDE.md, Abschnitte 4, 7.5, 7.7, 7.8). Die Regeldatei
+# im Vault bleibt führend; diese Datei darf ihr nicht widersprechen.
+#
+# Format, Prüfungen und Auswerter: docs/architecture/workflow-rules.md. Die Datei wird streng
+# gelesen (internal/skills): unbekannte oder doppelte Schlüssel sind Fehler, und weder diese Datei
+# noch ein contract.yaml kann Worker-Limit, Integrationsmodus, Policy-Profil, Berechtigungen oder
+# den Zielbranch setzen oder erweitern (Fehlercode platform_limit).
+schema_version: 1
+
+# Plattform-Invarianten. Skills und Verträge dürfen sie nicht ändern; sie werden nur in der
+# Projektkonfiguration, den Profilen und dem Auftrag gesetzt, nie hier.
+platform:
+  target_branch: develop
+  protected: [max_workers, integration_mode, policy_profile, permissions, target_branch]
+
+# Umfangs-Vokabular der Verträge (scope.allowed / scope.forbidden). Jede Rolle darf höchstens die
+# unter roles.<rolle>.may genannten Fähigkeiten erhalten; alles Übrige muss der Vertrag verbieten.
+capabilities:
+  - read_repo
+  - read_vault
+  - write_worktree
+  - run_checks
+  - commit
+  - push
+  - open_pr
+  - merge
+  - write_asana
+  - write_vault
+  - start_agents
+  - change_platform_limits
+# Nie erlaubt, für keine Rolle: Delegation läuft zentral über die Plattform, Grenzen setzt der Nutzer.
+always_forbidden: [start_agents, change_platform_limits]
+
+# Welche Skill-Kategorien Workflow-Skills sind (Vertragspflicht) und welche Rollen sie tragen dürfen.
+workflow_categories:
+  concept: [concept]
+  review: [reviewer, concept_reviewer]
+  delivery: [implementer]
+  completion: [completion]
+  questions: [question_handler]
+
+# Ergebnisformate der Rollen (Pflichtfelder). review_report entspricht domain.ReviewReport,
+# decision entspricht domain.Decision.
+formats:
+  decision:
+    fields: [schema_version, decision_id, project_id, state_revision, target, action, preconditions, rationale]
+  setup_report:
+    fields: [project_id, connected_resources, created_resources]
+  concept_report:
+    fields: [concept_version, page, classification, open_questions]
+  review_report:
+    fields: [report_id, work_order_id, reviewer_execution_id, commit, concept_version, verdict, findings, created_at]
+  work_report:
+    fields: [work_order_id, commit, checks, open_points]
+  documentation_report:
+    fields: [pages, changes]
+  completion_report:
+    fields: [scope, criteria, evidence, state]
+  answer_report:
+    fields: [question_id, answer_id, work_order_id, delivery]
+
+# Review vor dem Push: Push (Teil der Aktion request_integration) nur mit Urteil FREIGEGEBEN für genau
+# den Commit und die Konzeptversion, von einer anderen, frischen Ausführung als der Implementierung.
+# Jede weitere Änderung braucht ein neues Review. Die Werte sind fest; ein Vertrag kann sie nicht lockern.
+review_before_push:
+  verdict_required: FREIGEGEBEN
+  bound_to: [commit, concept_version]
+  independent_execution: true
+  rereview_after_change: true
+  required_precondition: review_approved
+  guarded_actions: [request_integration]
+
+# Konzeptfreigabe (Regel 7.5, Spezifikation "Concept-Tickets in Asana"): Routinekonzepte prüft ein
+# unabhängiger Konzeptprüfer, strategische und nicht ausreichend geklärte gehen an den Nutzer, nicht
+# einstufbare ebenfalls (fail-safe). Eine Freigabe gilt nur für die genannte Konzeptversion.
+concept_approval:
+  routine: {approver: concept_reviewer, action: review}
+  strategic: {approver: user, action: ask_question}
+  unclassifiable: {approver: user, action: ask_question}
+  bound_to: concept_version
+  # Kriterien für "strategisch" (Regel 4 "Vorher abstimmen", Spezifikation "Fragen und
+  # Entscheidungen"). Trifft eines zu, entscheidet der Nutzer.
+  strategic_criteria:
+    - {id: scope_change, source: "Regel 4: geänderter Funktionsumfang"}
+    - {id: paid_service, source: "Regel 4: neue kostenpflichtige Dienste, auch API-Abrechnung statt Abonnement"}
+    - {id: product_decision_deviation, source: "Regel 4: Abweichung von den festgelegten Produktentscheidungen"}
+    - {id: architecture_change, source: "Regel 4: grundlegender Architekturwechsel"}
+    - {id: accepted_limitation, source: "Regel 4: bewusst in Kauf genommene Einschränkung"}
+    - {id: permission_change, source: "Regel 4: Änderung an Berechtigungs- und Isolationsgrenzen"}
+    - {id: unclear_requirements, source: "Spezifikation: wesentliche fachliche Unklarheit, nicht ausreichend geklärt"}
+
+# Reparaturschleifen: BEFUNDE -> Implementierung mit den Befunden -> frisches Review (Code-Schleife),
+# BEFUNDE der Konzeptprüfung -> Konzeptarbeit mit den Befunden -> erneute Prüfung durch eine frische
+# Ausführung (Konzeptschleife). Beide haben dasselbe Budget max_rounds, je Schleife gezählt. Nach dem Budget
+# folgt ein sichtbarer Halt mit Frage an den Nutzer.
+repair_loop:
+  max_rounds: 3
+  on_findings: {action: implementation, role: implementer}
+  on_concept_findings: {action: concept_work, role: concept}
+  on_exhausted: {action: ask_question}
+
+# Integration: PR ist der Standard; Auto gilt nur ausdrücklich je Auftrag und wird nie vom Supervisor
+# oder einem Skill aufgeweitet.
+integration:
+  default: pr
+  auto_requires_explicit_order: true
+  waiting_state: waiting_integration
+
+# Abschluss eines Features oder Meilensteins. Ein offener PR ist ein Wartezustand, nie Abschluss.
+completion:
+  open_pr_counts_as_completion: false
+  requires:
+    - acceptance_criteria_met
+    - merge_confirmed
+    - review_evidence
+    - test_evidence
+    - ci_evidence
+    - task_state_updated
+    - knowledge_updated
+  milestone_also_requires: [children_complete, owner_acceptance]
+
+# Fragenweg: Worker -> Supervisor -> CCMAS-Zentrale -> Supervisor -> zuständiger Worker.
+# Keine Antwort ist keine Freigabe.
+question_route:
+  hops: [worker, supervisor, central, supervisor, worker]
+  silence_is_approval: false
+
+# Rollen: erlaubte Fähigkeiten (may), Ergebnisformat und je Ergebnis die zulässigen Folgeschritte
+# (Aktion aus den Decision-Aktionen, Zielrolle, mindestens erforderliche Voraussetzungen). Der erste
+# Eintrag ist der Standardschritt. Ein Vertrag darf Folgeschritte nur auswählen, nie ergänzen.
+roles:
+  supervisor:
+    may: [read_repo, read_vault, write_asana]
+    format: decision
+    results:
+      plan_updated:
+        next:
+          - {action: implementation, role: implementer, requires: [concept_version_approved]}
+          - {action: concept_work, role: concept}
+          - {action: review, role: reviewer, requires: [work_order_completed]}
+          - {action: request_integration, requires: [review_approved]}
+          - {action: request_completion, role: completion}
+          - {action: wait}
+      user_decision_needed:
+        next:
+          - {action: ask_question}
+      goal_reached:
+        next:
+          - {action: request_completion, role: completion}
+      idle:
+        next:
+          - {action: wait}
+  project_setup:
+    may: [read_repo, read_vault, write_asana, write_vault]
+    format: setup_report
+    results:
+      project_connected:
+        next:
+          - {action: plan_extend, role: supervisor}
+      setup_blocked:
+        next:
+          - {action: ask_question}
+  concept:
+    may: [read_repo, read_vault, run_checks, write_asana, write_vault]
+    format: concept_report
+    results:
+      concept_ready:
+        next:
+          - {action: review, role: concept_reviewer}
+          - {action: ask_question}
+      concept_blocked:
+        next:
+          - {action: ask_question}
+  concept_reviewer:
+    may: [read_repo, read_vault, run_checks]
+    format: review_report
+    results:
+      concept_approved:
+        verdict: FREIGEGEBEN
+        next:
+          - {action: plan_extend, role: supervisor, requires: [concept_version_approved]}
+          - {action: implementation, role: implementer, requires: [concept_version_approved]}
+      concept_findings:
+        verdict: BEFUNDE
+        next:
+          - {action: concept_work, role: concept}
+      needs_user_decision:
+        next:
+          - {action: ask_question}
+  implementer:
+    may: [read_repo, read_vault, write_worktree, run_checks, commit]
+    format: work_report
+    results:
+      implemented:
+        next:
+          - {action: review, role: reviewer, requires: [work_order_completed]}
+      implementation_blocked:
+        next:
+          - {action: ask_question}
+  reviewer:
+    may: [read_repo, read_vault, run_checks]
+    format: review_report
+    results:
+      approved:
+        verdict: FREIGEGEBEN
+        next:
+          - {action: request_integration, requires: [review_approved]}
+      findings:
+        verdict: BEFUNDE
+        next:
+          - {action: implementation, role: implementer}
+  documentation:
+    may: [read_repo, read_vault, run_checks, write_vault]
+    format: documentation_report
+    results:
+      documentation_done:
+        next:
+          - {action: request_completion, role: completion}
+      documentation_blocked:
+        next:
+          - {action: ask_question}
+  completion:
+    may: [read_repo, read_vault, run_checks, write_asana, write_vault]
+    format: completion_report
+    results:
+      completed:
+        next:
+          - {action: plan_extend, role: supervisor}
+      waiting_integration:
+        next:
+          - {action: wait}
+      incomplete:
+        next:
+          - {action: plan_extend, role: supervisor}
+  question_handler:
+    may: [read_vault, write_asana, write_vault]
+    format: answer_report
+    results:
+      answer_assigned:
+        next:
+          - {action: implementation, role: implementer}
+          - {action: concept_work, role: concept}
+      answer_unclear:
+        next:
+          - {action: ask_question}
+      no_answer:
+        next:
+          - {action: wait}

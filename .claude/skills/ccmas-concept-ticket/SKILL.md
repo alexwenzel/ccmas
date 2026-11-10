@@ -47,7 +47,8 @@ Häufigkeiten, Sonderfälle). Ergibt sich ein Widerspruch, ihn vorlegen statt st
   eingetragen.
 - Aufbau, der für Umsetzer taugt: Ziel und Abgrenzung, Entscheidungen mit Begründung und Konsequenzen,
   Spezifikation (Struktur, Felder, Regeln, Abläufe), Grenzfälle, Tests und Abnahme, offene Punkte.
-- Ist-Zustand, Plan und offene Entscheidung klar trennen. Status `review`, bis der Projektinhaber freigibt.
+- Ist-Zustand, Plan und offene Entscheidung klar trennen. Status `review`, bis die Freigabe vorliegt: beim
+  Routinekonzept vom Konzeptprüfer, bei strategischen und nicht ausreichend geklärten Konzepten vom Projektinhaber.
 - **Verwandte Seiten** im selben Arbeitsgang konsistent machen: nach den zentralen Begriffen suchen (`grep -rn`) und
   Aussagen, die jetzt nicht mehr stimmen, anpassen oder auf die neue Seite verweisen. Jede Aussage steht nur an
   einer Stelle.
@@ -74,7 +75,33 @@ beauftragte Arbeit als zurückgestelltes Ticket erfassen statt nebenbei umzusetz
 
 - Kommentar im Ticket nach Phasenabschluss-Muster: Ergebnis, Entscheidungen, Seite und Abschnitte, Folge-Tickets,
   offene Punkte, nächster Schritt.
-- Strategische Entscheidungen: `Freigabe:`-Unteraufgabe an den Projektinhaber, Ticket nach `Review`. Sonst nach den
-  Done-Kriterien des Projekts nach `Done`.
+- **Einstufen:** Ist das Konzept **routine** oder **strategisch**? Strategisch ist es, wenn eines der Kriterien aus
+  `rules/roles.yaml` (`concept_approval.strategic_criteria`, nach Regel 4 und 7.5) zutrifft oder wesentliche fachliche
+  Unklarheit bleibt: geänderter Funktionsumfang, neue kostenpflichtige Dienste, Abweichung von festgelegten
+  Produktentscheidungen, grundlegender Architekturwechsel, bewusst in Kauf genommene Einschränkung, Änderung an
+  Berechtigungs- und Isolationsgrenzen. Lässt es sich nicht sicher einstufen, gilt es als strategisch. Einstufung und
+  zutreffende Kriterien stehen im Kommentar und im Ergebnis.
+- **Routinekonzept:** unabhängige Konzeptprüfung anfordern (Skill `ccmas-concept-review`, frische Ausführung). Die
+  Freigabe gilt nur für die geprüfte Konzeptversion; abhängige Implementation-Tickets starten erst danach.
+  - **FREIGEGEBEN** für genau die aktuelle Version: Das Ticket nach den Done-Kriterien (Regel 7.5) abschließen und
+    nach `Done` schieben; ein Concept-Ticket ohne strategische Entscheidung braucht keine Freigabe des
+    Projektinhabers. Ändert sich die Konzeptversion danach wesentlich, gilt die Freigabe nicht mehr.
+  - **BEFUNDE:** Das Ticket bleibt in Bearbeitung (`In Progress`). Konzept anhand der Befunde nachbessern (Eingabe
+    `findings`), dann erneut prüfen lassen, jedes Mal von einer frischen Ausführung. Nach dem Reparaturbudget
+    (`repair_loop.max_rounds`, Standard 3 Runden; dieselbe Höchstzahl wie bei der Code-Schleife) hält die Schleife
+    sichtbar an und legt dem Nutzer eine Frage vor, statt weiter zu prüfen.
+- **Strategisch oder nicht ausreichend geklärt:** `Freigabe:`-Unteraufgabe an den Projektinhaber, Ticket nach `Review`.
+  Ohne Antwort gibt es keine Freigabe.
 - Bericht im Chat: Ergebnis, geänderte Seiten mit Version, Tickets mit ID, offene Fragen, empfohlener nächster
   Schritt. Danach kein neues Vorhaben beginnen.
+
+## Ausführungskontext und Vertrag
+
+Rolle `concept`, Kategorie `concept`; der maschinenlesbare Vertrag (Eingaben, Umfang, Ergebnisse, Folgeaufträge)
+steht in `contract.yaml`, die Rollenregeln in `rules/roles.yaml`. Der Skill ändert weder die Regeln noch Worker-Limit,
+Integrationsmodus, Policy-Profil oder Berechtigungen und startet keine weiteren Agenten.
+
+- **In CCMAS** liefert der Skill Inhalt und Absicht; Asana-, Vault- und Git-Schreibvorgänge führt die Plattform über
+  ihre Adapter aus.
+- **In einer Entwicklungssitzung ohne CCMAS-Dienst** erledigt die Hauptsitzung diese Schreibvorgänge nach der
+  Regeldatei und legt strategische Fälle dem Projektinhaber vor.

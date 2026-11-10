@@ -9,11 +9,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 
 	"github.com/alexwenzel/ccmas/internal/domain"
 )
@@ -29,6 +32,7 @@ type testSkill struct {
 	defaultFor []domain.Role
 	writes     []string
 	files      map[string]string
+	noContract bool // Workflow-Skill ohne contract.yaml anlegen (synthetischer Katalog ohne Verträge)
 }
 
 func defaultTestSkills() []testSkill {
@@ -59,11 +63,117 @@ type catalogFixture struct {
 func newCatalogFixture(t *testing.T, skills []testSkill) *catalogFixture {
 	t.Helper()
 	f := &catalogFixture{t: t, root: t.TempDir(), doc: manifestDoc{SchemaVersion: 1}}
+	// Die Regeldatei ist die echte des Repositorys: Verträge der Test-Skills werden gegen sie geprüft.
+	f.setRulesRaw(readRepoFile(t, "rules/roles.yaml"))
 	for _, s := range skills {
 		f.addSkill(s)
 	}
 	f.writeManifest()
 	return f
+}
+
+// readRepoFile liest eine Datei des Repositorys (relativ zur Wurzel).
+func readRepoFile(t *testing.T, rel string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func (f *catalogFixture) setRulesRaw(raw string) {
+	f.t.Helper()
+	p := filepath.Join(f.root, "rules", "roles.yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(raw), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// workflowBase nennt je Workflow-Kategorie den Skill des Repositorys, dessen Vertrag als Vorlage für
+// die Test-Skills dient.
+var workflowBase = map[Category]string{
+	CategoryConcept: "ccmas-concept-ticket", CategoryReview: "ccmas-code-review", CategoryDelivery: "ccmas-feature-parallel",
+	CategoryCompletion: "ccmas-meilenstein-abschluss", CategoryQuestions: "ccmas-antworten-abholen",
+}
+
+// baseContract liefert den Vertrag eines Test-Skills als generische Struktur (Vorlage aus dem Repository, mit
+// Skill-ID des Test-Skills und ohne Verweise auf andere Skills).
+func baseContract(t *testing.T, s testSkill) map[string]any {
+	t.Helper()
+	m := parseYAMLMap(t, readRepoFile(t, ".claude/skills/"+workflowBase[s.category]+"/contract.yaml"))
+	m["skill"] = s.id
+	m["uses_skills"] = []any{}
+	role := domain.Role(m["role"].(string))
+	if !slices.Contains(s.roles, role) {
+		t.Fatalf("Test-Skill %s: Vorlage verlangt die Rolle %s", s.id, role)
+	}
+	return m
+}
+
+func parseYAMLMap(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func marshalYAML(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := yaml.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// setContract schreibt den Vertrag eines Skills und zieht das Manifest nach.
+func (f *catalogFixture) setContract(id string, m map[string]any) {
+	f.t.Helper()
+	f.setContractRaw(id, marshalYAML(f.t, m))
+}
+
+func (f *catalogFixture) setContractRaw(id, raw string) {
+	f.t.Helper()
+	f.write(id, "contract.yaml", raw)
+	f.refresh(id)
+	f.writeManifest()
+}
+
+// remove löscht eine Datei eines Skills und zieht das Manifest nach.
+func (f *catalogFixture) remove(id, rel string) {
+	f.t.Helper()
+	if err := os.Remove(filepath.Join(f.skillDir(id), filepath.FromSlash(rel))); err != nil {
+		f.t.Fatal(err)
+	}
+	f.refresh(id)
+	f.writeManifest()
+}
+
+// refresh berechnet Dateiliste, Prüfsummen und tree_sha256 eines Skills neu aus dem Verzeichnis.
+func (f *catalogFixture) refresh(id string) {
+	f.t.Helper()
+	e := f.entry(id)
+	files, _ := treeFiles(f.t, f.skillDir(id))
+	var paths []string
+	for p := range files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	e.Files = nil
+	var lines []string
+	for _, p := range paths {
+		sum := sha256.Sum256([]byte(files[p]))
+		e.Files = append(e.Files, manifestFile{Path: p, SHA256: hex.EncodeToString(sum[:])})
+		lines = append(lines, hex.EncodeToString(sum[:])+"  "+p+"\n")
+	}
+	tree := sha256.Sum256([]byte(strings.Join(lines, "")))
+	e.TreeSHA256 = hex.EncodeToString(tree[:])
 }
 
 func (f *catalogFixture) skillDir(id string) string {
@@ -78,6 +188,11 @@ func (f *catalogFixture) addSkill(s testSkill) {
 	}
 	if _, ok := files["SKILL.md"]; !ok {
 		files["SKILL.md"] = fmt.Sprintf("---\nname: %s\ndescription: Beschreibung von %s\n---\n\n# %s\n\nInhalt.\n", s.id, s.id, s.id)
+	}
+	if _, ok := workflowBase[s.category]; ok && !s.noContract {
+		if _, has := files["contract.yaml"]; !has {
+			files["contract.yaml"] = marshalYAML(f.t, baseContract(f.t, s))
+		}
 	}
 	var lines []string
 	e := manifestEntry{
@@ -151,6 +266,14 @@ func (f *catalogFixture) write(id, rel, content string) {
 
 func (f *catalogFixture) load(opts ...Option) (*Catalog, error) {
 	return Load(f.root, opts...)
+}
+
+// removeRules löscht die Regeldatei: ein synthetischer Katalog ohne Plattformregeln.
+func (f *catalogFixture) removeRules() {
+	f.t.Helper()
+	if err := os.Remove(filepath.Join(f.root, "rules", "roles.yaml")); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *catalogFixture) mustLoad(opts ...Option) *Catalog {
