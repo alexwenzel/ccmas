@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -210,6 +211,10 @@ func TestLeaseAtMostOneActive(t *testing.T) {
 				return err
 			})
 			wantCode(t, err, CodeConflict)
+			// Go nennt den Halter (die Datenbank allein sagte nur „existiert bereits“).
+			if !strings.Contains(err.Error(), `"l1"`) {
+				t.Errorf("die Meldung nennt den Halter nicht: %v", err)
+			}
 			if after := takeLeaseSnapshot(t, s); after != before {
 				t.Errorf("Ablehnung hat etwas geschrieben: %+v -> %+v", before, after)
 			}
@@ -595,6 +600,9 @@ func TestLeaseFromDecisionReservesOnlyOnce(t *testing.T) {
 			return err
 		})
 		wantCode(t, err, CodeConflict)
+		if !strings.Contains(err.Error(), "hat schon reserviert") {
+			t.Errorf("%s: die Meldung nennt den Grund nicht: %v", state, err)
+		}
 		if after := takeLeaseSnapshot(t, s); after != before {
 			t.Errorf("%s: Ablehnung schrieb: %+v -> %+v", state, before, after)
 		}
