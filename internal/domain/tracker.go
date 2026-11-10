@@ -22,7 +22,8 @@ type TerminalResult struct {
 //     verändern den Zustand nicht;
 //   - nur erlaubte Zustandsübergänge (ExecutionState.CanTransition).
 //
-// Der Tracker kennt den Auftragszustand nicht und leitet ihn nicht ab: Ein Prozessende mit
+// Die Regel selbst steht in den reinen Funktionen von execution_step.go (StepOnEvent und Verwandte); der Tracker hält nur
+// den Zustand und übernimmt deren Schritte. Er kennt den Auftragszustand nicht und leitet ihn nicht ab: Ein Prozessende mit
 // Code 0 ohne Ergebnis ist ein Absturz, aber kein Erfolg und kein Auftragsabschluss.
 type ExecutionTracker struct {
 	mu          sync.Mutex
@@ -77,91 +78,42 @@ func (t *ExecutionTracker) BeginAttempt(attempt int) error {
 	return nil
 }
 
-func (t *ExecutionTracker) transition(to ExecutionState) error {
-	if !t.state.CanTransition(to) {
-		return newError(CatSequence, "", "Übergang %s -> %s ist nicht erlaubt", t.state, to)
-	}
-	t.state = to
-	return nil
+// position ist die aktuelle Stelle des Trackers für die reinen Schrittfunktionen (execution_step.go).
+func (t *ExecutionTracker) position() ExecutionPosition {
+	return ExecutionPosition{ProjectID: t.projectID, ExecutionID: t.executionID, Attempt: t.attempt, State: t.state}
 }
 
-func (t *ExecutionTracker) finish(to ExecutionState, source string, exitCode int) error {
-	if err := t.transition(to); err != nil {
+// take übernimmt einen Schritt der reinen Funktionen; ein Fehler lässt den Zustand unverändert.
+func (t *ExecutionTracker) take(step ExecutionStep, err error) error {
+	if err != nil {
 		return err
 	}
-	t.terminal = &TerminalResult{Attempt: t.attempt, State: to, Source: source, ExitCode: exitCode}
+	t.state = step.To
+	if step.Terminal != nil {
+		t.terminal = step.Terminal
+	}
 	return nil
 }
 
-// Apply verarbeitet eine Nachricht des Runners. Ein Fehler lässt den Zustand unverändert.
+// Apply verarbeitet eine Nachricht des Runners (Regel: StepOnEvent). Ein Fehler lässt den Zustand unverändert.
 func (t *ExecutionTracker) Apply(ev RunEvent) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	env := ev.Envelope
-	if env.ProjectID != t.projectID || env.ExecutionID != t.executionID {
-		return newError(CatID, "", "Nachricht gehört zu %s/%s, nicht zu %s/%s",
-			env.ProjectID, env.ExecutionID, t.projectID, t.executionID)
-	}
-	if env.Attempt < t.attempt {
-		return newError(CatStale, "/attempt", "Nachricht aus Versuch %d, aktuell ist Versuch %d", env.Attempt, t.attempt)
-	}
-	if env.Attempt > t.attempt {
-		return newError(CatSequence, "/attempt", "Versuch %d wurde nicht begonnen (aktuell %d)", env.Attempt, t.attempt)
-	}
-	if t.state.IsTerminal() {
-		return newError(CatSequence, "", "Versuch %d ist bereits beendet (%s); %s wird nicht übernommen", t.attempt, t.state, env.Type)
-	}
-
-	switch p := ev.Payload.(type) {
-	case SessionStarted:
-		if t.state != ExecInitializing {
-			return newError(CatSequence, "", "session_started im Zustand %s", t.state)
-		}
-		return t.transition(ExecRunning)
-	case Activity, ToolEvent:
-		if t.state != ExecRunning && t.state != ExecStopping {
-			return newError(CatSequence, "", "%s im Zustand %s", env.Type, t.state)
-		}
-		return nil
-	case QuestionPayload:
-		if t.state != ExecRunning {
-			return newError(CatSequence, "", "question im Zustand %s", t.state)
-		}
-		return t.transition(ExecAwaitingAnswer)
-	case Result:
-		switch p.Outcome {
-		case OutcomeSucceeded:
-			return t.finish(ExecSucceeded, "result", 0)
-		case OutcomeControlledFailure:
-			return t.finish(ExecControlledFailure, "result", 0)
-		case OutcomeCancelled:
-			return t.finish(ExecCancelled, "result", 0)
-		}
-		return newError(CatValue, "/payload/outcome", "unbekanntes Ergebnis %q", p.Outcome)
-	case ErrorPayload:
-		if !p.Terminal {
-			return nil // Warnung ohne Zustandswirkung
-		}
-		return t.finish(ExecControlledFailure, "error", 0)
-	}
-	return newError(CatMessageType, "", "Payload %T ist keine Runner-Meldung", ev.Payload)
+	return t.take(StepOnEvent(t.position(), ev))
 }
 
 // AnswerSent vermerkt, dass die Antwort an den Runner gesendet wurde (wartet -> läuft).
 func (t *ExecutionTracker) AnswerSent() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.state != ExecAwaitingAnswer {
-		return newError(CatSequence, "", "answer im Zustand %s", t.state)
-	}
-	return t.transition(ExecRunning)
+	return t.take(StepOnAnswerSent(t.position()))
 }
 
 // StopSent vermerkt, dass Interrupt oder Stopp gesendet wurde (-> wird beendet).
 func (t *ExecutionTracker) StopSent() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.transition(ExecStopping)
+	return t.take(StepOnStopSent(t.position()))
 }
 
 // ProcessExited meldet das Ende des Runner-Prozesses. Ohne vorheriges terminales Ergebnis ist
@@ -169,14 +121,5 @@ func (t *ExecutionTracker) StopSent() error {
 func (t *ExecutionTracker) ProcessExited(attempt, exitCode int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if attempt < t.attempt {
-		return newError(CatStale, "", "Prozess gehört zu Versuch %d, aktuell ist Versuch %d", attempt, t.attempt)
-	}
-	if attempt > t.attempt {
-		return newError(CatSequence, "", "Versuch %d wurde nicht begonnen (aktuell %d)", attempt, t.attempt)
-	}
-	if t.state.IsTerminal() {
-		return nil
-	}
-	return t.finish(ExecCrashed, "process_exit", exitCode)
+	return t.take(StepOnProcessExit(t.position(), attempt, exitCode))
 }

@@ -7,8 +7,8 @@ Arbeitsauftrag“, „Zustandsmodell“, „Tickets und Mehrfachauswahl“, „P
 Entscheidungen“, „Beziehungen und Abschluss“, „Unabhängiges Review vor dem Push“ und „Parameter und Profile“. Diese Datei hält
 fest, was das Repository umsetzt, und ist keine Kopie der Spezifikation.
 
-**Grenzen dieses Stands:** Der Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Der Orchestrator (M03) existiert nicht, ebenso wenig
-die Befüllung des `ProjectSnapshot` aus dem führenden Zustand. Alles unten beschreibt Bausteine, die getestet sind, nicht einen
+**Grenzen dieses Stands:** Der Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Orchestrator und Snapshot-Bauer gibt es seit CC-42
+([`orchestrator.md`](orchestrator.md)), aber noch keinen Dienst, der den Planer aufruft (folgt mit CC-51). Alles unten beschreibt Bausteine, die getestet sind, nicht einen
 laufenden Planungszyklus. Die Planung ist mit dem echten Supervisor an acht synthetischen Zuständen belegt (Abschnitt „Nachweis M02“), nicht an echten Projektzuständen und
 ohne dass die geplante Arbeit ausgeführt wurde.
 
@@ -72,10 +72,13 @@ der Validator rechnet selbst. Die Kennung ist reserviert: ein Konzeptstand mit d
 den Bericht des Reviewers (`concept_version`, Skill `ccmas-code-review`) und die Integrationsanforderung, damit die Bindung in `PushAllowed`
 (`CheckReview`) greift; eine Übernahme der Berichtsversion gibt es nicht.
 
-**Vom Orchestrator (M03) zu liefern.** Der Snapshot ist eine Schnittstelle: Befüllt wird er aus dem führenden Zustand. Was erst
-M03 kennt, ist hier als Feld vorbereitet, aber noch nicht produktiv befüllt: Ausführungsdatensätze (aktive Ausführungen, Rolle der
-Reviewer-Ausführung, Ausführung der Implementierung), Kopf-Commit und Branch, PR- und CI-Stand, Abschlussnachweise
-(`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die offenen Fragen. Der PR-Stand trägt optional
+**Vom Orchestrator (M03) zu liefern.** Der Snapshot ist eine Schnittstelle: Befüllt wird er aus dem führenden Zustand. Seit CC-42
+befüllt der Snapshot-Bauer (`orchestrator.BuildSnapshot`, `orchestrator.StoreSnapshotSource`) die Felder, die erst der Orchestrator kennt,
+aus SQLite: Ausführungsdatensätze (aktive Ausführungen, Rolle der Reviewer-Ausführung, Ausführung der Implementierung), Kopf-Commit und Branch,
+PR- und CI-Stand, Abschlussnachweise (`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die
+offenen Fragen. Offen bleibt die Befüllung aus Asana und den Adaptern: PR- und CI-Stand, Abschlussnachweise und Kopf-Commit werden
+geschrieben, sobald M05/M06 sie liefern; bis dahin sind diese Felder leer. Einzelheiten: [`orchestrator.md`](orchestrator.md), Abschnitt
+„Snapshot-Bauer“, und [`persistence.md`](persistence.md), Abschnitt „Abbildung des `ProjectSnapshot`“. Der PR-Stand trägt optional
 den Kopf-Commit des PR (`pr.head_commit`); ohne ihn lehnt der Validator bei einem offenen PR jede erneute Integration ab (fail-safe, siehe
 „Keine Dublette bei der Integration“). **Konzeptfreigabe abhängiger Aufträge:** Der Snapshot-Bauer überträgt den freigegebenen Konzeptstand (Version,
 Einstufung, Freigabe) auf Aufträge, die von einem Konzeptauftrag abhängen; ohne diesen Konzeptstand am Auftrag bleiben sie fail-safe blockiert
@@ -218,12 +221,16 @@ Disposition darauf ist Sache des Orchestrators, nicht des Validators.
 
 - **Aufrufer.** Der Validator ist der produktive Aufrufer von `PushAllowed`, `ConceptApprover`, `ConceptApprovalValid`, `RepairStep`,
   `ConceptRepairStep`, `IntegrationModeAllowed`, `FeatureComplete`/`MilestoneComplete` und `NextSteps` für Planungsergebnisse. Der
-  Orchestrator (M03) soll **vor jeder Ausführung** `Validate`/`Accept` aufrufen; dieser Aufruf existiert bis M03 nicht. Die
+  Orchestrator soll **vor jeder Ausführung** `Validate`/`Accept` aufrufen; seit CC-42 geschieht das in `ReserveBatch`, in derselben
+  Transaktion wie die Reservierung ([`orchestrator.md`](orchestrator.md)). Die
   Auswerter bleiben ebenso an den Stellen aufzurufen, an denen Push, Integration und Abschluss tatsächlich geschehen.
 - **Locks und Belege.** Reservierungen, Worktree-Locks und Qualitätsbelege über das Dargestellte hinaus (Spezifikation „Supervisor-Entscheidungen“)
   gehören zum Orchestrator.
 - **Zeitpunkt.** Der Validator prüft gegen einen Snapshot. Zwischen Prüfung und Ausführung kann sich der Zustand ändern; die
-  Revision im Batch und im Snapshot macht das sichtbar (`stale_revision`), die atomare Übernahme ist Sache des Orchestrators.
+  Revision im Batch und im Snapshot macht das sichtbar (`stale_revision`), die atomare Übernahme ist Sache des Orchestrators
+  (`ReserveBatch`: Revisionsprüfung, erneuter Validator-Aufruf und Reservierung in einer Transaktion). Die Konzeptweitergabe des
+  Bauers ist dort gegenüber der Beschreibung oben präzisiert (nur Konzeptaufträge als Quelle, nur Umsetzungs- und Fehleraufträge
+  als Ziel, bei mehreren Quellen nur bei gleichem Stand).
 
 ## Planer (W14.2)
 
@@ -236,7 +243,7 @@ planen und lässt den Validator das Ergebnis prüfen. Ohne Supervisor oder ohne 
 | Schnittstelle | Aufgabe | Produktiv / Test |
 | --- | --- | --- |
 | `Runtime` | `Execute(ctx, runner.Request) (runner.Execution, error)` | `*runner.Runner` / Fake |
-| `SnapshotSource` | `CurrentSnapshot(ctx, projectID)`: aktueller Zustand zur Validierung und nach veralteter Revision | Orchestrator (M03) / Fake |
+| `SnapshotSource` | `CurrentSnapshot(ctx, projectID)`: aktueller Zustand zur Validierung und nach veralteter Revision | `orchestrator.StoreSnapshotSource` (seit CC-42) / Fake |
 | `ProfileResolver` | `ResolveProfile` der Rolle `supervisor`; Standard `Policy.Resolver` (`*profiles.Resolver`) | `profiles.Resolver` |
 | Skill-Katalog | `*skills.Catalog`, **muss** mit `skills.LoadChecked` geladen sein | `skills.LoadChecked` |
 

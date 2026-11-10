@@ -218,8 +218,9 @@ aus.
 `PushAllowed` (mit Rolle der Reviewer-Ausführung und Ausführungs-IDs aus dem `ProjectSnapshot`), `ConceptApprover`,
 `ConceptApprovalValid`, `RepairStep`, `ConceptRepairStep`, `IntegrationModeAllowed`, `FeatureComplete`/`MilestoneComplete` und
 `NextSteps` für jedes Planungsergebnis des Supervisors auf. Damit entscheiden diese Auswerter über Entscheidungen, nicht nur in
-Tests. Was weiter offen bleibt: den Validator ruft erst der Orchestrator (M03) vor jeder Ausführung auf, und er liefert die
-Ausführungsdatensätze, aus denen der Snapshot Rolle und IDs des Reviews bezieht.
+Tests. Seit CC-42 ruft `ReserveBatch` den Validator vor jeder Ausführung in der Reservierungstransaktion erneut auf, und der
+Snapshot-Bauer liefert die Ausführungsdatensätze, aus denen der Snapshot Rolle und IDs des Reviews bezieht
+([`orchestrator.md`](orchestrator.md)). Offen bleibt der Dienst, der den Planer aufruft (CC-51).
 
 ## Bedeutung von `scope` (Schreibabsicht, keine Berechtigung)
 
@@ -250,8 +251,8 @@ Berechtigungsmodell. `external_writes` im Manifest bleibt dazu das Inventar der 
   Worktree-Isolation) und das Review.
 - Dass `PushAllowed`, `FeatureComplete` und die übrigen Auswerter an den Stellen **aufgerufen** werden, an denen Push,
   Integration und Abschluss tatsächlich geschehen: das ist Sache des Orchestrators (M03) und der Adapter (M05/M06). Für
-  Planungsergebnisse des Supervisors ruft sie seit CC-14 der Validator auf (`supervisor.md`); der Validator selbst wird erst vom
-  Orchestrator aufgerufen.
+  Planungsergebnisse des Supervisors ruft sie seit CC-14 der Validator auf (`supervisor.md`); der Validator selbst wird seit CC-42 von
+  `ReserveBatch` in der Reservierungstransaktion aufgerufen ([`orchestrator.md`](orchestrator.md)).
 - Die fachliche Einstufung eines Konzepts (routine oder strategisch) und die Qualität eines Reviews: sie entstehen in
   den Ausführungen von Konzept-Agent und Prüfern.
 - Die Echtheit der Ausführungskennungen, Hashes und Nachweise, die der Orchestrator übergibt.
@@ -277,4 +278,4 @@ Berechtigungsmodell. `external_writes` im Manifest bleibt dazu das Inventar der 
   Rolle `documentation` ist seit W14.1 über die Aktion `documentation_work` erreichbar; ein Workflow-Skill für sie gibt es nicht,
   sie arbeitet mit `ccmas-obsidian-seite` und bei beauftragter Regelpflege `ccmas-regeln-pflegen`.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` sowie die
-  Voraussetzungsprüfung vor einer Ausführung gehören zum Orchestrator (CC-46, M03).
+  Voraussetzungsprüfung vor einer Ausführung prüft seit CC-42 der Validator in `ReserveBatch` (CC-46 lieferte Profile und Rollenangebot, [`orchestrator.md`](orchestrator.md)).

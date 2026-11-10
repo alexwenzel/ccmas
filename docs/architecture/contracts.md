@@ -99,7 +99,11 @@ Nachrichten (Umschlag plus typisierter Payload).
 
 Pro `(execution_id, attempt)` gibt es **höchstens ein terminales Ergebnis**: ein `result` oder ein `error` mit
 `terminal=true`. Ein Prozessende ohne vorheriges terminales Ergebnis ist ein **Absturz** (auch bei Exit-Code 0).
-Das Schema kann Nachrichtenfolgen nicht ausdrücken; Go erzwingt es im `ExecutionTracker`:
+Das Schema kann Nachrichtenfolgen nicht ausdrücken; Go erzwingt es im `ExecutionTracker`. Die Regel selbst steht seit CC-42 als
+reine Schrittfunktionen in `internal/domain/execution_step.go` (`StepOnEvent`, `StepOnAnswerSent`, `StepOnStopSent`,
+`StepOnProcessExit`); der Tracker hält nur den Zustand im Speicher, und die persistente Verarbeitung im Orchestrator
+(`ApplyEvent`, `ApplyProcessExit`, [`orchestrator.md`](orchestrator.md)) ruft dieselben Funktionen auf. Es gibt keine zweite
+Kopie der Regel:
 
 - zweites terminales Ergebnis und jede Nachricht nach dem terminalen Ergebnis → Klasse `sequence`, Zustand
   unverändert;
@@ -250,6 +254,11 @@ dieselben Namen und Prüfmethoden (`Check`):
   `Check` verlangt den dazu passenden Endzustand), kurze redigierte Zusammenfassung (höchstens 2 KiB) und der prompt-freie
   `RunSpec` (nur Länge und SHA-256 des Prompts, höchstens 64 KiB). Die Ebenen bleiben getrennte Felder; nichts wird aus einer
   anderen Ebene abgeleitet.
+- `ExecutionLease` – Reservierung eines Arbeitsauftrags für einen Agenten (seit CC-42, Datei `lease.go`): Lease-ID, Auftrag,
+  optional gebundene Ausführung und Versuch (beide oder keins), Agent, **Generation** (je Auftrag lückenlos ab 1; die höchste ist die
+  jüngste), Zustand (`LeaseState`: `active`, `released`, `expired`, `revoked`; ein Endzustand ist endgültig), Beginn, Ablauf,
+  Endzeit (nur in Endzuständen) und optional der Worktree. Eine Meldung einer älteren Generation hat keine Wirkung auf die jüngere.
+  Ablauf: [`orchestrator.md`](orchestrator.md).
 - `Agent` – persistenter Agent eines Projekts: Rolle, Verfügbarkeit (`AgentAvailability`, eigene Ebene), Zeilenrevision
   (ab 1, für Compare-and-Set), Änderungszeit.
 - `AuditEvent` – Eintrag des Auditverlaufs (`events`, nur anhängbar): Zeit, Akteur, Art (`AuditKinds`), Entität, Ebene
