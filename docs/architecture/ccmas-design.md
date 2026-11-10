@@ -1,8 +1,8 @@
 # CCMAS – Architektur-Snapshot
 
 Portabler Architekturstand für das Repository. **Führend ist die Spezifikation**, nicht diese Datei:
-Vault „w3entwickler“, Ordner „Eigene Projekte/ccmas“, Seite „Multi Agent Setup“, Version 1.1.0
-(Stand der Spezifikation: 2026-11-09, Status `review`). Dieser Snapshot enthält nur, was für den Einstieg und
+Vault „w3entwickler“, Ordner „Eigene Projekte/ccmas“, Seite „Multi Agent Setup“, Version 1.7.0
+(Stand der Spezifikation: 2026-11-10, Status `review`). Dieser Snapshot enthält nur, was für den Einstieg und
 den aktuellen Code nötig ist, und ist keine Kopie der Spezifikation. Bei Widersprüchen gilt die Spezifikation;
 der Snapshot wird dann nachgezogen.
 
@@ -14,8 +14,9 @@ und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMA
 rechnen beim Anbieter.
 
 Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35) und den Profilen für Modell
-und Effort (CC-46) und dem Go-Adapter zum Runner samt `profile verify` (CC-46). Vorhanden sind die CLI-Hülle
-(`version`, `skills`, `profile`, `agent`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
+und Effort (CC-46) und dem Go-Adapter zum Runner samt `profile verify` (CC-46); seit CC-27 (Meilenstein M03) kommt der
+SQLite-Zustand (`internal/persistence`) mit `ccmas status` hinzu. Vorhanden sind die CLI-Hülle
+(`version`, `skills`, `profile`, `agent`, `status`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
 `runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
 ## Festgelegte Produktentscheidungen
@@ -48,8 +49,10 @@ internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhande
 internal/profiles/    Rollenprofile, Agenten, Modell/Effort (CC-46)     vorhanden
 internal/workers/     Adapter zum Python-Runner: runner/ (CC-46)        vorhanden (minimal)
 internal/supervisor/  ProjectSnapshot, Validator, Policy, Planer (CC-14) vorhanden
+internal/persistence/ SQLite-Zustand, Migrationen, Audit, nur lesende
+                      Prüfung (CC-27); persistencetest/ für Tests       vorhanden
 internal/orchestrator/ git/ integrations/
-         monitoring/ persistence/ api/ tui/                             geplant
+         monitoring/ api/ tui/                                          geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
 config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
@@ -62,7 +65,8 @@ docs/architecture/    dieser Snapshot                                   vorhande
 ```
 
 Go-Modul: `github.com/alexwenzel/ccmas`, Go-Direktive `1.27.3`. Die CLI nutzt
-`github.com/spf13/cobra`, der Skill-Katalog und die Profilkonfiguration `go.yaml.in/yaml/v3` (strikt dekodiert), beide gepinnt in `go.mod`/`go.sum`.
+`github.com/spf13/cobra`, der Skill-Katalog und die Profilkonfiguration `go.yaml.in/yaml/v3` (strikt dekodiert), der SQLite-Zustand
+`modernc.org/sqlite` **v1.61.0** (SQLite 3.54.1, reines Go ohne cgo; Begründung und Auswahlregel in [`persistence.md`](persistence.md)), alle gepinnt in `go.mod`/`go.sum`.
 
 Die Auswerter der Rollenregeln (`PushAllowed`, `ConceptApprover`, `RepairStep`, `FeatureComplete`, `IntegrationModeAllowed`,
 `NextSteps`, …) sind **Bausteine des Orchestrators** ([`workflow-rules.md`](workflow-rules.md)). Seit CC-14 ruft sie für
@@ -82,7 +86,7 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 
 | Gruppe | Funktion |
 | --- | --- |
-| `init`, `status` | Einrichten und Prüfen |
+| `init`, `status` | Einrichten und Prüfen (`status` **verfügbar** seit CC-27 für den SQLite-Zustand; Dienst, Werkzeuge, Anmeldung und Projektzuordnung folgen; `init` folgt) |
 | `start`, `stop`, `ui` | Dienst und Anzeige steuern |
 | `project` | Projektzuordnung, Arbeitsorte, Integrationen |
 | `skills` | Bestand prüfen, anzeigen und als Snapshot bereitstellen (**verfügbar** seit CC-35; Import und Zuordnung folgen) |
@@ -104,6 +108,18 @@ Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve|verify` und `ccm
 `ccmas profile verify [--live]` (seit CC-46) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent (Skill-Bestand und Rollenregeln geprüft geladen, seit CC-14); mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
 Ihr Aufruf täuscht kein Verhalten vor.
 
+**`ccmas status [--execution-dir <pfad>] [--root <pfad>] [--json]`** (seit CC-27) prüft den SQLite-Zustand und verändert nichts: keine
+Installation, kein Start, keine neue Datei und kein neues Verzeichnis, keine Migration, keine Rechteänderung, keine Agentenausführung.
+Der Ausführungsbereich ergibt sich aus `--execution-dir`, sonst `CCMAS_EXECUTION_DIR`, sonst `<Softwareordner>/.ccmas` (`--root` wie bei `profile`);
+die Datenbank liegt fest unter `<Ausführungsbereich>/state/ccmas.db`. Die Textausgabe hat den Abschnitt „Zustand (SQLite)“ (Datei, Stufe, Leseweg,
+Rechte, Journal-Modus, Schema mit ausstehenden Migrationen, Integrität, Grunddaten je Projekt, Hinweise, Befunde) und danach „Nicht geprüft“:
+Dienstzustand (folgt mit CC-51) sowie Werkzeuge, Anmeldung und Projektzuordnung (folgen mit M06). `--json` liefert ein stabiles Objekt
+(`checked_at`, `execution_dir`, `ok`, `state`, `not_checked`). Die Stufen der Spezifikation (vorhanden, konfiguriert, angemeldet, funktional
+nachgewiesen) gelten für den SQLite-Zustand bis „funktional nachgewiesen“ **nur für den Lesepfad**; der Schreibpfad bleibt ungeprüft, „angemeldet“ entfällt.
+Exit-Codes: 0 Datenbank fehlt oder ohne Befund (ausstehende Migrationen sind nur ein Hinweis), 1 mindestens ein Befund (zu neue Schemaversion,
+geänderte Migration, abweichende Historie, `quick_check`, Fremdschlüssel, unsichere Rechte, unlesbare oder fremde Datei), 2 Bedienfehler. Die nur
+lesende Prüfung, die Befundcodes und das Verhalten bei offenem Schreiber stehen in [`persistence.md`](persistence.md).
+
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`
 gesetzt (`make build` nimmt `git describe`), Standard ist `dev`.
 
@@ -112,7 +128,7 @@ gesetzt (`make build` nimmt `git describe`), Standard ist `dev`.
 | Code | Konstante | Bedeutung |
 | --- | --- | --- |
 | 0 | `ExitOK` | Erfolg (auch `--help`, `version`) |
-| 1 | `ExitError` | Laufzeitfehler oder Prüfbefund bei gültig aufgerufenem Befehl (zum Beispiel `skills validate` mit Befunden, `profile set` mit unzulässiger Kombination) |
+| 1 | `ExitError` | Laufzeitfehler oder Prüfbefund bei gültig aufgerufenem Befehl (zum Beispiel `skills validate` mit Befunden, `profile set` mit unzulässiger Kombination, `status` mit Befund im SQLite-Zustand) |
 | 2 | `ExitUsage` | Bedienfehler: unbekannter Befehl, unbekanntes Flag, unerwartetes Argument |
 | 3 | `ExitNotAvailable` | Befehlsgruppe ist vorgesehen, aber noch nicht verfügbar |
 
@@ -174,7 +190,7 @@ führt dieselben Prüfungen ohne Secrets und mit `permissions: contents: read` a
 ## Nicht eingecheckt
 
 Laufzeitdaten, persönliche Konfiguration, Credentials, Logs und Worktrees bleiben außerhalb des getrackten Bestands
-(`.gitignore`): `.venv/`, Caches, `.ccmas/` und `*.local.*` für lokale Konfiguration, `.env.*` (außer `.env.example`),
+(`.gitignore`): `.venv/`, Caches, `.ccmas/` (darin `.ccmas/config` und, im Standardfall, `.ccmas/state` mit der SQLite-Datenbank) und `*.local.*` für lokale Konfiguration, `.env.*` (außer `.env.example`),
 `/var/` und SQLite-/Logdateien für Laufzeitdaten, `.claude/worktrees/` und `bin/`. Persönliche lokale Ressourcen
 (Vault-Pfad, Asana-GIDs, Konto) stehen nur in ungetrackter Konfiguration oder in der Regeldatei, nicht im Code.
 
@@ -185,7 +201,7 @@ Ein Coding-Agent steigt so ein:
 1. **Regeln lesen.** `CLAUDE.md` im Repository (nur Repo-Spezifisches) verweist auf die verbindliche Regeldatei:
    Vault „w3entwickler“, Ordner „Eigene Projekte/ccmas“, Datei `CLAUDE.md`. Ohne Vault-Zugriff: Projektdokument
    `claude/CLAUDE.md` im Claude-Projekt „CCMAS“. Dort stehen auch Asana-Projekt, Felder und Workflow.
-2. **Spezifikation lesen.** Seite „Multi Agent Setup“ im selben Vault-Ordner (Version 1.1.0), insbesondere die
+2. **Spezifikation lesen.** Seite „Multi Agent Setup“ im selben Vault-Ordner (Version 1.7.0), insbesondere die
    Abschnitte zu Produktentscheidungen, Architektur, CLI, Konfiguration/Projektstruktur und Umsetzungsplan.
 3. **Auftrag aus Asana.** Das Asana-Projekt „ccmas“ ist der operative Plan. Echte Abhängigkeiten prüfen, den ersten
    startbereiten Auftrag nehmen, dessen Schritte und Abnahmekriterien abarbeiten. Vorhandene Arbeit erhalten.
