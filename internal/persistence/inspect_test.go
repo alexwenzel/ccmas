@@ -272,10 +272,10 @@ func TestInspectOutboxCounts(t *testing.T) {
 	}
 	obClaim(t, s, time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), time.Minute, 2) // die beiden ältesten
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, attention.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "http_403"}, time.Time{})
+		return tx.FailOutbox(projectID, attention.ActionID, 1, domain.OutboxPermanent, domain.OutboxError{Code: "http_403"}, time.Time{})
 	})
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, "gid-1")
+		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, 1, "gid-1")
 	})
 	must(t, s.Close())
 	rep := inspect(t, s.Path())

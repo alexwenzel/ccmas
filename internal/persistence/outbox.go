@@ -245,9 +245,13 @@ func (t *Tx) EnqueueOutbox(a domain.OutboxAction) (action domain.OutboxAction, c
 	return action, created, nil
 }
 
+// noFence nimmt einem outboxMove die Prüfung des Versuchszählers (Claim und Abgleich ohne Aufruf als Gegenstand).
+const noFence = -1
+
 // outboxMove führt eine Aktion von from nach to: Übergangstabelle (sonst state), erwarteter Ist-Zustand (sonst conflict),
-// Änderung durch mutate, Ereignis. Sie läuft innerhalb von write.
-func (t *Tx) outboxMove(projectID, actionID string, from, to domain.OutboxState, kind string, mutate func(*domain.OutboxAction), extra map[string]string) (domain.OutboxAction, error) {
+// bei fence >= 0 auch der erwartete Versuchszähler (sonst conflict, ohne Änderung), Änderung durch mutate, Ereignis. Sie läuft
+// innerhalb von write.
+func (t *Tx) outboxMove(projectID, actionID string, from, to domain.OutboxState, fence int, kind string, mutate func(*domain.OutboxAction), extra map[string]string) (domain.OutboxAction, error) {
 	if err := checkIDs(projectID, actionID); err != nil {
 		return domain.OutboxAction{}, err
 	}
@@ -260,6 +264,9 @@ func (t *Tx) outboxMove(projectID, actionID string, from, to domain.OutboxState,
 	}
 	if cur.State != from {
 		return domain.OutboxAction{}, errf(CodeConflict, "Outbox-Aktion %q ist %q, erwartet war %q", actionID, cur.State, from)
+	}
+	if fence >= 0 && cur.Attempts != fence {
+		return domain.OutboxAction{}, errf(CodeConflict, "Outbox-Aktion %q gehört zu Versuch %d, erwartet war Versuch %d (der Claim ist nicht mehr der eigene)", actionID, cur.Attempts, fence)
 	}
 	next := cur
 	next.State, next.UpdatedAt = to, t.at
@@ -291,11 +298,11 @@ func (t *Tx) outboxMove(projectID, actionID string, from, to domain.OutboxState,
 }
 
 // moveOne führt eine Änderung als eigene write-Operation aus.
-func (t *Tx) moveOne(projectID, actionID string, from, to domain.OutboxState, kind string, mutate func(*domain.OutboxAction), extra map[string]string) (domain.OutboxAction, error) {
+func (t *Tx) moveOne(projectID, actionID string, from, to domain.OutboxState, fence int, kind string, mutate func(*domain.OutboxAction), extra map[string]string) (domain.OutboxAction, error) {
 	var out domain.OutboxAction
 	err := t.write(func() error {
 		var err error
-		out, err = t.outboxMove(projectID, actionID, from, to, kind, mutate, extra)
+		out, err = t.outboxMove(projectID, actionID, from, to, fence, kind, mutate, extra)
 		return err
 	})
 	if err != nil {
@@ -324,7 +331,7 @@ func (t *Tx) ClaimOutbox(projectID string, now time.Time, ttl time.Duration, lim
 		}
 		expires := now.Add(ttl)
 		for _, a := range due {
-			claimed, err := t.outboxMove(projectID, a.ActionID, a.State, domain.OutboxClaimed, domain.AuditOutboxClaimed, func(n *domain.OutboxAction) {
+			claimed, err := t.outboxMove(projectID, a.ActionID, a.State, domain.OutboxClaimed, noFence, domain.AuditOutboxClaimed, func(n *domain.OutboxAction) {
 				n.Attempts++
 				n.NextAttemptAt = time.Time{}
 				n.ClaimExpiresAt = expires
@@ -344,12 +351,17 @@ func (t *Tx) ClaimOutbox(projectID string, now time.Time, ttl time.Duration, lim
 
 // ExpireOutboxClaims überführt Aktionen, deren Claim zum Zeitpunkt now abgelaufen ist, nach reconciling. Der Prozess, der
 // den Aufruf machte, ist gestorben oder hängt: Ob das externe System die Aktion ausgeführt hat, ist unbekannt. Ein
-// abgelaufener Claim gilt deshalb als ungewiss und geht in den Abgleich, nie zurück nach pending. Der Abgleich ist sofort fällig.
-func (t *Tx) ExpireOutboxClaims(projectID string, now time.Time) ([]domain.OutboxAction, error) {
+// abgelaufener Claim gilt deshalb als ungewiss und geht in den Abgleich, nie zurück nach pending. Der erste Abgleich ist
+// frühestens lookupDelay nach dem Ablauf des Claims fällig (0: sofort): Ein Aufruf kann beim Ablauf noch beim Server laufen,
+// und ein zu früher Abgleich würde ein noch nicht sichtbares Objekt für „nicht vorhanden“ halten.
+func (t *Tx) ExpireOutboxClaims(projectID string, now time.Time, lookupDelay time.Duration) ([]domain.OutboxAction, error) {
 	var out []domain.OutboxAction
 	err := t.write(func() error {
 		if now.IsZero() {
 			return invalidf("der Zeitpunkt fehlt")
+		}
+		if lookupDelay < 0 {
+			return invalidf("die Wartezeit bis zum ersten Abgleich darf nicht negativ sein")
 		}
 		claimed, err := t.outboxList(`project_id = ? AND state = 'claimed' AND claim_expires_at <= ? ORDER BY claim_expires_at, action_id`, 0, projectID, fmtTime(now))
 		if err != nil {
@@ -357,8 +369,16 @@ func (t *Tx) ExpireOutboxClaims(projectID string, now time.Time) ([]domain.Outbo
 		}
 		e := domain.OutboxError{Code: "claim_expired", Message: "Claim abgelaufen; Ausgang des Aufrufs unbekannt"}
 		for _, a := range claimed {
-			moved, err := t.outboxMove(projectID, a.ActionID, domain.OutboxClaimed, domain.OutboxReconciling, domain.AuditOutboxClaimExpired,
-				func(n *domain.OutboxAction) { n.LastError = e.String() }, map[string]string{"error_code": e.Normalized().Code})
+			lookupAt := time.Time{}
+			if lookupDelay > 0 {
+				lookupAt = a.ClaimExpiresAt.Add(lookupDelay)
+			}
+			details := map[string]string{"error_code": e.Normalized().Code}
+			if !lookupAt.IsZero() {
+				details["next_attempt_at"] = fmtTime(lookupAt)
+			}
+			moved, err := t.outboxMove(projectID, a.ActionID, domain.OutboxClaimed, domain.OutboxReconciling, noFence, domain.AuditOutboxClaimExpired,
+				func(n *domain.OutboxAction) { n.LastError, n.NextAttemptAt = e.String(), lookupAt }, details)
 			if err != nil {
 				return err
 			}
@@ -372,26 +392,47 @@ func (t *Tx) ExpireOutboxClaims(projectID string, now time.Time) ([]domain.Outbo
 	return out, nil
 }
 
+// checkFence prüft den Fencing-Wert: den Versuchszähler, den der Aufrufer beim Claim erhalten hat (mindestens 1).
+func checkFence(attempts int) error {
+	if attempts < 1 {
+		return invalidf("der Versuchszähler des Claims (Fencing-Wert) fehlt")
+	}
+	return nil
+}
+
+// Fencing: CompleteOutbox, FailOutbox, MarkOutboxUncertain und EscalateOutbox verlangen den Versuchszähler (attempts), den der
+// Aufrufer beim Claim erhalten hat. Die Änderung gelingt nur, wenn Zustand und Zähler noch stimmen; sonst conflict, ohne
+// Änderung. So kann das späte Ergebnis eines Aufrufs, dessen Claim abgelaufen ist, einen neueren Claim derselben Aktion
+// nicht abschließen oder als fehlgeschlagen markieren: Jeder Claim zählt den Versuch hoch.
+
 // CompleteOutbox schließt die Aktion als erledigt ab: succeeded mit der externen Referenz. from ist claimed (Aufruf gelang)
-// oder reconciling (der Abgleich fand das Objekt, oder das Ergebnis traf nach Ablauf des Claims ein). Aus needs_attention
-// führt nur ResolveOutbox.
-func (t *Tx) CompleteOutbox(projectID, actionID string, from domain.OutboxState, externalRef string) (domain.OutboxAction, error) {
+// oder reconciling (der Abgleich fand das Objekt, oder das Ergebnis traf nach Ablauf des Claims ein). attempts ist der
+// Fencing-Wert (siehe oben); aus reconciling gelingt die Übernahme nur, solange seit dem Claim kein neuer begann. Aus
+// needs_attention führt nur ResolveOutbox.
+func (t *Tx) CompleteOutbox(projectID, actionID string, from domain.OutboxState, attempts int, externalRef string) (domain.OutboxAction, error) {
+	if err := checkFence(attempts); err != nil {
+		return domain.OutboxAction{}, t.fail(err)
+	}
 	if err := domain.CheckExternalRef(externalRef); err != nil {
 		return domain.OutboxAction{}, t.fail(invalid(err))
 	}
-	return t.moveOne(projectID, actionID, from, domain.OutboxSucceeded, domain.AuditOutboxSucceeded, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, from, domain.OutboxSucceeded, attempts, domain.AuditOutboxSucceeded, func(n *domain.OutboxAction) {
 		n.NextAttemptAt, n.ExternalRef = time.Time{}, externalRef
 	}, map[string]string{"external_ref": externalRef, "via": string(from)})
 }
 
 // FailOutbox hält den Fehlschlag eines Aufrufs fest (die Aktion ist claimed). Wiederholbar (domain.OutboxRetryable): retry_wait
 // mit dem Zeitpunkt retryAt (Pflicht). Dauerhaft (domain.OutboxPermanent): needs_attention. Ungewiss oder Erfolg sind keine
-// Fehlerklassen dieser Methode (MarkOutboxUncertain, CompleteOutbox). Die Fehlerkennung wird begrenzt gespeichert.
-func (t *Tx) FailOutbox(projectID, actionID string, class domain.OutboxOutcome, e domain.OutboxError, retryAt time.Time) (domain.OutboxAction, error) {
+// Fehlerklassen dieser Methode (MarkOutboxUncertain, CompleteOutbox). Die Fehlerkennung wird begrenzt gespeichert. attempts
+// ist der Fencing-Wert des Claims (siehe oben).
+func (t *Tx) FailOutbox(projectID, actionID string, attempts int, class domain.OutboxOutcome, e domain.OutboxError, retryAt time.Time) (domain.OutboxAction, error) {
 	var (
 		to   domain.OutboxState
 		kind string
 	)
+	if err := checkFence(attempts); err != nil {
+		return domain.OutboxAction{}, t.fail(err)
+	}
 	switch class {
 	case domain.OutboxRetryable:
 		if retryAt.IsZero() {
@@ -408,20 +449,24 @@ func (t *Tx) FailOutbox(projectID, actionID string, class domain.OutboxOutcome, 
 	if !retryAt.IsZero() {
 		extra["next_attempt_at"] = fmtTime(retryAt)
 	}
-	return t.moveOne(projectID, actionID, domain.OutboxClaimed, to, kind, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, domain.OutboxClaimed, to, attempts, kind, func(n *domain.OutboxAction) {
 		n.NextAttemptAt, n.LastError = retryAt, e.String()
 	}, extra)
 }
 
 // MarkOutboxUncertain hält einen ungewissen Ausgang fest (die Aktion ist claimed): Timeout, abgebrochene Verbindung oder eine
 // Antwort ohne verwertbare Referenz beweisen weder Erfolg noch Misserfolg. Die Aktion geht nach reconciling, nie nach
-// retry_wait oder pending. nextLookup ist der Zeitpunkt des ersten Abgleichs (Nullzeit: sofort).
-func (t *Tx) MarkOutboxUncertain(projectID, actionID string, e domain.OutboxError, nextLookup time.Time) (domain.OutboxAction, error) {
+// retry_wait oder pending. nextLookup ist der Zeitpunkt des ersten Abgleichs (Nullzeit: sofort); der Aufrufer setzt ihn nicht
+// vor das Ende der Mindestwartezeit, nach der ein „nicht vorhanden“ belastbar ist. attempts ist der Fencing-Wert des Claims.
+func (t *Tx) MarkOutboxUncertain(projectID, actionID string, attempts int, e domain.OutboxError, nextLookup time.Time) (domain.OutboxAction, error) {
+	if err := checkFence(attempts); err != nil {
+		return domain.OutboxAction{}, t.fail(err)
+	}
 	extra := map[string]string{"error_code": e.Normalized().Code}
 	if !nextLookup.IsZero() {
 		extra["next_attempt_at"] = fmtTime(nextLookup)
 	}
-	return t.moveOne(projectID, actionID, domain.OutboxClaimed, domain.OutboxReconciling, domain.AuditOutboxUncertain, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, domain.OutboxClaimed, domain.OutboxReconciling, attempts, domain.AuditOutboxUncertain, func(n *domain.OutboxAction) {
 		n.NextAttemptAt, n.LastError = nextLookup, e.String()
 	}, extra)
 }
@@ -433,7 +478,7 @@ func (t *Tx) RetryOutboxReconcile(projectID, actionID string, e domain.OutboxErr
 	if !nextLookup.IsZero() {
 		extra["next_attempt_at"] = fmtTime(nextLookup)
 	}
-	return t.moveOne(projectID, actionID, domain.OutboxReconciling, domain.OutboxReconciling, domain.AuditOutboxReconcileRetry, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, domain.OutboxReconciling, domain.OutboxReconciling, noFence, domain.AuditOutboxReconcileRetry, func(n *domain.OutboxAction) {
 		n.ReconcileAttempts++
 		n.NextAttemptAt, n.LastError = nextLookup, e.String()
 	}, extra)
@@ -442,26 +487,32 @@ func (t *Tx) RetryOutboxReconcile(projectID, actionID string, e domain.OutboxErr
 // RequeueOutbox beendet den Abgleich mit dem Beleg „das externe Objekt existiert nicht“: zurück nach pending (sofort fällig),
 // Abgleichzähler zurückgesetzt. Die Versuche bleiben, damit die Höchstzahl weiter greift. Nur mit sicherem Beleg aufrufen.
 func (t *Tx) RequeueOutbox(projectID, actionID string) (domain.OutboxAction, error) {
-	return t.moveOne(projectID, actionID, domain.OutboxReconciling, domain.OutboxPending, domain.AuditOutboxRequeued, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, domain.OutboxReconciling, domain.OutboxPending, noFence, domain.AuditOutboxRequeued, func(n *domain.OutboxAction) {
 		n.NextAttemptAt, n.ReconcileAttempts = time.Time{}, 0
 	}, nil)
 }
 
 // EscalateOutbox macht den Klärungsbedarf sichtbar: needs_attention aus claimed, retry_wait oder reconciling (Höchstzahl der
-// Versuche oder Abgleiche erreicht, Abgleich dauerhaft unmöglich).
-func (t *Tx) EscalateOutbox(projectID, actionID string, from domain.OutboxState, e domain.OutboxError) (domain.OutboxAction, error) {
-	return t.moveOne(projectID, actionID, from, domain.OutboxNeedsAttention, domain.AuditOutboxNeedsAttention, func(n *domain.OutboxAction) {
+// Versuche oder Abgleiche erreicht, Abgleich dauerhaft unmöglich). attempts ist der Fencing-Wert (siehe oben): der
+// Versuchszähler, den der Aufrufer beim Claim oder beim Lesen der Aktion hatte.
+func (t *Tx) EscalateOutbox(projectID, actionID string, from domain.OutboxState, attempts int, e domain.OutboxError) (domain.OutboxAction, error) {
+	if err := checkFence(attempts); err != nil {
+		return domain.OutboxAction{}, t.fail(err)
+	}
+	return t.moveOne(projectID, actionID, from, domain.OutboxNeedsAttention, attempts, domain.AuditOutboxNeedsAttention, func(n *domain.OutboxAction) {
 		n.NextAttemptAt, n.LastError = time.Time{}, e.String()
 	}, map[string]string{"error_code": e.Normalized().Code})
 }
 
 // CancelOutbox bricht eine noch nicht begonnene Aktion ab (cancelled): aus pending oder retry_wait, etwa weil die auslösende
-// Änderung zurückgenommen wurde. Der Grund ist Pflicht. Aus needs_attention bricht ResolveOutbox ab.
+// Änderung zurückgenommen wurde. Der Grund ist Pflicht; er wird vor dem Prüfen und Speichern von typischen Geheimnissen
+// bereinigt (domain.RedactSecrets). Aus needs_attention bricht ResolveOutbox ab.
 func (t *Tx) CancelOutbox(projectID, actionID string, from domain.OutboxState, reason string) (domain.OutboxAction, error) {
+	reason = domain.RedactSecrets(reason)
 	if err := checkReason(reason); err != nil {
 		return domain.OutboxAction{}, t.fail(err)
 	}
-	return t.moveOne(projectID, actionID, from, domain.OutboxCancelled, domain.AuditOutboxCancelled, func(n *domain.OutboxAction) {
+	return t.moveOne(projectID, actionID, from, domain.OutboxCancelled, noFence, domain.AuditOutboxCancelled, func(n *domain.OutboxAction) {
 		n.NextAttemptAt = time.Time{}
 	}, map[string]string{"reason": reason})
 }
@@ -469,8 +520,10 @@ func (t *Tx) CancelOutbox(projectID, actionID string, from domain.OutboxState, r
 // ResolveOutbox beendet einen Klärungsbedarf ausdrücklich (die Aktion ist needs_attention): erneut versuchen (pending, Zähler
 // zurückgesetzt), als erledigt bestätigen (succeeded mit externer Referenz) oder abbrechen (cancelled). Akteur ist der Akteur
 // der Transaktion; Weg, Grund und Referenz stehen im Ereignis outbox.resolved. Wer erneut versuchen lässt, verantwortet, dass
-// das externe Objekt nicht existiert.
+// das externe Objekt nicht existiert. Der Grund wird vor dem Prüfen und Speichern von typischen Geheimnissen bereinigt
+// (domain.RedactSecrets).
 func (t *Tx) ResolveOutbox(projectID, actionID string, r domain.OutboxResolution) (domain.OutboxAction, error) {
+	r.Reason = domain.RedactSecrets(r.Reason)
 	if err := r.Check(); err != nil {
 		return domain.OutboxAction{}, t.fail(invalid(err))
 	}
@@ -491,7 +544,7 @@ func (t *Tx) ResolveOutbox(projectID, actionID string, r domain.OutboxResolution
 		to = domain.OutboxCancelled
 		mutate = func(n *domain.OutboxAction) { n.NextAttemptAt = time.Time{} }
 	}
-	return t.moveOne(projectID, actionID, domain.OutboxNeedsAttention, to, domain.AuditOutboxResolved, mutate, extra)
+	return t.moveOne(projectID, actionID, domain.OutboxNeedsAttention, to, noFence, domain.AuditOutboxResolved, mutate, extra)
 }
 
 // checkReason prüft den Grund einer Abbruchs.

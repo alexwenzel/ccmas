@@ -235,7 +235,7 @@ func TestOutboxDoesNotBumpRevision(t *testing.T) {
 	obEnqueue(t, s, a)
 	obClaim(t, s, obT0, time.Minute, 1)
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, "gid-1")
+		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, "gid-1")
 	})
 	if got := revisionOf(t, s, projectID); got != rev {
 		t.Errorf("Revision %d -> %d", rev, got)
@@ -263,7 +263,7 @@ func TestOutboxLifecycleAndAudit(t *testing.T) {
 		t.Errorf("zweiter Claim nimmt die Aktion erneut: %+v", again)
 	}
 	done := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, "gid-42")
+		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, "gid-42")
 	})
 	if done.State != domain.OutboxSucceeded || done.ExternalRef != "gid-42" || !done.ClaimExpiresAt.IsZero() {
 		t.Errorf("Complete: %+v", done)
@@ -273,7 +273,7 @@ func TestOutboxLifecycleAndAudit(t *testing.T) {
 	}
 	// Eine abgeschlossene Aktion bleibt abgeschlossen.
 	_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error {
-		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxSucceeded, "gid-43")
+		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxSucceeded, 1, "gid-43")
 		return err
 	})
 	wantCode(t, err, CodeState)
@@ -309,7 +309,7 @@ func TestClaimSelectsOnlyDueActions(t *testing.T) {
 	// a1 wartet bis T0+10s, a2 ist neu und fällig.
 	obClaim(t, s, obT0, time.Minute, 1) // nimmt a1 (die älteste)
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, a1.ActionID, domain.OutboxRetryable, domain.OutboxError{Code: "rate_limited"}, obT0.Add(10*time.Second))
+		return tx.FailOutbox(projectID, a1.ActionID, 1, domain.OutboxRetryable, domain.OutboxError{Code: "rate_limited"}, obT0.Add(10*time.Second))
 	})
 	if cur := obGet(t, s, a1.ActionID); cur.State != domain.OutboxRetryWait || !cur.NextAttemptAt.Equal(obT0.Add(10*time.Second)) || !strings.HasPrefix(cur.LastError, "rate_limited") {
 		t.Fatalf("retry_wait: %+v", cur)
@@ -418,7 +418,7 @@ func TestExpiredClaimGoesToReconcilingNeverPending(t *testing.T) {
 	var expired []domain.OutboxAction
 	mustUpdate(t, s, func(tx *Tx) error {
 		var err error
-		expired, err = tx.ExpireOutboxClaims(projectID, obT0.Add(59*time.Second))
+		expired, err = tx.ExpireOutboxClaims(projectID, obT0.Add(59*time.Second), 0)
 		return err
 	})
 	if len(expired) != 0 || obGet(t, s, a.ActionID).State != domain.OutboxClaimed {
@@ -427,7 +427,7 @@ func TestExpiredClaimGoesToReconcilingNeverPending(t *testing.T) {
 	// Nach dem Ablauf: reconciling, mit Fehlerkennung, ohne Claim, sofort zum Abgleich fällig.
 	mustUpdate(t, s, func(tx *Tx) error {
 		var err error
-		expired, err = tx.ExpireOutboxClaims(projectID, obT0.Add(time.Minute))
+		expired, err = tx.ExpireOutboxClaims(projectID, obT0.Add(time.Minute), 0)
 		return err
 	})
 	if len(expired) != 1 {
@@ -462,7 +462,7 @@ func TestMarkUncertainAndReconcileTransitions(t *testing.T) {
 	obClaim(t, s, obT0, time.Minute, 1)
 
 	u := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.MarkOutboxUncertain(projectID, a.ActionID, domain.OutboxError{Code: "timeout", Message: "context deadline exceeded"}, obT0.Add(20*time.Second))
+		return tx.MarkOutboxUncertain(projectID, a.ActionID, 1, domain.OutboxError{Code: "timeout", Message: "context deadline exceeded"}, obT0.Add(20*time.Second))
 	})
 	if u.State != domain.OutboxReconciling || u.ReconcileAttempts != 0 || !u.NextAttemptAt.Equal(obT0.Add(20*time.Second)) || !strings.HasPrefix(u.LastError, "timeout: ") {
 		t.Fatalf("MarkUncertain: %+v", u)
@@ -500,10 +500,10 @@ func TestMarkUncertainAndReconcileTransitions(t *testing.T) {
 	}
 	// Gefunden: reconciling -> succeeded mit Referenz, ohne zweiten Versuch.
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.MarkOutboxUncertain(projectID, a.ActionID, domain.OutboxError{Code: "timeout"}, time.Time{})
+		return tx.MarkOutboxUncertain(projectID, a.ActionID, 2, domain.OutboxError{Code: "timeout"}, time.Time{})
 	})
 	f := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxReconciling, "gid-77")
+		return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxReconciling, 2, "gid-77")
 	})
 	if f.State != domain.OutboxSucceeded || f.ExternalRef != "gid-77" || f.Attempts != 2 || !f.NextAttemptAt.IsZero() {
 		t.Errorf("Complete aus reconciling: %+v", f)
@@ -524,10 +524,10 @@ func TestFailClasses(t *testing.T) {
 	}
 	obClaim(t, s, obT0, time.Minute, 10)
 	r := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, retry.ActionID, domain.OutboxRetryable, domain.OutboxError{Code: "http_503"}, obT0.Add(time.Minute))
+		return tx.FailOutbox(projectID, retry.ActionID, 1, domain.OutboxRetryable, domain.OutboxError{Code: "http_503"}, obT0.Add(time.Minute))
 	})
 	p := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, perm.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "http_403", Message: "verboten"}, time.Time{})
+		return tx.FailOutbox(projectID, perm.ActionID, 1, domain.OutboxPermanent, domain.OutboxError{Code: "http_403", Message: "verboten"}, time.Time{})
 	})
 	if r.State != domain.OutboxRetryWait || !r.NextAttemptAt.Equal(obT0.Add(time.Minute)) || !r.ClaimExpiresAt.IsZero() {
 		t.Errorf("wiederholbar: %+v", r)
@@ -541,7 +541,7 @@ func TestFailClasses(t *testing.T) {
 		at    time.Time
 	}{{domain.OutboxRetryable, time.Time{}}, {domain.OutboxUncertain, obT0}, {domain.OutboxSuccess, obT0}, {"", obT0}} {
 		_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error {
-			_, err := tx.FailOutbox(projectID, bad.ActionID, c.class, domain.OutboxError{Code: "x"}, c.at)
+			_, err := tx.FailOutbox(projectID, bad.ActionID, 1, c.class, domain.OutboxError{Code: "x"}, c.at)
 			return err
 		})
 		wantCode(t, err, CodeInvalid)
@@ -551,7 +551,7 @@ func TestFailClasses(t *testing.T) {
 	}
 	// Fail nur aus claimed.
 	_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error {
-		_, err := tx.FailOutbox(projectID, perm.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "x"}, time.Time{})
+		_, err := tx.FailOutbox(projectID, perm.ActionID, 1, domain.OutboxPermanent, domain.OutboxError{Code: "x"}, time.Time{})
 		return err
 	})
 	wantCode(t, err, CodeConflict)
@@ -565,7 +565,7 @@ func TestOutboxErrorTextIsBounded(t *testing.T) {
 	obClaim(t, s, obT0, time.Minute, 1)
 	nasty := "Antwort:\n\x1b[31mrot\x00\r\n" + strings.Repeat("Äußerung ", 400)
 	got := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, a.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "Bad Request!", Message: nasty}, time.Time{})
+		return tx.FailOutbox(projectID, a.ActionID, 1, domain.OutboxPermanent, domain.OutboxError{Code: "Bad Request!", Message: nasty}, time.Time{})
 	})
 	stored := obGet(t, s, a.ActionID).LastError
 	if stored != got.LastError {
@@ -604,7 +604,7 @@ func TestOutboxErrorTextIsRedacted(t *testing.T) {
 	leaks := []string{"ghp_ErfundenerWert1234567890abcdef", "pw-erfunden", "erfundenerBearer99"}
 	msg := "POST https://nutzer:pw-erfunden@example.org/x?api_key=zzz fehlgeschlagen, Authorization: Bearer erfundenerBearer99, " + leaks[0]
 	got := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, a.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "http_401", Message: msg}, time.Time{})
+		return tx.FailOutbox(projectID, a.ActionID, 1, domain.OutboxPermanent, domain.OutboxError{Code: "http_401", Message: msg}, time.Time{})
 	})
 	stored := obGet(t, s, a.ActionID).LastError
 	for _, text := range []string{stored, got.LastError} {
@@ -639,7 +639,7 @@ func TestEscalateCancelAndResolve(t *testing.T) {
 	toAttention := func(a domain.OutboxAction) {
 		obClaim(t, s, obT0, time.Minute, 100)
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.EscalateOutbox(projectID, a.ActionID, domain.OutboxClaimed, domain.OutboxError{Code: "retries_exhausted", Message: "5 Versuche"})
+			return tx.EscalateOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, domain.OutboxError{Code: "retries_exhausted", Message: "5 Versuche"})
 		})
 	}
 	retry, confirm, cancel := mk("retry"), mk("confirm"), mk("cancel")
@@ -650,7 +650,7 @@ func TestEscalateCancelAndResolve(t *testing.T) {
 	// Die beiden anderen wurden im selben Claim mitgenommen; auch sie eskalieren.
 	for _, a := range []domain.OutboxAction{confirm, cancel} {
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.EscalateOutbox(projectID, a.ActionID, domain.OutboxClaimed, domain.OutboxError{Code: "reconcile_exhausted"})
+			return tx.EscalateOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, domain.OutboxError{Code: "reconcile_exhausted"})
 		})
 	}
 	var attention []domain.OutboxAction
@@ -735,13 +735,13 @@ func TestOutboxExpectedStateAndScoping(t *testing.T) {
 	a := obAction(t)
 	obEnqueue(t, s, a)
 	_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error {
-		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, "gid") // ist aber pending
+		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, "gid") // ist aber pending
 		return err
 	})
 	wantCode(t, err, CodeConflict)
 	// pending -> succeeded ist nach der Tabelle nicht erlaubt: state, nicht conflict.
 	_, err = s.Update(ctxT(t), "tester", func(tx *Tx) error {
-		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxPending, "gid")
+		_, err := tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxPending, 1, "gid")
 		return err
 	})
 	wantCode(t, err, CodeState)
@@ -786,7 +786,7 @@ func TestOutboxWakeup(t *testing.T) {
 	obClaim(t, s, obT0, time.Minute, 10) // beide claimed bis T0+1m
 	check(true, obT0.Add(time.Minute))
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.FailOutbox(projectID, a.ActionID, domain.OutboxRetryable, domain.OutboxError{Code: "x"}, obT0.Add(10*time.Second))
+		return tx.FailOutbox(projectID, a.ActionID, 1, domain.OutboxRetryable, domain.OutboxError{Code: "x"}, obT0.Add(10*time.Second))
 	})
 	check(true, obT0.Add(10*time.Second))
 }

@@ -102,7 +102,7 @@ Das Ticket nennt `Outbox.Enqueue(operationKey, payload)`, `Claim`, `Complete` un
 | --- | --- |
 | `Outbox.Enqueue(operationKey, payload)` | `orchestrator.Outbox.Enqueue(ctx, domain.OutboxAction)` (eigene Transaktion) und `persistence.Tx.EnqueueOutbox(action)` (in der Transaktion der auslösenden Änderung). Die Aktion entsteht mit `domain.NewOutboxAction(projectID, kind, target, payload, keyParts…)`; der Schlüssel `operation_key` folgt aus Projekt, Art und stabilen Teilen, nicht aus einem freien Argument. |
 | `Claim` | `persistence.Tx.ClaimOutbox(projectID, now, ttl, limit)` (IMMEDIATE-Transaktion); `Outbox.RunOnce` ruft sie je Aktion einzeln auf. |
-| `Complete` | `persistence.Tx.CompleteOutbox(projectID, actionID, from, externalRef)`; Fehlschläge: `FailOutbox`, `MarkOutboxUncertain`, `EscalateOutbox`. |
+| `Complete` | `persistence.Tx.CompleteOutbox(projectID, actionID, from, attempts, externalRef)`; Fehlschläge: `FailOutbox`, `MarkOutboxUncertain`, `EscalateOutbox`. `attempts` ist der Fencing-Wert (siehe „Fencing des Claims“). |
 | `Reconcile` | `orchestrator.Outbox.Reconcile(ctx, projectID)` (fällige Abgleiche) über `ExternalAdapter.Lookup`; der Zustandswechsel geschieht in `persistence` (`CompleteOutbox` aus `reconciling`, `RequeueOutbox`, `RetryOutboxReconcile`, `EscalateOutbox`). |
 
 ### Zustände und Übergänge
@@ -143,8 +143,10 @@ Execute (Adapter, mit Zeitgrenze)
   sicher wiederholbar ........................................ retry_wait (Backoff)  oder needs_attention (Höchstzahl)
   dauerhaft .................................................. needs_attention
   ungewiss (Timeout, Verbindungsabbruch, Panic, Erfolg ohne
-            verwertbare Referenz) ............................ reconciling
-Prozess stirbt, Claim läuft ab ............................... reconciling (nie pending)
+            verwertbare Referenz, „wiederholbar“ nach
+            Zeitgrenze oder Abbruch) ......................... reconciling (erster Abgleich frühestens nach MinReconcileWait)
+Prozess stirbt, Claim läuft ab ............................... reconciling (nie pending; erster Abgleich frühestens
+                                                                MinReconcileWait nach Ablauf des Claims)
 ```
 
 `Outbox.RunOnce(ctx, projectID)` (Paket `orchestrator`) tut in dieser Reihenfolge: abgelaufene Claims nach `reconciling`, fällige
@@ -164,6 +166,16 @@ Der Adapter sucht das Objekt (`ExternalAdapter.Lookup`) über bekannte externe I
 | nicht schlüssig (`LookupUnknown`, Fehler, Timeout) | bleibt `reconciling`, Abgleichzähler +1, nächster Abgleich mit Backoff; nach `MaxReconcileAttempts` nicht schlüssigen Abgleichen `needs_attention` |
 | dauerhaft unmöglich (`LookupBlocked`, zum Beispiel keine Berechtigung) | sofort `needs_attention` |
 
+**Mindestwartezeit (`MinReconcileWait`).** Nach einem Client-Timeout kann der Server den Schreibvorgang noch abschließen. Ein
+früher Abgleich meldete dann „nicht vorhanden“, die Aktion ginge nach `pending` und würde sofort erneut ausgeführt: ein
+Duplikat. Deshalb ist der **erste Abgleich** einer ungewissen Aktion erst nach `MinReconcileWait` fällig: gerechnet ab dem Ende
+des ungewissen Aufrufs (`next_attempt_at = Ende + max(BackoffInitial, MinReconcileWait)`), bei einem abgelaufenen Claim ab dem
+Ablauf des Claims (`ExpireOutboxClaims(…, lookupDelay)`, `next_attempt_at = claim_expires_at + lookupDelay`). Weil schon der erste
+Abgleich so spät beginnt und alle weiteren später folgen, kann ein „nicht vorhanden“ nie vor Ablauf der Wartezeit eintreffen. Es
+gibt daher keinen „zu frühen“ Abgleich, der als verbrauchter Versuch zählte (kein Eingriff in `reconcile_attempts`). Der Preis: Auch
+ein vorhandenes Objekt wird erst nach der Wartezeit gefunden (Standard 45 s). Ein bereits ausgeliefertes „nicht vorhanden“ aus
+einer Suche mit Verzögerung bleibt Sache des Adapters (siehe unten).
+
 Nur ein **maßgebliches** Ergebnis darf „nicht vorhanden“ melden (ein direkter Lesezugriff, keine verzögerte Suche, die ein
 frisch angelegtes Objekt noch nicht kennt). Im Zweifel `LookupUnknown`. Ein Adapter ohne Registrierung für das System der Aktionsart
 führt sichtbar nach `needs_attention` (`no_adapter`).
@@ -182,6 +194,7 @@ DNS „nicht gefunden“: wiederholbar).
 | `ClaimTTL` | 2 min | Gültigkeit eines Claims; muss länger sein als `ExecuteTimeout` und `LookupTimeout` |
 | `ExecuteTimeout`, `LookupTimeout` | 30 s | Zeitgrenze eines Adapteraufrufs |
 | `PersistTimeout` | 10 s | Zeitgrenze beim Speichern eines Ergebnisses |
+| `MinReconcileWait` | `ExecuteTimeout` + 15 s (45 s) | Mindestwartezeit nach einem ungewissen Aufruf bis zum ersten Abgleich; ein „nicht vorhanden“ führt nie früher nach `pending`. Geprüft in `withDefaults`: nicht negativ, mindestens `ExecuteTimeout`; Nullwert = `ExecuteTimeout` + 15 s |
 | `MaxAttempts` | 6 | Aufrufe je Aktion; danach `needs_attention` (`retries_exhausted`) |
 | `MaxReconcileAttempts` | 5 | tolerierte nicht schlüssige Abgleiche; der nächste führt nach `needs_attention` (`reconcile_exhausted`) |
 | `BackoffInitial`, `BackoffMax` | 10 s, 10 min | Abstand `initial · 2^(n-1)`, gedeckelt (`BackoffDelay`): 10, 20, 40, 80, 160 s … |
@@ -191,6 +204,16 @@ DNS „nicht gefunden“: wiederholbar).
 
 Der Backoff ist begrenzt (Deckel, Höchstzahl) und über den Kontext unterbrechbar; er hat kein Jitter, weil ein einziger Dienst
 schreibt.
+
+### Fencing des Claims
+
+Jeder Claim zählt `attempts` hoch. `CompleteOutbox`, `FailOutbox`, `MarkOutboxUncertain` und `EscalateOutbox` verlangen den
+Versuchszähler, den der Aufrufer beim Claim erhalten hat (`attempts`, mindestens 1; sonst `invalid`). Das `UPDATE` verlangt
+`state = <erwartet> AND attempts = <Fencing-Wert>`; bei Abweichung kommt `conflict` ohne Änderung und ohne Ereignis. Das späte
+Ergebnis eines Aufrufs, dessen Claim abgelaufen ist und der inzwischen einen zweiten Claim hat, kann diesen weder abschließen noch
+als fehlgeschlagen, ungewiss oder eskaliert markieren. Die Übernahme eines späten Erfolgs aus `reconciling` gelingt, weil
+`attempts` unverändert ist, solange kein neuer Claim begann. `ClaimOutbox`, `RetryOutboxReconcile`, `RequeueOutbox`,
+`CancelOutbox` und `ResolveOutbox` brauchen keinen Fencing-Wert (sie haben keinen Aufruf als Gegenstand).
 
 ### Klärungsbedarf
 
@@ -223,7 +246,8 @@ einzelnen Zeile und macht erfolgreiche Teile nicht rückgängig. Erledigte Aktio
 Ereignisarten (Ebene `outbox`, `domain.OutboxAuditKinds`): `outbox.enqueued`, `outbox.claimed`, `outbox.succeeded`,
 `outbox.retry_scheduled`, `outbox.uncertain`, `outbox.claim_expired`, `outbox.reconcile_retry`, `outbox.requeued`,
 `outbox.needs_attention`, `outbox.resolved`, `outbox.cancelled`. Details: Aktionsart, Zähler, Fehlercode, Zeitpunkt, bei
-Erfolg und Klärung die externe Referenz und der Grund; nie Nutzdaten oder Fehlermeldungen.
+Erfolg und Klärung die externe Referenz und der Grund; nie Nutzdaten oder Fehlermeldungen. Der Freitext `reason` von
+`CancelOutbox` und `ResolveOutbox` läuft **vor** dem Prüfen, Speichern und dem Audit durch `RedactSecrets`.
 
 `outbox.last_error` enthält nur die **Fehlerkennung** `code: kurze meldung` (`domain.OutboxError`): Code in `a-z0-9_.-`, höchstens
 64 Bytes; Meldung ohne Steuerzeichen und ungültiges UTF-8, Leerraum zusammengefasst, typische Geheimnisse maskiert, danach
@@ -234,17 +258,42 @@ höchstens 256 Bytes (bei Kürzung mit „…“). Die Normalisierung geschieht 
 
 | Muster | Beispiel (erfunden) → Ergebnis |
 | --- | --- |
-| `Authorization:`-Werte (auch `=`, mit Schema `Bearer`/`Basic`/`Token`/`Digest`) | `Authorization: Bearer abc…` → `Authorization: [redigiert]` |
+| `Authorization:`-Werte (auch `=`, mit Schema `Bearer`/`Basic`/`Token`/`Digest`; auch im JSON-Stil `"Authorization": "Basic …"`) | `Authorization: Bearer abc…` → `Authorization: [redigiert]`; `{"Authorization": "Basic dXN…"}` → `{"Authorization": [redigiert]}` |
+| Header `x-api-key: <wert>` und `api-key: <wert>` (nur diese Namen mit Doppelpunkt, auch JSON-Stil) | `x-api-key: abc123` → `x-api-key: [redigiert]` |
 | `Bearer <Wert>` ab 8 Zeichen, nicht rein kleingeschrieben (`bearer authentication` bleibt Text) | `Bearer Zk93…` → `Bearer [redigiert]` |
 | `token=`, `access_token=`, `refresh_token=`, `id_token=`, `api_key=`/`api-key=`, `apikey=`, `password=`, `passwd=`, `secret=`, `client_secret=` (Groß-/Kleinschreibung egal; in Query und Text; auch angeführte Werte), ebenso `"password":"…"` im JSON-Stil | `?token=abc&a=1` → `?token=[redigiert]&a=1` |
 | URL-Userinfo `scheme://nutzer:passwort@` und `scheme://token@` | `https://u:pw@host` → `https://[redigiert]@host` |
 | GitHub-Token-Präfixe `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_` | `ghp_…` → `[redigiert]` |
+| Präfixe `sk-ant-` (Anthropic), `xoxb-`/`xoxp-` (Slack), `AKIA` + 16 Großbuchstaben/Ziffern (AWS-Schlüssel-ID) | → `[redigiert]` |
 | Asana-Personal-Access-Token (`1/123:<32 Hex>`, `1/123/456:<32 Hex>`) | → `[redigiert]` |
-| lange Folgen ab 32 Zeichen aus `A-Za-z0-9+/_=-`, sofern rein hexadezimal oder mit Ziffern sowie Groß- und Kleinbuchstaben | → `[redigiert]` |
+| lange Folgen ab 32 Zeichen, siehe „Lange Folgen“ | → `[redigiert]` |
 
-Grenzen der Maskierung: Der Doppelpunkt nach `token`, `secret` und `password` zählt nur im JSON-Stil (nach einem
-Anführungszeichen); `token: abgelaufen` bleibt lesbar, `password: wert` wird nicht erkannt. Eine lange, kleingeschriebene Kennung
-(zum Beispiel ein Auftragsname mit Bindestrichen) bleibt unmaskiert. Die Funktion ist idempotent.
+**Lange Folgen.** Ein Lauf ab 32 Zeichen aus `A-Za-z0-9+_=-` (der Schrägstrich gehört **nicht** dazu: Pfade und Referenzen wie
+`refs/heads/feature/CC-45-…` zerfallen in ihre Teile, jeder Teil wird für sich beurteilt) gilt als Geheimnis, wenn
+
+- er **rein hexadezimal** ist und **nicht genau 40 oder 64 Zeichen** hat (32 und 41 Hexzeichen werden maskiert), **oder**
+- er Ziffern sowie Groß- und Kleinbuchstaben mischt **und kein Namensmuster** hat. Ein Namensmuster liegt vor, wenn der Lauf aus
+  durch `-` oder `_` getrennten Segmenten besteht, von denen mehr als die Hälfte Wörter (klein, groß oder Großschreibung am
+  Anfang), Zahlen oder kurze Kennungen sind (`v2`, `sha256`, `3rd`, `CC`, `45`). So bleiben Branch- und Auftragsnamen lesbar
+  (`feature/CC-45-outbox-abgleich-und-nachrichten`, `refs/heads/fix/CC-27-sqlite-zustand-mit-migrationen-und-audit`), ein
+  Base64/Base64url-Wert (zufällig gemischte Segmente) nicht.
+
+Ein **vollständiger Commit-Hash (40 Hexzeichen) und ein SHA-256 (64)** werden bewusst **nicht** maskiert: Sie sind kein Geheimnis
+und in Adaptermeldungen nützlich. Die Folge: Ein Geheimnis, das genau 40 oder 64 Hexzeichen lang ist (zum Beispiel ein altes
+GitHub-Token aus 40 Hexzeichen oder ein 64-stelliger HMAC-Schlüssel in Hex), wird nur erkannt, wenn es durch eines der anderen Muster
+(Präfix, `token=`, Header) gefasst ist.
+
+Grenzen der Maskierung:
+
+- Der Doppelpunkt nach `token`, `secret` und `password` zählt nur im JSON-Stil (nach einem Anführungszeichen); `token: abgelaufen`
+  bleibt lesbar, `password: wert` wird nicht erkannt. Der Doppelpunkt gilt sonst nur für `Authorization`, `x-api-key` und `api-key`.
+- Werte mit maskierten Anführungszeichen (`password="a\"b"`) werden nur bis zum ersten Anführungszeichen ersetzt; unangeführte
+  Werte mit Leerzeichen nur bis zum ersten Leerzeichen. Ein unbekanntes `Authorization`-Schema (`Negotiate …`) maskiert nur das Wort
+  nach dem Doppelpunkt.
+- Base64-Werte mit `/` zerfallen an den Schrägstrichen; Teile unter 32 Zeichen bleiben stehen (ein 40-stelliger AWS-Secret-Key mit
+  `/` wird nicht erkannt). Ein Lauf mit Namensmuster oder ohne gemischte Zeichenarten (nur Kleinbuchstaben und Ziffern, nur
+  Großbuchstaben) bleibt unmaskiert, auch wenn er ein Geheimnis wäre.
+- Die Funktion ist idempotent.
 
 **Die Maskierung ist eine zweite Sicherung, kein Ersatz.** Adapter (M05/M06) dürfen trotzdem keine Zugangsdaten, Header,
 Antwortkörper oder Nutzdaten in Fehlermeldungen geben; das bleibt ihre Abnahmebedingung und lässt sich nicht durch einen
@@ -258,7 +307,10 @@ enthalten laut Vertrag keine Zugangsdaten und gehören nicht ins Audit).
 - Der Abgleich ist so gut wie die Suche des Adapters. Ein Adapter, der „nicht vorhanden“ meldet, obwohl das Objekt existiert
   (verzögerter Suchindex), verursacht ein Duplikat. Deshalb schreibt der Adapter den Marker und prüft ihn in `Execute` ein zweites Mal.
 - Läuft ein Aufruf länger als `ClaimTTL`, nimmt ein anderer Prozess die Aktion in den Abgleich. Ein später eintreffender Erfolg
-  wird aus `reconciling` übernommen; ein später eintreffender Fehlschlag nicht (die Aktion bleibt im Abgleich).
+  wird aus `reconciling` übernommen, **solange seitdem kein neuer Claim begann**; ein später eintreffender Fehlschlag nicht (die
+  Aktion bleibt im Abgleich). Beginnt nach „nicht vorhanden“ ein neuer Claim, ist das späte Ergebnis des ersten Aufrufs wirkungslos
+  (conflict), siehe „Fencing des Claims“. Ein noch laufender erster Aufruf kann beim Server trotzdem schreiben; dagegen schützt nur
+  der Marker des Adapters (zweite Sicherung).
 - Eine eskalierte Aktion wartet auf einen Menschen; es gibt keinen automatischen Weg aus `needs_attention` (offener Punkt für CC-51:
   Abgleich vor dem erneuten Versuch, siehe „Klärungsbedarf“).
 - Die Tabelle `outbox` kennt keine Aktionsarten-Liste, nur die Form `<system>.<aktion>` (`CheckOutboxKind`).

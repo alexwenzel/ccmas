@@ -95,6 +95,12 @@ type OutboxPolicy struct {
 	// ExecuteTimeout und LookupTimeout begrenzen einen Adapteraufruf; PersistTimeout das Speichern des Ergebnisses
 	// (mit vom Abbruch gelöstem Kontext, damit ein bekanntes Ergebnis nicht verloren geht).
 	ExecuteTimeout, LookupTimeout, PersistTimeout time.Duration
+	// MinReconcileWait ist die Mindestwartezeit nach einem ungewissen Aufruf (Ende des Aufrufs, bei einem abgelaufenen Claim:
+	// Ablauf des Claims) bis zum ersten Abgleich. Nach einem Client-Timeout kann der Server den Schreibvorgang noch abschließen;
+	// ein früher Abgleich meldete dann „nicht vorhanden“ und führte zu einem Duplikat. Weil schon der erste Abgleich erst nach
+	// dieser Zeit fällig ist, kommt ein „nicht vorhanden“ nie früher. Mindestens ExecuteTimeout; Standard ExecuteTimeout + 15 s
+	// (reconcileWaitBuffer).
+	MinReconcileWait time.Duration
 	// MaxAttempts begrenzt die Aufrufe einer Aktion (Beanspruchungen); danach needs_attention.
 	MaxAttempts int
 	// MaxReconcileAttempts ist die Zahl nicht schlüssiger Abgleiche, die eine Aktion in reconciling verbleibt; der nächste nicht
@@ -103,7 +109,7 @@ type OutboxPolicy struct {
 	// BatchSize begrenzt die Aufrufe, Abgleiche und die Zahl der Beanspruchungen eines Durchlaufs.
 	BatchSize int
 	// BackoffInitial und BackoffMax: Der Abstand verdoppelt sich je Versuch und ist gedeckelt (BackoffDelay). Er gilt für
-	// Wiederholungen, für den ersten Abgleich nach einem ungewissen Ausgang und für weitere Abgleiche.
+	// Wiederholungen und für weitere Abgleiche; der erste Abgleich nach einem ungewissen Ausgang wartet mindestens MinReconcileWait.
 	BackoffInitial, BackoffMax time.Duration
 	// PollInterval ist die längste Wartezeit der Schleife Run zwischen zwei Durchläufen.
 	PollInterval time.Duration
@@ -113,13 +119,18 @@ type OutboxPolicy struct {
 	Wait func(ctx context.Context, d time.Duration) error
 }
 
-// DefaultOutboxPolicy liefert die Standardwerte: Claim 2 min, Aufruf und Suche je 30 s, höchstens 6 Aufrufe, 5 tolerierte
+// reconcileWaitBuffer ist der Puffer, den der Standard von MinReconcileWait über ExecuteTimeout hinaus lässt.
+const reconcileWaitBuffer = 15 * time.Second
+
+// DefaultOutboxPolicy liefert die Standardwerte: Claim 2 min, Aufruf und Suche je 30 s, erster Abgleich frühestens 45 s nach
+// einem ungewissen Aufruf (MinReconcileWait), höchstens 6 Aufrufe, 5 tolerierte
 // nicht schlüssige Abgleiche, Backoff 10 s verdoppelt bis höchstens 10 min (10, 20, 40, 80, 160 s), Durchlauf mit höchstens
 // 20 Aktionen, Schleife alle 30 s.
 func DefaultOutboxPolicy() OutboxPolicy {
 	return OutboxPolicy{
 		ClaimTTL: 2 * time.Minute, ExecuteTimeout: 30 * time.Second, LookupTimeout: 30 * time.Second, PersistTimeout: 10 * time.Second,
-		MaxAttempts: 6, MaxReconcileAttempts: 5, BatchSize: 20,
+		MinReconcileWait: 30*time.Second + reconcileWaitBuffer,
+		MaxAttempts:      6, MaxReconcileAttempts: 5, BatchSize: 20,
 		BackoffInitial: 10 * time.Second, BackoffMax: 10 * time.Minute, PollInterval: 30 * time.Second,
 		Now: time.Now, Wait: defaultOutboxWait,
 	}
@@ -144,6 +155,13 @@ func (p OutboxPolicy) withDefaults() (OutboxPolicy, error) {
 			*v.val = v.def
 		}
 	}
+	// MinReconcileWait hängt von ExecuteTimeout ab (schon durch den Standard ersetzt): Nullwert = ExecuteTimeout + Puffer.
+	if p.MinReconcileWait < 0 {
+		return p, fmt.Errorf("outbox: MinReconcileWait darf nicht negativ sein")
+	}
+	if p.MinReconcileWait == 0 {
+		p.MinReconcileWait = p.ExecuteTimeout + reconcileWaitBuffer
+	}
 	for _, v := range []struct {
 		name string
 		val  *int
@@ -163,6 +181,8 @@ func (p OutboxPolicy) withDefaults() (OutboxPolicy, error) {
 		p.Wait = d.Wait
 	}
 	switch {
+	case p.MinReconcileWait < p.ExecuteTimeout:
+		return p, fmt.Errorf("outbox: MinReconcileWait (%v) darf nicht unter ExecuteTimeout (%v) liegen: Ein „nicht vorhanden“ nach einem Timeout wäre sonst nicht belastbar", p.MinReconcileWait, p.ExecuteTimeout)
 	case p.ClaimTTL <= p.ExecuteTimeout || p.ClaimTTL <= p.LookupTimeout:
 		return p, fmt.Errorf("outbox: ClaimTTL (%v) muss länger sein als ExecuteTimeout (%v) und LookupTimeout (%v)", p.ClaimTTL, p.ExecuteTimeout, p.LookupTimeout)
 	case p.BackoffMax < p.BackoffInitial:
@@ -174,18 +194,18 @@ func (p OutboxPolicy) withDefaults() (OutboxPolicy, error) {
 }
 
 // BackoffDelay liefert den Abstand vor dem Versuch attempt+1 nach dem attempt-ten Versuch: initial, verdoppelt je Versuch,
-// höchstens max (kein Überlauf bei großen Zahlen). attempt < 1 zählt als 1. Ist max <= 0, gilt initial.
-func BackoffDelay(attempt int, initial, max time.Duration) time.Duration {
-	if max <= 0 || initial >= max {
-		if max > 0 {
-			return max
+// höchstens ceiling (kein Überlauf bei großen Zahlen). attempt < 1 zählt als 1. Ist ceiling <= 0, gilt initial.
+func BackoffDelay(attempt int, initial, ceiling time.Duration) time.Duration {
+	if ceiling <= 0 || initial >= ceiling {
+		if ceiling > 0 {
+			return ceiling
 		}
 		return initial
 	}
 	d := initial
 	for i := 1; i < attempt; i++ {
-		if d >= max/2 {
-			return max
+		if d >= ceiling/2 {
+			return ceiling
 		}
 		d *= 2
 	}
@@ -215,11 +235,12 @@ func defaultOutboxWait(ctx context.Context, d time.Duration) error {
 //  1. Abgelaufene Claims (der Prozess starb während des Aufrufs) gelten als ungewiss: reconciling.
 //  2. Fällige Abgleiche: Der Adapter sucht das Objekt (bekannte ID, Marker). Gefunden: succeeded mit der Referenz, ohne zweites
 //     Execute. Sicher nicht vorhanden: pending (neuer Versuch zulässig, solange die Höchstzahl nicht erreicht ist). Nicht
-//     schlüssig: bleibt reconciling, Zähler +1; nach der Grenze needs_attention.
+//     schlüssig: bleibt reconciling, Zähler +1; nach der Grenze needs_attention. Der erste Abgleich ist erst nach
+//     MinReconcileWait fällig, damit ein nach einem Timeout noch abschließender Schreibvorgang nicht doppelt ausgeführt wird.
 //  3. Fällige Aktionen: einzeln beanspruchen, ausführen, das Ergebnis einzeln speichern. Erfolg: succeeded. Sicher
 //     wiederholbarer Fehler: retry_wait mit Backoff, nach der Höchstzahl needs_attention. Dauerhafter Fehler: needs_attention.
-//     Ungewiss (Timeout, abgebrochene Verbindung, Panic, Erfolg ohne verwertbare Referenz): reconciling, nie ein blindes
-//     zweites Create.
+//     Ungewiss (Timeout, abgebrochene Verbindung, Panic, Erfolg ohne verwertbare Referenz, ein als wiederholbar gemeldeter
+//     Fehler nach Zeitgrenze oder Abbruch): reconciling, nie ein blindes zweites Create.
 //
 // Jede Aktion eines Batches ist eine eigene Zeile mit eigenem Schlüssel und wird einzeln bestätigt; ein Teilfehler macht
 // erfolgreiche Teile nicht rückgängig. Zwei Prozesse auf derselben Datenbank nehmen dieselbe Aktion nie zweimal (Claim in einer
@@ -460,15 +481,16 @@ func (o *Outbox) read(ctx context.Context, a domain.OutboxAction) (domain.Outbox
 }
 
 // complete schließt die Aktion ab. Lief der Claim während des Aufrufs ab und hat ein anderer Prozess die Aktion schon in den
-// Abgleich genommen, wird das Ergebnis aus reconciling übernommen: Ein bekannter Erfolg geht nicht verloren.
+// Abgleich genommen, wird das Ergebnis aus reconciling übernommen: Ein bekannter Erfolg geht nicht verloren. Das gilt nur,
+// solange seit dem Claim des Aufrufs kein neuer begann (Fencing mit a.Attempts); sonst bleibt es beim conflict.
 func (o *Outbox) complete(ctx context.Context, a domain.OutboxAction, ref string) (domain.OutboxAction, error) {
 	out, err := o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(a.ProjectID, a.ActionID, a.State, ref)
+		return tx.CompleteOutbox(a.ProjectID, a.ActionID, a.State, a.Attempts, ref)
 	})
 	if a.State == domain.OutboxClaimed && persistence.CodeOf(err) == persistence.CodeConflict {
-		if cur, rerr := o.read(ctx, a); rerr == nil && cur.State == domain.OutboxReconciling {
+		if cur, rerr := o.read(ctx, a); rerr == nil && cur.State == domain.OutboxReconciling && cur.Attempts == a.Attempts {
 			return o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-				return tx.CompleteOutbox(a.ProjectID, a.ActionID, domain.OutboxReconciling, ref)
+				return tx.CompleteOutbox(a.ProjectID, a.ActionID, domain.OutboxReconciling, a.Attempts, ref)
 			})
 		}
 	}
@@ -480,14 +502,21 @@ func (o *Outbox) execute(ctx context.Context, a domain.OutboxAction, run *Outbox
 	if adapter == nil {
 		e := domain.OutboxError{Code: "no_adapter", Message: "kein Adapter für " + a.Kind}
 		out, err := o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-			return tx.FailOutbox(a.ProjectID, a.ActionID, domain.OutboxPermanent, e, time.Time{})
+			return tx.FailOutbox(a.ProjectID, a.ActionID, a.Attempts, domain.OutboxPermanent, e, time.Time{})
 		})
 		run.add(OutboxStepExecute, a, out.State, err)
 		return
 	}
 	callCtx, cancel := context.WithTimeout(ctx, o.policy.ExecuteTimeout)
 	res := safeExecute(callCtx, adapter, a)
+	interrupted := callCtx.Err() != nil // vor cancel(): Zeitgrenze oder Abbruch während des Aufrufs
 	cancel()
+	if interrupted && res.Outcome == domain.OutboxRetryable {
+		// Ein Aufruf, den die Zeitgrenze oder ein Abbruch beendet hat, belegt nicht, dass das System nichts getan hat: Der
+		// Adapter kann die Unterbrechung als „wiederholbar“ gemeldet haben, obwohl der Server noch schreibt. Ungewiss.
+		res = ExecuteResult{Outcome: domain.OutboxUncertain, Err: domain.OutboxError{Code: "call_interrupted",
+			Message: "Aufruf durch Zeitgrenze oder Abbruch beendet; Adapter meldete: " + res.Err.String()}}
+	}
 
 	var (
 		out domain.OutboxAction
@@ -502,11 +531,11 @@ func (o *Outbox) execute(ctx context.Context, a domain.OutboxAction, run *Outbox
 	case res.Outcome == domain.OutboxRetryable:
 		retryAt := o.policy.Now().Add(BackoffDelay(a.Attempts, o.policy.BackoffInitial, o.policy.BackoffMax))
 		out, err = o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-			return tx.FailOutbox(a.ProjectID, a.ActionID, domain.OutboxRetryable, e, retryAt)
+			return tx.FailOutbox(a.ProjectID, a.ActionID, a.Attempts, domain.OutboxRetryable, e, retryAt)
 		})
 	case res.Outcome == domain.OutboxPermanent:
 		out, err = o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-			return tx.FailOutbox(a.ProjectID, a.ActionID, domain.OutboxPermanent, e, time.Time{})
+			return tx.FailOutbox(a.ProjectID, a.ActionID, a.Attempts, domain.OutboxPermanent, e, time.Time{})
 		})
 	default:
 		// Ungewiss, ein leerer oder unbekannter Ausgang und ein Erfolg ohne verwertbare Referenz: Erfolg und Misserfolg sind
@@ -516,9 +545,10 @@ func (o *Outbox) execute(ctx context.Context, a domain.OutboxAction, run *Outbox
 		} else if res.Outcome != domain.OutboxUncertain {
 			e = domain.OutboxError{Code: "unclassified", Message: "Ausgang des Adapters nicht klassifiziert"}.Normalized()
 		}
-		next := o.policy.Now().Add(o.policy.BackoffInitial)
+		// Der erste Abgleich frühestens nach MinReconcileWait: Der Server kann den Schreibvorgang noch abschließen.
+		next := o.policy.Now().Add(max(o.policy.BackoffInitial, o.policy.MinReconcileWait))
 		out, err = o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-			return tx.MarkOutboxUncertain(a.ProjectID, a.ActionID, e, next)
+			return tx.MarkOutboxUncertain(a.ProjectID, a.ActionID, a.Attempts, e, next)
 		})
 	}
 	run.add(OutboxStepExecute, a, out.State, err)
@@ -526,7 +556,7 @@ func (o *Outbox) execute(ctx context.Context, a domain.OutboxAction, run *Outbox
 
 func (o *Outbox) escalate(ctx context.Context, a domain.OutboxAction, from domain.OutboxState, code, message string) (domain.OutboxAction, error) {
 	return o.persist(ctx, func(tx *persistence.Tx) (domain.OutboxAction, error) {
-		return tx.EscalateOutbox(a.ProjectID, a.ActionID, from, domain.OutboxError{Code: code, Message: message})
+		return tx.EscalateOutbox(a.ProjectID, a.ActionID, from, a.Attempts, domain.OutboxError{Code: code, Message: message})
 	})
 }
 
@@ -565,7 +595,7 @@ func (o *Outbox) reconcileStage(ctx context.Context, projectID string, run *Outb
 	var expired []domain.OutboxAction
 	if _, err := o.store.Update(ctx, o.actor, func(tx *persistence.Tx) error {
 		var err error
-		expired, err = tx.ExpireOutboxClaims(projectID, o.policy.Now())
+		expired, err = tx.ExpireOutboxClaims(projectID, o.policy.Now(), o.policy.MinReconcileWait)
 		return err
 	}); err != nil {
 		return err

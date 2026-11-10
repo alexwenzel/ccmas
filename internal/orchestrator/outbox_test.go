@@ -138,7 +138,7 @@ type outboxEnv struct {
 
 func outboxPolicy(c *outboxClock) OutboxPolicy {
 	return OutboxPolicy{
-		ClaimTTL: 2 * time.Minute, ExecuteTimeout: 30 * time.Second, LookupTimeout: 30 * time.Second,
+		ClaimTTL: 2 * time.Minute, ExecuteTimeout: 30 * time.Second, LookupTimeout: 30 * time.Second, MinReconcileWait: 45 * time.Second,
 		MaxAttempts: 4, MaxReconcileAttempts: 3, BatchSize: 20,
 		BackoffInitial: 10 * time.Second, BackoffMax: time.Minute, PollInterval: time.Minute,
 		Now: c.now,
@@ -289,7 +289,11 @@ func TestCrashAfterRemoteSuccess(t *testing.T) {
 	}
 
 	env.clock.advance(env.policy.ClaimTTL)
-	r := env.run()
+	first := env.run() // der Claim ist abgelaufen: reconciling; der erste Abgleich ist erst nach der Mindestwartezeit fällig
+	env.wantState(a, domain.OutboxReconciling)
+	env.clock.advance(env.policy.MinReconcileWait)
+	second := env.run()
+	r := OutboxRun{Steps: append(first.Steps, second.Steps...)}
 	got := env.wantState(a, domain.OutboxSucceeded)
 	if got.ExternalRef != outboxRef(a) {
 		t.Errorf("Referenz %q, erwartet %q", got.ExternalRef, outboxRef(a))
@@ -410,7 +414,7 @@ func TestTimeoutIsNotFailure(t *testing.T) {
 	env.run()
 	got := env.wantState(a, domain.OutboxReconciling)
 	if got.Attempts != 1 || got.ReconcileAttempts != 0 || !strings.HasPrefix(got.LastError, "timeout") ||
-		!got.NextAttemptAt.Equal(start.Add(env.policy.BackoffInitial)) {
+		!got.NextAttemptAt.Equal(start.Add(env.policy.MinReconcileWait)) {
 		t.Errorf("nach Timeout: %+v", got)
 	}
 	// Die Aktion steht weder in der Warteschlange noch wird sie vor dem Abgleichzeitpunkt erneut ausgeführt.
@@ -418,7 +422,7 @@ func TestTimeoutIsNotFailure(t *testing.T) {
 	if env.fake.executed(a) != 1 || env.fake.looked(a) != 0 {
 		t.Fatalf("zu früh: Execute %d, Lookup %d", env.fake.executed(a), env.fake.looked(a))
 	}
-	env.clock.advance(env.policy.BackoffInitial)
+	env.clock.advance(env.policy.MinReconcileWait)
 	env.run()
 	if got := env.wantState(a, domain.OutboxSucceeded); got.ExternalRef != outboxRef(a) {
 		t.Errorf("Referenz %q", got.ExternalRef)
@@ -446,7 +450,7 @@ func TestReconcileNotFoundRetries(t *testing.T) {
 	env.run()
 	env.wantState(a, domain.OutboxReconciling)
 
-	env.clock.advance(env.policy.BackoffInitial)
+	env.clock.advance(env.policy.MinReconcileWait)
 	r := env.run()
 	got := env.wantState(a, domain.OutboxSucceeded)
 	if got.Attempts != 2 || env.fake.executed(a) != 2 || env.fake.looked(a) != 1 || got.ReconcileAttempts != 0 {
@@ -550,7 +554,7 @@ func TestBlockedLookupNeedsAttentionAtOnce(t *testing.T) {
 		return LookupResult{Status: LookupBlocked, Err: domain.OutboxError{Code: "http_403"}}, true
 	}
 	env.run()
-	env.clock.advance(env.policy.BackoffInitial)
+	env.clock.advance(env.policy.MinReconcileWait)
 	env.run()
 	got := env.wantState(a, domain.OutboxNeedsAttention)
 	if !strings.HasPrefix(got.LastError, "lookup_blocked") && !strings.HasPrefix(got.LastError, "http_403") {
@@ -809,7 +813,7 @@ func TestSuccessWithoutUsableReferenceIsUncertain(t *testing.T) {
 			}
 			env.run()
 			env.wantState(a, domain.OutboxReconciling)
-			env.clock.advance(env.policy.BackoffInitial)
+			env.clock.advance(env.policy.MinReconcileWait)
 			env.run()
 			got := env.wantState(a, domain.OutboxSucceeded)
 			if got.ExternalRef != outboxRef(a) || env.fake.executed(a) != 1 {

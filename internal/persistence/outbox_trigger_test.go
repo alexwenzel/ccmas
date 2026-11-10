@@ -73,19 +73,19 @@ func obInState(t *testing.T, state domain.OutboxState) (*Store, domain.OutboxAct
 	case domain.OutboxClaimed:
 	case domain.OutboxRetryWait:
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.FailOutbox(projectID, a.ActionID, domain.OutboxRetryable, e, obT0.Add(time.Minute))
+			return tx.FailOutbox(projectID, a.ActionID, 1, domain.OutboxRetryable, e, obT0.Add(time.Minute))
 		})
 	case domain.OutboxReconciling:
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.MarkOutboxUncertain(projectID, a.ActionID, e, time.Time{})
+			return tx.MarkOutboxUncertain(projectID, a.ActionID, 1, e, time.Time{})
 		})
 	case domain.OutboxSucceeded:
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, "gid-1")
+			return tx.CompleteOutbox(projectID, a.ActionID, domain.OutboxClaimed, 1, "gid-1")
 		})
 	case domain.OutboxNeedsAttention:
 		obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-			return tx.FailOutbox(projectID, a.ActionID, domain.OutboxPermanent, e, time.Time{})
+			return tx.FailOutbox(projectID, a.ActionID, 1, domain.OutboxPermanent, e, time.Time{})
 		})
 	default:
 		t.Fatalf("Zustand %s", state)
@@ -217,7 +217,7 @@ func TestOutboxIsAppendOnly(t *testing.T) {
 	obEnqueue(t, s, done)
 	obClaim(t, s, obT0, time.Minute, 1)
 	obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
-		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, "gid-1")
+		return tx.CompleteOutbox(projectID, done.ActionID, domain.OutboxClaimed, 1, "gid-1")
 	})
 	obEnqueue(t, s, open)
 	events := countEvents(t, s)

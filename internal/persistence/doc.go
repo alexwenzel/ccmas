@@ -95,7 +95,9 @@
 // trägt Zustände, Zähler und die Fehlerkennung (Code), nie Nutzdaten oder Fehlermeldungen. Der Lebenslauf folgt
 // domain.OutboxState (erwarteter Ist-Zustand sonst conflict, unerlaubter Übergang sonst state): ClaimOutbox, CompleteOutbox,
 // FailOutbox, MarkOutboxUncertain, ExpireOutboxClaims, RetryOutboxReconcile, RequeueOutbox, EscalateOutbox, CancelOutbox und
-// ResolveOutbox (ausdrückliche Klärung mit Akteur und Grund). Ein abgelaufener Claim gilt als ungewiss und geht in den
+// ResolveOutbox (ausdrückliche Klärung mit Akteur und Grund; der Freitext wird maskiert). CompleteOutbox, FailOutbox,
+// MarkOutboxUncertain und EscalateOutbox verlangen den Versuchszähler des Claims (Fencing): Das späte Ergebnis eines
+// abgelaufenen Claims ändert einen neueren Claim nicht (conflict). Ein abgelaufener Claim gilt als ungewiss und geht in den
 // Abgleich, nie zurück nach pending. Gespeichert wird nur die begrenzte Fehlerkennung (domain.OutboxError, höchstens 322
 // Bytes, ohne Steuerzeichen); Adapter geben keine Zugangsdaten in Meldungen. Migration 003 sichert Startwerte, Schlüsselform
 // (<projekt>/<art>/…), Übergangstabelle, Zähler und die Form je Zustand durch Trigger und ergänzt die Spalte
