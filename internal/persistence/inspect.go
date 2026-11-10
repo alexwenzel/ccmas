@@ -539,7 +539,7 @@ func readData(ctx context.Context, q querier) (*DataReport, error) {
 		for _, s := range domain.WorkOrderStates() {
 			p.WorkOrders[string(s)] = 0
 		}
-		for _, s := range OutboxStates() {
+		for _, s := range domain.OutboxStates() {
 			p.Outbox[string(s)] = 0
 		}
 		data.Projects = append(data.Projects, p)

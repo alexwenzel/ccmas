@@ -111,7 +111,7 @@ func TestEnumChecksMatchDomain(t *testing.T) {
 		{"execution_attempts", "os_process_state", strs(domain.OSProcessStates())},
 		{"execution_attempts", "terminal_source", domain.TerminalSources()},
 		{"execution_attempts", "outcome", strs(domain.Outcomes())},
-		{"leases", "state", strs(LeaseStates())},
+		{"leases", "state", strs(domain.LeaseStates())},
 		{"plans", "goal_kind", goalKinds},
 		{"plans", "verdict", planVerdicts},
 		{"decisions", "action", strs(domain.DecisionActions())},
@@ -119,8 +119,8 @@ func TestEnumChecksMatchDomain(t *testing.T) {
 		{"decisions", "validation", planVerdicts},
 		{"questions", "state", strs(domain.QuestionStates())},
 		{"review_reports", "verdict", strs(domain.Verdicts())},
-		{"message_deliveries", "state", strs(DeliveryStates())},
-		{"outbox", "state", strs(OutboxStates())},
+		{"message_deliveries", "state", strs(domain.DeliveryStates())},
+		{"outbox", "state", strs(domain.OutboxStates())},
 		{"events", "level", strs(domain.AuditLevels())},
 	}
 	for _, tc := range cases {

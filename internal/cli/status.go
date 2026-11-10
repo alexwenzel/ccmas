@@ -276,7 +276,7 @@ func workOrderOrder() []string {
 
 func outboxOrder() []string {
 	var out []string
-	for _, s := range persistence.OutboxStates() {
+	for _, s := range domain.OutboxStates() {
 		out = append(out, string(s))
 	}
 	return out

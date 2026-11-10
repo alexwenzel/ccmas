@@ -252,7 +252,7 @@ func checkWorldReport(t *testing.T, rep Report, w world) {
 	if len(w.Open) == 0 || len(w.Active) == 0 {
 		t.Errorf("der Testzustand enthält keine aktive Ausführung oder offene Frage")
 	}
-	if len(p.Outbox) != len(OutboxStates()) {
+	if len(p.Outbox) != len(domain.OutboxStates()) {
 		t.Errorf("Outbox-Zustände: %v", p.Outbox)
 	}
 	if rep.Data.Events != int64(len(w.Events)) || rep.Data.LastEventAt == nil || !rep.Data.LastEventAt.Equal(w.Events[len(w.Events)-1].OccurredAt) {

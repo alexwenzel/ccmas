@@ -81,8 +81,13 @@ Schemavertrag geprüft; Spalten für Zugangsdaten gibt es nicht (`TestNoSecretCo
 | `questions`, `answers` | Fragen mit Zustand und Zustellbestätigung; Antworten (unveränderlich) |
 | `review_reports` | Review-Berichte (Urteil, Commit, Konzeptversion) |
 | `events` | Auditverlauf, nur anhängbar (Trigger sperren Ändern und Löschen) |
-| `leases` | Reservierungen (Tabelle und Einschränkungen vorhanden, **Logik folgt in CC-42**) |
-| `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Tabellen vorhanden, **Logik folgt in CC-45**) |
+| `leases` | Reservierungen (Tabelle und Einschränkungen vorhanden, **Logik folgt in CC-42**); Zustandstyp `domain.LeaseState` |
+| `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Tabellen vorhanden, **Logik folgt in CC-45**); Zustandstypen `domain.DeliveryState` und `domain.OutboxState` |
+
+Die Zustandslisten für Reservierung, Zustellung und Outbox (`domain.LeaseState` in `lease.go`, `domain.DeliveryState` in
+`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Übergangstabellen gibt es
+noch keine**; sie kommen mit CC-42 (Reservierung) bzw. CC-45 (Zustellung, Outbox). In `persistence/enums.go` stehen nur noch
+interne Hilfslisten, die Typen aus `supervisor` und `skills` spiegeln.
 
 ## Zustandsrevision und Zeilenrevision
 
@@ -252,8 +257,8 @@ kommen erst mit CC-51 (4, 5, 6).
 
 | Ticket | Inhalt |
 | --- | --- |
-| **CC-42** | Reservierung und Leases (Logik auf `leases`), Snapshot-Bauer (`ProjectSnapshot` aus der Datenbank), Orchestrator-Aufruf des Validators |
-| **CC-45** | Nachrichten, Zustellung, Outbox (Logik auf `messages`, `message_deliveries`, `outbox`); die vorläufigen Zustandslisten (`LeaseState`, `DeliveryState`, `OutboxState`) in `persistence/enums.go` wandern dann nach `internal/domain` |
+| **CC-42** | Reservierung und Leases (Logik auf `leases`, Übergangstabelle für `LeaseState`), Snapshot-Bauer (`ProjectSnapshot` aus der Datenbank), Orchestrator-Aufruf des Validators |
+| **CC-45** | Nachrichten, Zustellung, Outbox (Logik auf `messages`, `message_deliveries`, `outbox`); die Übergangstabellen (`CanTransition`) für `DeliveryState` und `OutboxState` |
 | **CC-51** | Dienst (Schreiber der Datenbank, Steuer-Socket unter `<Ausführungsbereich>/run/`), Idempotenz von Kommandos, die weiteren Exit-Codes von `status` |
 
 ## Prüfbefehle
