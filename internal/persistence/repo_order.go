@@ -108,7 +108,9 @@ func checkHead(commit, branch string) error {
 }
 
 // CreateWorkOrder legt einen Auftrag mit seinen Teilen an (Abhängigkeiten, Konzeptstand, PR). Der Vertragsteil wird
-// gegen das Schema work-order geprüft, bevor etwas geschrieben wird. Der Auftrag beginnt mit Revision 1.
+// gegen das Schema work-order geprüft, bevor etwas geschrieben wird. Der Auftrag beginnt mit Revision 1 und nur im
+// Zustand „wartet“ (domain.WOWaiting); jeder andere Anfangszustand ist ein Fehler der Klasse state, und es wird nichts
+// geschrieben. Ein späterer Import bereits abgeschlossener Asana-Tickets (M06) braucht einen eigenen, auditierten Weg.
 func (t *Tx) CreateWorkOrder(o WorkOrderRecord) (WorkOrderRecord, error) {
 	var out WorkOrderRecord
 	err := t.write(func() error {
@@ -118,6 +120,11 @@ func (t *Tx) CreateWorkOrder(o WorkOrderRecord) (WorkOrderRecord, error) {
 		}
 		if err := domain.Validate(domain.TargetWorkOrder, raw); err != nil {
 			return invalid(err)
+		}
+		// Ein Auftrag beginnt immer im Zustand „wartet“. Fortschritt gibt es nur über TransitionWorkOrder (mit Übergangs-
+		// tabelle und Audit-Ereignis); wer einen Auftrag in einem anderen Zustand anlegt, umgeht beides.
+		if o.State != domain.WOWaiting {
+			return stateErr("ein Auftrag wird im Zustand %q angelegt, nicht in %q; Fortschritt nur über TransitionWorkOrder", domain.WOWaiting, o.State)
 		}
 		if err := checkIDs(o.GoalID); err != nil {
 			return err

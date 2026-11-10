@@ -436,3 +436,54 @@ func TestAuditDetailsHaveNoFreeText(t *testing.T) {
 		return nil
 	})
 }
+
+// TestCreateWorkOrderOnlyInWaiting: ein Auftrag beginnt im Zustand „wartet“; jeder andere Anfangszustand liefert den
+// Code state, und nichts wird geschrieben (kein Auftrag, kein Ereignis, keine Revision). Fortschritt gibt es nur über
+// TransitionWorkOrder.
+func TestCreateWorkOrderOnlyInWaiting(t *testing.T) {
+	s := newStore(t)
+	seedBase(t, s)
+	for _, st := range domain.WorkOrderStates() {
+		if st == domain.WOWaiting {
+			continue
+		}
+		t.Run(string(st), func(t *testing.T) {
+			events, rev := countEvents(t, s), revisionOf(t, s, projectID)
+			w := fxWorkOrder(t, "wo-start-"+string(st))
+			w.State = st
+			_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error {
+				_, err := tx.CreateWorkOrder(WorkOrderRecord{WorkOrder: w, GoalID: "ms-1", Kind: supervisor.OrderBug})
+				return err
+			})
+			wantCode(t, err, CodeState)
+			if got := countEvents(t, s); got != events {
+				t.Errorf("%d Ereignisse geschrieben", got-events)
+			}
+			if got := revisionOf(t, s, projectID); got != rev {
+				t.Errorf("Revision %d -> %d", rev, got)
+			}
+			mustView(t, s, func(r *ReadTx) error {
+				_, err := r.WorkOrder(projectID, w.WorkOrderID)
+				wantCode(t, err, CodeNotFound)
+				return nil
+			})
+		})
+	}
+
+	// „wartet“ wird angenommen, und der Fortschritt läuft über den Übergang (mit Ereignis).
+	w := fxWorkOrder(t, "wo-start-waiting")
+	if w.State != domain.WOWaiting {
+		t.Fatalf("Fixture beginnt in %q", w.State)
+	}
+	mustUpdate(t, s, func(tx *Tx) error {
+		_, err := tx.CreateWorkOrder(WorkOrderRecord{WorkOrder: w, GoalID: "ms-1", Kind: supervisor.OrderBug})
+		return err
+	})
+	before := countEvents(t, s)
+	mustUpdate(t, s, func(tx *Tx) error {
+		return tx.TransitionWorkOrder(projectID, w.WorkOrderID, domain.WOWaiting, domain.WOInProgress)
+	})
+	if got := countEvents(t, s); got != before+1 {
+		t.Errorf("Übergang schrieb %d Ereignisse", got-before)
+	}
+}

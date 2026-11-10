@@ -138,16 +138,43 @@ func TestEnumChecksMatchDomain(t *testing.T) {
 func TestEnumValuesAcceptedAndUnknownRejected(t *testing.T) {
 	s := newStore(t)
 	seedBase(t, s)
-	// Jeder Auftragszustand, jede Auftragsart und jeder Modus ist speicherbar.
-	i := 0
+	// Jeder Auftragszustand, jede Auftragsart und jeder Modus ist speicherbar. Aufträge beginnen in „wartet“; die
+	// übrigen Zustände werden über TransitionWorkOrder erreicht (Weg je Zustand: erlaubte Übergänge der Tabelle).
+	pathTo := map[domain.WorkOrderState][]domain.WorkOrderState{
+		domain.WOWaiting:            {},
+		domain.WOInProgress:         {domain.WOInProgress},
+		domain.WOValidation:         {domain.WOInProgress, domain.WOValidation},
+		domain.WOReview:             {domain.WOInProgress, domain.WOValidation, domain.WOReview},
+		domain.WOWaitingIntegration: {domain.WOInProgress, domain.WOValidation, domain.WOReview, domain.WOWaitingIntegration},
+		domain.WOCompleted:          {domain.WOInProgress, domain.WOValidation, domain.WOReview, domain.WOWaitingIntegration, domain.WOCompleted},
+		domain.WOBlocked:            {domain.WOBlocked},
+		domain.WOCancelled:          {domain.WOCancelled},
+	}
 	for _, st := range domain.WorkOrderStates() {
+		steps, ok := pathTo[st]
+		if !ok {
+			t.Fatalf("kein Weg zum Auftragszustand %q im Test", st)
+		}
 		for _, k := range supervisor.OrderKinds() {
-			i++
 			id := "wo-enum-" + string(st) + "-" + string(k)
-			w := fxWorkOrder(t, id)
-			w.State = st
 			mustUpdate(t, s, func(tx *Tx) error {
-				_, err := tx.CreateWorkOrder(WorkOrderRecord{WorkOrder: w, GoalID: "ms-1", Kind: k})
+				if _, err := tx.CreateWorkOrder(WorkOrderRecord{WorkOrder: fxWorkOrder(t, id), GoalID: "ms-1", Kind: k}); err != nil {
+					return err
+				}
+				from := domain.WOWaiting
+				for _, to := range steps {
+					if err := tx.TransitionWorkOrder(projectID, id, from, to); err != nil {
+						return err
+					}
+					from = to
+				}
+				return nil
+			})
+			mustView(t, s, func(r *ReadTx) error {
+				got, err := r.WorkOrder(projectID, id)
+				if err == nil && got.State != st {
+					t.Errorf("%s: Zustand %q, erwartet %q", id, got.State, st)
+				}
 				return err
 			})
 		}
