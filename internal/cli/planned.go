@@ -17,7 +17,6 @@ var plannedCommandSpecs = []plannedGroup{
 	{"stop", "Dienst stoppen"},
 	{"ui", "Terminaloberfläche öffnen"},
 	{"project", "Projektzuordnung, Arbeitsorte und Integrationen verwalten"},
-	{"skills", "Skill-Bestand prüfen, importieren und zuordnen"},
 	{"rules", "Regeln prüfen, importieren und zuordnen"},
 	{"agent", "Rollen, individuelle Modelle, Effort und Limits verwalten"},
 	{"profile", "Rollenprofile verwalten"},

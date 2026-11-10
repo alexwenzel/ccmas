@@ -32,6 +32,7 @@ const (
 	TargetDecision           Target = "decision"            // Decision
 	TargetIntegrationRequest Target = "integration-request" // IntegrationRequest
 	TargetReviewReport       Target = "review-report"       // ReviewReport
+	TargetSkillSnapshot      Target = "skill-snapshot"      // snapshot.json eines Skill-Snapshots
 )
 
 type targetSpec struct{ file, def string }
@@ -45,6 +46,7 @@ var targetSpecs = map[Target]targetSpec{
 	TargetDecision:           {"decision-v1.schema.json", "decision"},
 	TargetIntegrationRequest: {"decision-v1.schema.json", "integration_request"},
 	TargetReviewReport:       {"runner-v1.schema.json", "review_report"},
+	TargetSkillSnapshot:      {"skill-snapshot-v1.schema.json", "skill_snapshot"},
 }
 
 // Targets liefert alle Prüfziele in fester Reihenfolge.
@@ -52,6 +54,7 @@ func Targets() []Target {
 	return []Target{
 		TargetToRunner, TargetFromRunner, TargetProjectConfig, TargetAgentProfile,
 		TargetWorkOrder, TargetDecision, TargetIntegrationRequest, TargetReviewReport,
+		TargetSkillSnapshot,
 	}
 }
 

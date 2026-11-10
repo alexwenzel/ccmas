@@ -21,8 +21,8 @@ Ablageorte die Umgebungsvariable `CCMAS_CONTRACTS_DIR`). Das Python-Paket enthä
 Typdefinition, die vom Schema abweichen könnte.
 
 Alle weiteren Pakete (Orchestrator, Persistenz, Monitoring, CLI, TUI, …) verwenden ausschließlich die
-Typen aus `internal/domain` und definieren keine eigenen Varianten. `internal/cli` nutzt sie derzeit noch
-nicht.
+Typen aus `internal/domain` und definieren keine eigenen Varianten. `internal/cli` nutzt sie derzeit nur für die
+Rollen von `ccmas skills`.
 
 Bibliotheken: Go `github.com/santhosh-tekuri/jsonschema/v6` v6.0.3, Python `jsonschema` 4.26.0 (exakt
 gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als normale Laufzeitabhängigkeit).
@@ -36,6 +36,7 @@ gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als n
 | `runner-v1.schema.json` | Runner-Umschlag beider Richtungen, alle Payloads, `ReviewReport` |
 | `decision-v1.schema.json` | `Decision`, `IntegrationRequest` |
 | `project-v1.schema.json` | `ProjectConfig`, `AgentProfile`, `WorkOrder` |
+| `skill-snapshot-v1.schema.json` | `snapshot.json` eines Skill-Snapshots (`SkillSnapshot`, seit CC-35) |
 
 Die `$id`-Kennungen (`https://ccmas.invalid/contracts/…`) sind reine Namen; `.invalid` ist nicht auflösbar.
 Go verbietet das Laden von Schemas außerhalb der eingebetteten Dateien.
@@ -175,6 +176,19 @@ dieselben Namen und Prüfmethoden (`Check`):
   Ausführungszustand, Auftragszustand und den Prozess; `Check` weist widersprüchliche Kombinationen ab
   (zum Beispiel aktiver Agent ohne laufende Ausführung).
 
+## Skill-Snapshot (`skill-snapshot-v1`, seit CC-35)
+
+`snapshot.json` im Wurzelverzeichnis eines unveränderlichen Skill-Snapshots (Layout, Hash-Definitionen, Ablauf:
+[`skill-migration.md`](skill-migration.md)). Pflichtfelder: `schema_version` (=1), `snapshot_id`
+(`sha256:` + 64 Hexziffern), `role`, `created_at`, `manifest_sha256`, `skills[]` (höchstens 64, aufsteigend nach
+`id`, ohne Wiederholung) mit `id`, `version` (≥ 1), `tree_sha256`, `files[]` (1–256; `path` relativ und kanonisch,
+`sha256`, aufsteigend nach Pfad) und `source` (`package` vault-relativ, `package_sha256`). Keine absoluten Pfade und
+keine persönlichen Daten. Das Schema prüft Form und Formate; Sortierung und Eindeutigkeit prüft Go
+(`SkillSnapshot.Check`); die Hashes (Dateien, `tree_sha256`, `snapshot_id`) rechnet `skills.VerifySnapshotDir` gegen das
+Verzeichnis nach, in W35.2 auch der Python-Runner. Ziel der Fixtures: `skill-snapshot`. Die vollständige Beispiel-
+Verzeichnisstruktur liegt unter `contracts/fixtures/skill-snapshots/example/` und wird vom Go-Test
+`TestExampleSnapshotFixture` aus einem Test-Katalog neu erzeugt und Byte für Byte verglichen.
+
 ## Zustandsmodell (Akzeptanzkriterium 3)
 
 Vier Ebenen mit je **eigenem Go-Typ** (kein gemeinsames String-Alias): `AgentAvailability`,
@@ -250,6 +264,7 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | Nachrichtenfolge, terminales Ergebnis, veraltete Versuche | – | ja (`ExecutionTracker`) | – |
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
+| Skill-Snapshot: Sortierung und Eindeutigkeit (`SkillSnapshot.Check`), Hashes gegen das Verzeichnis (`skills.VerifySnapshotDir`) | nur Form und Formate | ja | Hash-Nachrechnung folgt in W35.2 |
 
 Der Python-Runner prüft eingehende Kommandos und kann seine ausgehenden Meldungen vor dem Senden mit
 `contracts.validate("from-runner", …)` prüfen. Die Reihenfolge der Meldungen und alle Zustände verantwortet Go.
@@ -261,7 +276,7 @@ Pfade sind POSIX-Pfade (v1 gilt für macOS und Linux); Windows-Pfade sind nicht 
 `contracts/fixtures/valid/<ziel>--<name>.json` muss akzeptiert werden,
 `contracts/fixtures/invalid/<ziel>--<fehlerklasse>--<name>.json` muss mit **genau dieser Fehlerklasse** (und
 keiner weiteren) abgewiesen werden. Ziele: `to-runner`, `from-runner`, `project-config`, `agent-profile`,
-`work-order`, `decision`, `integration-request`, `review-report`. Go (`TestContractFixtures`) und Python
+`work-order`, `decision`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
 (`test_contract_fixtures`) lesen dieselben Dateien; keine Seite hat eigene Fixtures für dieselbe Regel. Ein
 neues Verhalten wird durch eine neue Fixture beider Seiten belegt. Ungültige Fixtures enthalten genau einen
 Verstoß. Fixtures sind Testdaten und enthalten keine Produktdaten; Beispielaufgaben stehen nur dort.
