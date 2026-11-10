@@ -124,6 +124,8 @@ func TestLiveProfileVerify(t *testing.T) {
 		OK       bool `json:"ok"`
 		LiveRuns []struct {
 			Model          string   `json:"model"`
+			SessionSkills  []string `json:"session_skills"`
+			SnapshotID     string   `json:"skill_snapshot_id"`
 			Roles          []string `json:"roles"`
 			Status         string   `json:"status"`
 			EffortAsked    string   `json:"effort_requested"`
@@ -143,7 +145,8 @@ func TestLiveProfileVerify(t *testing.T) {
 	for _, l := range v.LiveRuns {
 		liveRecords = append(liveRecords, map[string]any{
 			"label": "verify_" + l.Model, "requested_model": l.Model, "effective_model": l.EffectiveModel,
-			"roles": l.Roles, "policy_profile": "readonly", "skills": []string{},
+			"roles": l.Roles, "policy_profile": "readonly",
+			"skills": l.SessionSkills, "skill_snapshot_id": l.SnapshotID,
 			"effort_requested": l.EffortAsked, "effort_effective": "nicht gemessen",
 			"session_id": l.SessionID, "claude_version": l.ClaudeVersion, "auth_source": l.AuthSource,
 			"state": l.State, "exit_code": l.ExitCode, "status": l.Status, "code": l.Code, "diagnosis": l.Diagnosis,

@@ -14,7 +14,7 @@ und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMA
 rechnen beim Anbieter.
 
 Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35) und den Profilen für Modell
-und Effort (CC-46, W46.1) und dem Go-Adapter zum Runner samt `profile verify` (CC-46, W46.2). Vorhanden sind die CLI-Hülle
+und Effort (CC-46) und dem Go-Adapter zum Runner samt `profile verify` (CC-46). Vorhanden sind die CLI-Hülle
 (`version`, `skills`, `profile`, `agent`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
 `runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
@@ -87,9 +87,9 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 `ccmas --version`, `ccmas --help` und `ccmas help [befehl]` sowie, seit CC-35, `ccmas skills list|show|validate|snapshot`
 (Ausgabe wahlweise als `--json`; Details, Root-Auflösung und Exit-Codes in [`skill-migration.md`](skill-migration.md)).
 Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve|verify` und `ccmas agent list|show|set|unset`
-(Lesebefehle mit `--json`; `set` prüft vor dem Speichern und schreibt bei Fehlern nichts; Konfigurationsverzeichnis
+(alle Befehle mit `--json`, die ändernden mit einem Ergebnisobjekt; `set` prüft vor dem Speichern und schreibt bei Fehlern nichts; Konfigurationsverzeichnis
 `--config-dir`, `CCMAS_CONFIG_DIR` oder `<Softwareordner>/.ccmas/config`, Einzelheiten in [`profiles.md`](profiles.md)).
-`ccmas profile verify [--live]` (seit W46.2) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent; mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
+`ccmas profile verify [--live]` (seit CC-46) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent; mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
 Ihr Aufruf täuscht kein Verhalten vor.
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`

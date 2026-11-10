@@ -716,7 +716,7 @@ func TestProfileAndAgentHelp(t *testing.T) {
 	}
 }
 
-// ---- profile set prüft auch die Agenten der Rolle (Review-Befund zu W46.1) -----
+// ---- profile set prüft auch die Agenten der Rolle (Review-Befund zu CC-46) -----
 
 // modelsWithLimitedHaiku beschränkt Haiku auf low bis high.
 func modelsWithLimitedHaiku() string {

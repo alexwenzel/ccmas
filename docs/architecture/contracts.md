@@ -235,7 +235,7 @@ Beide `session_started`-Felder stehen nur, wenn der Auftrag einen Snapshot trug.
 | `skill_snapshot_mismatch` | Das Verzeichnis weicht von der `snapshot.json` ab (Datei-Hash, `tree_sha256`, `snapshot_id`; fehlende oder zusätzliche Dateien und Verzeichnisse; Symlinks und Sonderdateien; falscher Verzeichnisname; geänderte `plugin.json`), oder der Snapshot passt nicht zum Auftrag (`snapshot_id`, Rolle, Menge der Skill-IDs) |
 | `skills_not_loaded` | Im Init-Frame fehlt das Plugin `ccmas` mit dem Pfad des Snapshots, ein `ccmas:<id>` fehlt, ein nicht freigegebener `ccmas:`-Eintrag oder ein weiteres Plugin namens `ccmas` ist da, oder `plugins`/`skills` fehlen im Frame; Abbruch über den Weg von `api_billing_detected`, bevor ein Werkzeug läuft |
 
-**Go setzt `RunSpec.skill_snapshot` (seit CC-46, W46.2):** Der Adapter `internal/workers/runner` löst bei nicht leeren `skill_ids` des
+**Go setzt `RunSpec.skill_snapshot` (seit CC-46):** Der Adapter `internal/workers/runner` löst bei nicht leeren `skill_ids` des
 `AgentProfile` die Skills der Rolle über `skills.Catalog.Resolve` auf, schreibt den Snapshot mit `Snapshot.Write` in ein angegebenes
 Verzeichnis (kanonischer Pfad, ohne Symlinks) und setzt `skill_snapshot` auf Kennung und Pfad; `skill_ids` und Snapshot enthalten
 dieselben Skills. Bei leeren `skill_ids` fehlt das Feld (kein Snapshot). Der Adapter prüft den `RunSpec` vor dem Senden mit

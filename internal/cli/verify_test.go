@@ -309,6 +309,66 @@ func TestVerifyLiveRunsOneMinimalRunPerUniqueModel(t *testing.T) {
 	}
 }
 
+// Die Sitzungswerte skills und skill_snapshot_id aus session_started stehen im Live-Ergebnis, damit
+// die Belegzeilen sie übernehmen können, statt sie fest zu schreiben.
+func TestVerifyLiveCarriesSessionSkills(t *testing.T) {
+	t.Run("ohne Skills: leere Liste, keine Snapshot-ID", func(t *testing.T) {
+		e := newVerifyEnv(t)
+		e.useExecutor(t, func(req runner.Request) runner.Execution { return okExecution(req, req.Profile.Model) })
+		var raw struct {
+			LiveRuns []map[string]any `json:"live_runs"`
+		}
+		decode(t, e.ok("profile", "verify", "--live", "--role", "documentation", "--json"), &raw)
+		l := raw.LiveRuns[0]
+		if sk, ok := l["session_skills"].([]any); !ok || len(sk) != 0 {
+			t.Errorf("session_skills = %#v, erwartet []", l["session_skills"])
+		}
+		if _, has := l["skill_snapshot_id"]; has {
+			t.Errorf("skill_snapshot_id ohne Snapshot vorhanden: %v", l["skill_snapshot_id"])
+		}
+	})
+	t.Run("Sitzung meldet Skills: Befund und Werte im Ergebnis", func(t *testing.T) {
+		e := newVerifyEnv(t)
+		e.useExecutor(t, func(req runner.Request) runner.Execution {
+			ex := okExecution(req, req.Profile.Model)
+			ex.SessionStarted.Skills, ex.SessionStarted.SkillSnapshotID = []string{"ccmas-x"}, "sha256:"+strings.Repeat("ab", 32)
+			return ex
+		})
+		code, out, errOut := e.run("profile", "verify", "--live", "--role", "documentation", "--json")
+		wantFail(t, code, errOut, ExitError, "Befund")
+		var raw struct {
+			LiveRuns []struct {
+				Code       string   `json:"code"`
+				Skills     []string `json:"session_skills"`
+				SnapshotID string   `json:"skill_snapshot_id"`
+			} `json:"live_runs"`
+		}
+		decode(t, out, &raw)
+		l := raw.LiveRuns[0]
+		if l.Code != "skills_loaded" || len(l.Skills) != 1 || l.Skills[0] != "ccmas-x" || l.SnapshotID != "sha256:"+strings.Repeat("ab", 32) {
+			t.Errorf("Ergebnis = %+v", l)
+		}
+	})
+	t.Run("ohne Sitzung: session_skills ist null", func(t *testing.T) {
+		e := newVerifyEnv(t)
+		e.useExecutor(t, func(req runner.Request) runner.Execution {
+			ex := okExecution(req, req.Profile.Model)
+			ex.SessionStarted, ex.State = nil, domain.ExecControlledFailure
+			ex.Events = []domain.RunEvent{{Payload: domain.ErrorPayload{Code: "not_logged_in", Message: "keine Anmeldung", Kind: domain.ErrKindRuntime, Terminal: true}}}
+			ex.Terminal = &domain.TerminalResult{Attempt: 1, State: domain.ExecControlledFailure, Source: "error"}
+			return ex
+		})
+		_, out, _ := e.run("profile", "verify", "--live", "--role", "documentation", "--json")
+		var raw struct {
+			LiveRuns []map[string]any `json:"live_runs"`
+		}
+		decode(t, out, &raw)
+		if v, has := raw.LiveRuns[0]["session_skills"]; !has || v != nil {
+			t.Errorf("session_skills = %#v, erwartet null", v)
+		}
+	})
+}
+
 func TestVerifyLiveSingleModelRunsOnce(t *testing.T) {
 	e := newVerifyEnv(t)
 	for _, r := range domain.Roles() {

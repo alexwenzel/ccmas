@@ -542,8 +542,9 @@ Test-Manifest berechnet das Python-Modul.
 
 Init-Frame in beiden Läufen: `mcp_servers` 0, `plugins` 4 (die 3 bekannten plus das Plugin des Snapshots), `skills` 20 (die 19
 mitgelieferten plus der Probe-Skill), `agents` 5, `slash_commands` 56, `plugins_in_config_dir` 0. Die mitgelieferten Skills stehen also
-weiter im Init-Frame, sind aber über das Skill-Werkzeug nicht aufrufbar, solange `skills` gesetzt ist; die Prüfung des Runners
-betrachtet deshalb nur `ccmas:`-Einträge. Das Plugin trägt im Init-Frame den Namen `ccmas` und den aufgelösten Pfad (sonst wäre die
+weiter im Init-Frame. Live belegt ist nur die Abweisung von `code-review` durch die Allowlist (Lauf b); `verify` scheiterte an seinem
+`disable-model-invocation` und belegt die Allowlist nicht, und für die übrigen mitgelieferten Skills ist nicht einzeln belegt, ob das
+Skill-Werkzeug sie aufruft, solange `skills` gesetzt ist. Die Prüfung des Runners betrachtet deshalb nur `ccmas:`-Einträge. Das Plugin trägt im Init-Frame den Namen `ccmas` und den aufgelösten Pfad (sonst wäre die
 Prüfung des Runners nicht bestanden). In CC-35 liefen insgesamt **4 echte Sitzungen**: zwei Entwicklungsläufe (a:
 `7bff06ea-2de2-4137-84a3-a771c09cf1ce`, b: `e267e18d-353a-4ee7-b6a3-8f38e1c6d438`, gleiches Ergebnis) und die beiden Abschlussläufe
 oben, deren Beleg eingecheckt ist.
@@ -562,7 +563,7 @@ oben, deren Beleg eingecheckt ist.
 - **Herkunft der 3 weiteren Plugins** (M04, Punkt 1) bleibt offen; sie tragen nicht den Namen `ccmas` (sonst wäre die Prüfung
   fehlgeschlagen).
 
-## 10. Go-Adapter und Live-Läufe über die Startprofile (CC-46, W46.2)
+## 10. Go-Adapter und Live-Läufe über die Startprofile (CC-46)
 
 Frage: Startet und überwacht Go den Runner so, wie es die Spezifikation („Go und SDK zusammenführen“, „Runner-Protokoll“) verlangt,
 und tragen die Startprofile (Modell-IDs der Beispielkonfiguration, Läufe ohne und mit Snapshot) in echten Läufen?
@@ -619,6 +620,11 @@ Befunde:
 - **Läufe ohne Snapshot** (neue Pflicht `skills=[]` plus Init-Frame-Prüfung aus CC-35 für alle Läufe) sind damit live belegt: kein
   terminaler `skills_not_loaded`, Ergebnis `succeeded`. Belegt ist die Init-Frame-Prüfung (kein Plugin `ccmas`, kein `ccmas:`-Skill),
   nicht ein Aufrufversuch.
+- **Belegzeilen und Sitzungs-Skills:** Die beiden Zeilen `verify_*` im eingecheckten Beleg tragen `"skills": []` als festen Wert des
+  Tests, nicht als gemessenen. Indirekt belegt sind leere Sitzungs-Skills dennoch: Status `ok` setzt voraus, dass `session_started.skills`
+  leer ist und keine `skill_snapshot_id` trägt (sonst Befund `skills_loaded`). Seit der Nachbesserung führt das Live-Ergebnis von
+  `profile verify` die Werte aus `session_started` als `session_skills` und `skill_snapshot_id`, und der Live-Test schreibt sie in
+  künftige Belegzeilen; der vorhandene Beleg wurde nicht neu erzeugt.
 - **Init-Zeile des Snapshot-Laufs** (nur im Testlog, nicht im Beleg): `mcp_servers=0 plugins=4 skills=21 agents=5 slash_commands=57
   plugins_in_config_dir=0`; 21 Skills sind die 19 mitgelieferten plus die zwei des Snapshots.
 - **Nicht belegt:** der wirksame Effort (das SDK meldet ihn nicht), `scoped_write`, `stop` und die Prozessgruppen-Beendigung mit dem

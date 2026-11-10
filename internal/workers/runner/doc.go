@@ -5,7 +5,7 @@
 // begrenzt und zeilenweise, führt den domain.ExecutionTracker und liefert einen
 // Ausführungsdatensatz (Execution).
 //
-// Der Stand ist bewusst minimal (CC-46, W46.2); M04 erweitert ihn um Fragen und Antworten,
+// Der Stand ist bewusst minimal (CC-46); M04 erweitert ihn um Fragen und Antworten,
 // Wiederaufnahme, Prozessmessung und die Persistenz in SQLite (M03), ohne diese Schnittstelle
 // umzubauen. Der Adapter akzeptiert nur das Policy-Profil readonly; scoped_write ist ein
 // Prüfprofil und nur mit der ausdrücklichen Option Config.AllowScopedWrite zulässig (offener

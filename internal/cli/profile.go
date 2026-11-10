@@ -216,13 +216,21 @@ func newProfileCommand() *cobra.Command {
 	return cmd
 }
 
+// initFileView ist ein Eintrag der JSON-Ausgabe von "profile init".
+type initFileView struct {
+	File    string `json:"file"`
+	Created bool   `json:"created"`
+}
+
 func newProfileInitCommand(opts *profileOpts) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Startprofile aus den Beispielkonfigurationen anlegen",
 		Long: "Legt models.yaml und agents.yaml im Konfigurationsverzeichnis aus config/models.example.yaml und " +
 			"config/agents.example.yaml an (Startprofile: Supervisor und Reviewer opus/high, Implementierung und Konzept " +
-			"sonnet/high, Dokumentation sonnet/medium). Eine vorhandene Datei wird nie überschrieben.",
+			"sonnet/high, Dokumentation sonnet/medium). Eine vorhandene Datei wird nie überschrieben. Mit --json " +
+			"kommt ein Ergebnisobjekt (config_dir, files: je Datei file und created).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, err := opts.store()
@@ -234,6 +242,13 @@ func newProfileInitCommand(opts *profileOpts) *cobra.Command {
 				return codedProfileError(err)
 			}
 			out := cmd.OutOrStdout()
+			if asJSON {
+				files := make([]initFileView, 0, len(res))
+				for _, r := range res {
+					files = append(files, initFileView{File: r.File, Created: r.Created})
+				}
+				return writeJSON(out, map[string]any{"config_dir": st.Dir(), "files": files})
+			}
 			fmt.Fprintf(out, "Konfigurationsverzeichnis: %s\n", st.Dir())
 			for _, r := range res {
 				if r.Created {
@@ -245,6 +260,8 @@ func newProfileInitCommand(opts *profileOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Ergebnis als JSON-Objekt")
+	return cmd
 }
 
 // roleView ist die Darstellung eines Rollenprofils in der JSON-Ausgabe.
@@ -385,7 +402,7 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 	var (
 		model, effort, policy string
 		skillIDs              []string
-		clearSkills           bool
+		clearSkills, asJSON   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set <rolle> [--model M] [--effort E] [--skill ID … | --clear-skills] [--policy P]",
@@ -396,7 +413,9 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 			"Agent dieser Rolle, der den geänderten Wert erbt (der Fehler nennt den Agenten). Eine unzulässige " +
 			"Kombination endet mit Exit-Code 1; es wird nichts geschrieben. --skill ersetzt die Skill-Liste " +
 			"(wiederholbar), --clear-skills stellt die Standardausstattung der Rolle aus dem Skill-Katalog wieder her. " +
-			"Laufende Ausführungen behalten ihr Profil; die neuen Werte gelten nur für neue Ausführungen.",
+			"Laufende Ausführungen behalten ihr Profil; die neuen Werte gelten nur für neue Ausführungen. Mit --json " +
+			"kommt ein Ergebnisobjekt (config_dir, file, role, revision, changed, profile = das aufgelöste Profil); " +
+			"Fehler erscheinen unverändert auf stderr, ohne JSON auf stdout.",
 		Args: exactArgs(1, "eine Rolle"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			role, err := parseRole(args[0])
@@ -461,6 +480,19 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 				return codedProfileError(err)
 			}
 			out := cmd.OutOrStdout()
+			if asJSON {
+				changed := []string{}
+				for _, c := range []struct {
+					name string
+					set  bool
+				}{{"model", f.Changed("model")}, {"effort", f.Changed("effort")}, {"skills", f.Changed("skill") || clearSkills}, {"policy", f.Changed("policy")}} {
+					if c.set {
+						changed = append(changed, c.name)
+					}
+				}
+				return writeJSON(out, map[string]any{"config_dir": s.store.Dir(), "file": profiles.AgentsFile, "role": role,
+					"revision": saved.Revision, "changed": changed, "profile": resolved})
+			}
 			fmt.Fprintf(out, "Rolle %s gespeichert (%s, Revision %d)\n", role, profiles.AgentsFile, saved.Revision)
 			printResolved(out, resolved)
 			fmt.Fprintln(out, "Die neuen Werte gelten nur für neue Ausführungen.")
@@ -472,6 +504,7 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 	cmd.Flags().StringArrayVar(&skillIDs, "skill", nil, "Skill-ID (wiederholbar); ersetzt die bisherige Skill-Liste")
 	cmd.Flags().BoolVar(&clearSkills, "clear-skills", false, "Standardausstattung der Rolle aus dem Skill-Katalog wiederherstellen")
 	cmd.Flags().StringVar(&policy, "policy", "", "Policy-Profil (readonly oder scoped_write)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Ergebnis als JSON-Objekt")
 	return cmd
 }
 
@@ -495,8 +528,9 @@ func newProfileResolveCommand(opts *profileOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resolve --role <rolle> [--agent <id>] [--model M] [--effort E] [--skill ID …]",
 		Short: "Das aufgelöste Profil einer Ausführung anzeigen",
-		Long: "Löst Rolle (und optional einen individuellen Agenten) mit der Rangfolge Auftragswert > Agentenwert > " +
-			"Rollenstandard auf und zeigt Modell, angeforderten und wirksamen Effort, eventuelle genehmigte Reduktion, " +
+		Long: "Löst Rolle (und optional einen individuellen Agenten) je Feld einzeln mit der Rangfolge Auftragswert > " +
+			"Agentenwert > Wahl des Supervisors > Rollenstandard auf (die Wahl des Supervisors hat noch keinen CLI-Schalter, " +
+			"sie kommt mit CC-14) und zeigt Modell, angeforderten und wirksamen Effort, eventuelle genehmigte Reduktion, " +
 			"Skills, Policy, Version und die Herkunft jedes Werts (value_sources). --model, --effort und --skill sind " +
 			"ausdrückliche Auftragswerte. Der Effort ist abgeleitet (Konfiguration und dokumentierte Regel), nicht " +
 			"gemessen. Es wird nichts gespeichert.",

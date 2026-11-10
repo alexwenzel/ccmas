@@ -139,7 +139,7 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 	var (
 		role, model, effort string
 		skillIDs            []string
-		changeRole          bool
+		changeRole, asJSON  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set <id> --role <rolle> [--model M] [--effort E] [--skill ID …]",
@@ -150,7 +150,9 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 			"und geprüft (Rollenerlaubnis, bekanntes Modell, unterstützter Effort oder genehmigter Fallback, freigegebene " +
 			"und für die Rolle erlaubte Skills). Eine unzulässige Kombination endet mit Exit-Code 1; es wird nichts " +
 			"geschrieben. Gehört ein vorhandener Agent zu einer anderen Rolle, wechselt die Rolle nur mit --change-role; " +
-			"sonst endet der Befehl mit Exit-Code 1. Zum Entfernen einzelner Werte dient 'agent unset'.",
+			"sonst endet der Befehl mit Exit-Code 1. Zum Entfernen einzelner Werte dient 'agent unset'. Mit --json kommt " +
+			"ein Ergebnisobjekt (config_dir, file, action = created oder updated, revision, agent, profile = das " +
+			"aufgelöste Profil); Fehler erscheinen unverändert auf stderr, ohne JSON auf stdout.",
 		Args: exactArgs(1, "eine Agenten-ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -206,6 +208,14 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 				return codedProfileError(err)
 			}
 			out := cmd.OutOrStdout()
+			if asJSON {
+				action := "created"
+				if exists {
+					action = "updated"
+				}
+				return writeJSON(out, map[string]any{"config_dir": s.store.Dir(), "file": profiles.AgentsFile, "action": action,
+					"revision": saved.Revision, "agent": viewOf(id, saved.Agents[id]), "profile": resolved})
+			}
 			fmt.Fprintf(out, "Agent %s gespeichert (Rolle %s, %s, Revision %d)\n", id, r, profiles.AgentsFile, saved.Revision)
 			printResolved(out, resolved)
 			fmt.Fprintln(out, "Die neuen Werte gelten nur für neue Ausführungen.")
@@ -217,17 +227,20 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 	cmd.Flags().StringVar(&effort, "effort", "", "Effort-Stufe: low, medium, high, xhigh oder max")
 	cmd.Flags().StringArrayVar(&skillIDs, "skill", nil, "Skill-ID (wiederholbar); ersetzt die bisherige Skill-Liste des Agenten")
 	cmd.Flags().BoolVar(&changeRole, "change-role", false, "die Rolle eines vorhandenen Agenten wechseln (sonst Fehler)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Ergebnis als JSON-Objekt")
 	return cmd
 }
 
 func newAgentUnsetCommand(opts *profileOpts) *cobra.Command {
-	var model, effort, skillsFlag, all bool
+	var model, effort, skillsFlag, all, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "unset <id> (--model | --effort | --skills | --all)",
 		Short: "Einzelne Werte eines Agenten entfernen oder den Agenten löschen",
 		Long: "Entfernt die genannten individuellen Werte; das Feld erbt danach wieder vom Rollenprofil. Mit --all wird " +
 			"der Agent vollständig gelöscht (nicht mit den anderen Optionen kombinierbar). Es ist mindestens eine Option " +
-			"anzugeben. Laufende Ausführungen behalten ihr Profil.",
+			"anzugeben. Laufende Ausführungen behalten ihr Profil. Mit --json kommt ein Ergebnisobjekt (config_dir, file, " +
+			"action = updated oder deleted, revision, agent; bei updated zusätzlich unset = entfernte Felder und profile = das " +
+			"aufgelöste Profil); Fehler erscheinen unverändert auf stderr, ohne JSON auf stdout.",
 		Args: exactArgs(1, "eine Agenten-ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -254,6 +267,10 @@ func newAgentUnsetCommand(opts *profileOpts) *cobra.Command {
 				if err != nil {
 					return codedProfileError(err)
 				}
+				if asJSON {
+					return writeJSON(out, map[string]any{"config_dir": s.store.Dir(), "file": profiles.AgentsFile, "action": "deleted",
+						"revision": saved.Revision, "agent": map[string]any{"id": id, "role": a.Role}})
+				}
 				fmt.Fprintf(out, "Agent %s gelöscht (%s, Revision %d)\n", id, profiles.AgentsFile, saved.Revision)
 				return nil
 			}
@@ -275,6 +292,19 @@ func newAgentUnsetCommand(opts *profileOpts) *cobra.Command {
 			if err != nil {
 				return codedProfileError(err)
 			}
+			if asJSON {
+				unset := []string{}
+				for _, u := range []struct {
+					name string
+					set  bool
+				}{{"model", model}, {"effort", effort}, {"skills", skillsFlag}} {
+					if u.set {
+						unset = append(unset, u.name)
+					}
+				}
+				return writeJSON(out, map[string]any{"config_dir": s.store.Dir(), "file": profiles.AgentsFile, "action": "updated",
+					"revision": saved.Revision, "unset": unset, "agent": viewOf(id, saved.Agents[id]), "profile": resolved})
+			}
 			fmt.Fprintf(out, "Agent %s aktualisiert (%s, Revision %d)\n", id, profiles.AgentsFile, saved.Revision)
 			printResolved(out, resolved)
 			fmt.Fprintln(out, "Die neuen Werte gelten nur für neue Ausführungen.")
@@ -285,5 +315,6 @@ func newAgentUnsetCommand(opts *profileOpts) *cobra.Command {
 	cmd.Flags().BoolVar(&effort, "effort", false, "individuellen Effort entfernen")
 	cmd.Flags().BoolVar(&skillsFlag, "skills", false, "individuelle Skill-Liste entfernen")
 	cmd.Flags().BoolVar(&all, "all", false, "den Agenten vollständig löschen")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Ergebnis als JSON-Objekt")
 	return cmd
 }

@@ -1,9 +1,9 @@
 # CCMAS – Profile: Modell, Effort und Skills (CC-46)
 
-Stand: Ticket CC-46, Teilaufträge W46.1 und W46.2 (Meilenstein M02). **Führend ist die Spezifikation** „Multi Agent Setup“,
+Stand: Ticket CC-46, Meilenstein M02. **Führend ist die Spezifikation** „Multi Agent Setup“,
 Abschnitte „Aufwand, Modell und Effort“, „Projekt, Profile und Arbeitsauftrag“, „Parameter und Profile“ und
 „Vollständige CLI-Steuerung“. Diese Datei hält fest, was `internal/profiles`, `config/` und die Befehle
-`ccmas profile` und `ccmas agent` heute tun. Seit W46.2 übergibt der Go-Adapter `internal/workers/runner` das aufgelöste Profil an
+`ccmas profile` und `ccmas agent` heute tun. Seit CC-46 übergibt der Go-Adapter `internal/workers/runner` das aufgelöste Profil an
 den Runner, und `ccmas profile verify [--live]` prüft Profile, Runner und Claude-Binary (Abschnitt „Prüfung mit `profile verify`“).
 
 ## Überblick
@@ -153,24 +153,26 @@ Bis zur Persistenz in SQLite (M03) sind die beiden Dateien der Speicher (`profil
 ## CLI
 
 Exit-Codes wie im Repository: 0 Erfolg, 1 Laufzeitfehler oder unzulässiger Wert (nichts geschrieben), 2 Bedienfehler.
-Fehler nennen den Code in eckigen Klammern. Lesende Befehle haben `--json`.
+Fehler nennen den Code in eckigen Klammern. Alle Befehle außer den Hilfen haben `--json`: die lesenden (`list`, `show`, `resolve`,
+`verify`) liefern ihren Inhalt, die ändernden (`init`, `profile set`, `agent set`, `agent unset`) ein Ergebnisobjekt. Bei einem Fehler
+steht nichts auf stdout; die Meldung geht wie bisher nach stderr, der Exit-Code bleibt 1 oder 2.
 
 | Befehl | Wirkung |
 | --- | --- |
-| `profile init` | Startprofile aus den Beispielen anlegen, nie überschreiben |
+| `profile init [--json]` | Startprofile aus den Beispielen anlegen, nie überschreiben; Ergebnis: `config_dir`, `files` (je Datei `file`, `created`) |
 | `profile list`, `profile show <rolle>` | gespeicherte Rollenprofile (`--json`) |
-| `profile set <rolle> [--model] [--effort] [--skill …] [--clear-skills] [--policy]` | Rollenstandard ändern; vor dem Speichern wie bei einer Ausführung aufgelöst, ebenso jeder vorhandene Agent der Rolle (ein Agent, der danach unauflösbar wäre, bricht mit Exit 1 ab und wird genannt; nichts wird geschrieben) |
+| `profile set <rolle> [--model] [--effort] [--skill …] [--clear-skills] [--policy]` | Rollenstandard ändern; vor dem Speichern wie bei einer Ausführung aufgelöst, ebenso jeder vorhandene Agent der Rolle (ein Agent, der danach unauflösbar wäre, bricht mit Exit 1 ab und wird genannt; nichts wird geschrieben); mit `--json` Ergebnis: `config_dir`, `file`, `role`, `revision` (neue Revision von `agents.yaml`), `changed` (`model`, `effort`, `skills`, `policy`), `profile` (das aufgelöste `AgentProfile`, dessen `version` die Profilversion ist) |
 | `profile resolve --role R [--agent A] [--model] [--effort] [--skill …]` | aufgelöstes Profil mit Herkunft und Reduktion; mit `--json` ein gültiges `AgentProfile`; schreibt nichts |
 | `profile verify [--live] [--role R …] [--claude-binary P] [--json]` | Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary prüfen; mit `--live` je Modell ein Minimallauf (verbraucht Kontingent); Exit 1 bei einem Befund |
 | `agent list`, `agent show <id>` | individuelle Agenten (`--json`; leeres Feld erbt) |
-| `agent set <id> --role R [--model] [--effort] [--skill …] [--change-role]` | Agent anlegen oder nur die genannten Felder ändern; die Rolle eines vorhandenen Agenten wechselt nur mit `--change-role`, sonst Exit 1 (`agent_role_mismatch`) |
-| `agent unset <id> [--model] [--effort] [--skills] [--all]` | Werte entfernen (erben wieder) oder den Agenten löschen |
+| `agent set <id> --role R [--model] [--effort] [--skill …] [--change-role]` | Agent anlegen oder nur die genannten Felder ändern; die Rolle eines vorhandenen Agenten wechselt nur mit `--change-role`, sonst Exit 1 (`agent_role_mismatch`); mit `--json` Ergebnis: `config_dir`, `file`, `action` (`created` oder `updated`), `revision`, `agent` (`id`, `role`, `model`, `effort`, `skills`; leer = erbt), `profile` (aufgelöstes `AgentProfile`) |
+| `agent unset <id> [--model] [--effort] [--skills] [--all]` | Werte entfernen (erben wieder) oder den Agenten löschen; mit `--json` Ergebnis: `config_dir`, `file`, `action` (`updated` oder `deleted`), `revision`, `agent`; bei `updated` zusätzlich `unset` (entfernte Felder) und `profile`, bei `deleted` nur `id` und `role` des gelöschten Agenten |
 
 Gemeinsame Optionen von `profile` und `agent`: `--config-dir`, `--root`.
 `models.yaml` wird nicht über die CLI geändert, sondern von Hand gepflegt. Wer sie ändert, erhöht `revision` selbst, damit
 `version` wächst; eine Änderung ohne höhere Revision erkennt das Programm nicht.
 
-## Übergabe an den Runner (W46.2)
+## Übergabe an den Runner
 
 Das aufgelöste `AgentProfile` ist die Eingabe des Adapters `internal/workers/runner`. Daraus entstehen im `RunSpec` Modell, Effort,
 Rolle, Policy-Profil, `profile_id` und `profile_version`. Hat das Profil Skills, schreibt der Adapter den Snapshot (`Resolve` plus

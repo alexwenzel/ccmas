@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -68,11 +69,15 @@ type liveResult struct {
 	SessionID      string   `json:"session_id,omitempty"`
 	ClaudeVersion  string   `json:"claude_version,omitempty"`
 	AuthSource     string   `json:"auth_source,omitempty"`
-	ExecutionID    string   `json:"execution_id,omitempty"`
-	State          string   `json:"state,omitempty"`
-	ExitCode       int      `json:"exit_code"`
-	Code           string   `json:"code,omitempty"`
-	Diagnosis      string   `json:"diagnosis,omitempty"`
+	// SessionSkills und SkillSnapshotID sind die Werte aus session_started: null, wenn es keine
+	// Sitzung gab; [] belegt, dass die Sitzung keine Skills geladen hat.
+	SessionSkills   []string `json:"session_skills"`
+	SkillSnapshotID string   `json:"skill_snapshot_id,omitempty"`
+	ExecutionID     string   `json:"execution_id,omitempty"`
+	State           string   `json:"state,omitempty"`
+	ExitCode        int      `json:"exit_code"`
+	Code            string   `json:"code,omitempty"`
+	Diagnosis       string   `json:"diagnosis,omitempty"`
 }
 
 type verifyReport struct {
@@ -374,6 +379,7 @@ func diagnoseLive(res *liveResult, exec runner.Execution, wantModel string) {
 	res.State, res.ExitCode = string(exec.State), exec.ExitCode
 	if s := exec.SessionStarted; s != nil {
 		res.EffectiveModel, res.SessionID, res.ClaudeVersion, res.AuthSource = s.Model, s.SessionID, s.ClaudeVersion, string(s.AuthSource)
+		res.SessionSkills, res.SkillSnapshotID = nonNilList(slices.Clone(s.Skills)), s.SkillSnapshotID
 	}
 	for _, w := range exec.Warnings() {
 		if w.Code == "subscription_limit" {
