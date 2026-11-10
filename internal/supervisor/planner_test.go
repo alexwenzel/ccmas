@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -96,7 +97,14 @@ func TestPlannerAcceptsAValidPlanAndPassesEverythingToTheRuntime(t *testing.T) {
 		t.Errorf("Skills im Snapshot %v, im Profil %v", ids, req.Profile.SkillIDs)
 	}
 	body := skillBody(string(mustFile(t, req.SkillSnapshot.Path, "ccmas-supervisor")))
-	if !strings.Contains(req.Prompt, body) || !strings.Contains(req.Prompt, "## Skill ccmas-supervisor (Version 1, tree_sha256 ") {
+	// Die Version stammt aus dem Snapshot (Manifest), nicht aus einer festen Zahl: jede Änderung des Skills erhöht sie.
+	supervisorVersion := 0
+	for _, s := range manifest.Skills {
+		if s.ID == "ccmas-supervisor" {
+			supervisorVersion = s.Version
+		}
+	}
+	if supervisorVersion == 0 || !strings.Contains(req.Prompt, body) || !strings.Contains(req.Prompt, fmt.Sprintf("## Skill ccmas-supervisor (Version %d, tree_sha256 ", supervisorVersion)) {
 		t.Error("der Prompt trägt den Inhalt des führenden Skills aus dem Snapshot nicht")
 	}
 	// Der Zustand steht als JSON im Prompt, kanonisch und vollständig.
@@ -499,7 +507,7 @@ func TestPlanningContextIsDeterministicBoundedAndNeverDropsOpenOrders(t *testing
 		if !slices.Contains(tight.Reductions, ReduceClosedOrders) || tight.Bytes > tightContext {
 			t.Fatalf("Reduktionen %v, %d Bytes", tight.Reductions, tight.Bytes)
 		}
-		order := []string{ReduceSkillDescriptions, ReduceClosedOrders, ReduceFindingTexts, ReduceSkillList, ReduceQuestionTexts}
+		order := []string{ReduceSkillDescriptions, ReduceClosedOrders, ReduceSkillList, ReduceQuestionTexts}
 		last := -1
 		for _, r := range tight.Reductions {
 			i := slices.Index(order, r)

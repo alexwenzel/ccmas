@@ -18,6 +18,11 @@ import (
 // SnapshotSchemaVersion ist die Version des ProjectSnapshot.
 const SnapshotSchemaVersion = 1
 
+// NoConceptVersion ist die feste Kennung der Konzeptversion für Aufträge ohne Konzeptbezug (zum Beispiel Fehler- und
+// Organisationsaufträge): Prüfziel (review_target.concept_version, Pflichtfeld des Schemas) und Review-Bericht tragen sie
+// statt einer Version. Sie ist reserviert; ein echter Konzeptstand darf sie nicht als Version führen.
+const NoConceptVersion = "kein-konzept"
+
 // OrderKind ist die Art eines Auftrags (Typ des Tickets).
 type OrderKind string
 
@@ -157,6 +162,12 @@ type Order struct {
 	ConceptRepairRounds int `json:"concept_repair_rounds"`
 
 	ActiveExecutionID string `json:"active_execution_id,omitempty"`
+
+	// ReviewConceptVersion ist die Konzeptversion, die ein Review und dessen Bericht für diesen Auftrag tragen müssen
+	// (review_target.concept_version): die Version des Konzeptstands, NoConceptVersion ohne Konzeptbezug, leer, solange ein
+	// Konzeptbezug ohne Konzeptstand besteht (dann ist weder Review noch Integration zulässig). Der Wert ist abgeleitet:
+	// Canonical setzt ihn immer neu, ein vom Befüller gesetzter Wert zählt nicht. Der Validator rechnet selbst nach.
+	ReviewConceptVersion string `json:"review_concept_version,omitempty"`
 }
 
 // ConceptState ist der Konzeptstand eines Auftrags: Version, Einstufung und Freigabe.
@@ -194,6 +205,10 @@ type PRInfo struct {
 	Number int64    `json:"number"`
 	State  PRStatus `json:"state"`
 	CI     CIStatus `json:"ci"`
+	// HeadCommit ist der Commit, den der PR als Kopf trägt (vollständiger Hash). Optional; Schnittstelle zu M03. Ohne
+	// ihn lässt sich bei einem offenen PR nicht belegen, ob eine erneute Integration eine neue Wirkung hätte, und der
+	// Validator lehnt sie ab (fail-safe).
+	HeadCommit string `json:"head_commit,omitempty"`
 }
 
 // OpenQuestion ist eine noch nicht zugestellte Frage. Keine Antwort ist keine Freigabe.
@@ -265,8 +280,13 @@ func (s ProjectSnapshot) Canonical() ProjectSnapshot {
 	out.Capacity.Active = nonNil(slices.Clone(s.Capacity.Active))
 	sort.SliceStable(out.Capacity.Active, func(i, j int) bool { return out.Capacity.Active[i].ExecutionID < out.Capacity.Active[j].ExecutionID })
 
+	byID := make(map[string]*Order, len(s.Orders))
+	for i := range s.Orders {
+		byID[s.Orders[i].ID] = &s.Orders[i]
+	}
 	out.Orders = make([]Order, len(s.Orders))
 	for i, o := range s.Orders {
+		o.ReviewConceptVersion = reviewConceptVersion(byID, &o)
 		o.DependsOn = sortedCopy(o.DependsOn)
 		if o.Concept != nil {
 			c := *o.Concept
@@ -322,6 +342,33 @@ func (s ProjectSnapshot) Canonical() ProjectSnapshot {
 	}
 	sort.SliceStable(out.Skills, func(i, j int) bool { return out.Skills[i].ID < out.Skills[j].ID })
 	return out
+}
+
+// conceptDependencyIDs nennt die Abhängigkeiten eines Auftrags, die Konzeptaufträge sind.
+func conceptDependencyIDs(orders map[string]*Order, o *Order) []string {
+	var out []string
+	for _, dep := range o.DependsOn {
+		if do := orders[dep]; do != nil && do.Kind == OrderConcept {
+			out = append(out, dep)
+		}
+	}
+	return out
+}
+
+// reviewConceptVersion ist die Konzeptversion, die Prüfziel und Bericht eines Reviews (und die Integrationsanforderung) für den
+// Auftrag tragen müssen: die Version des Konzeptstands; NoConceptVersion für Umsetzungs- und Fehlerauftrag ohne Konzeptbezug;
+// leer, wo es keinen gültigen Wert gibt (Konzeptbezug über eine Abhängigkeit ohne Konzeptstand am Auftrag; andere Auftragsarten
+// ohne Konzeptstand). Der Validator verlangt genau diesen Wert und rechnet selbst, nie nach dem Feld des Snapshots.
+func reviewConceptVersion(orders map[string]*Order, o *Order) string {
+	switch {
+	case o.Concept != nil:
+		return o.Concept.Version
+	case len(conceptDependencyIDs(orders, o)) > 0:
+		return ""
+	case o.Kind == OrderImplementation || o.Kind == OrderBug:
+		return NoConceptVersion
+	}
+	return ""
 }
 
 func nonNil[T any](s []T) []T {
@@ -480,6 +527,9 @@ func (s ProjectSnapshot) Problems() []SnapshotProblem {
 			if c.Version == "" {
 				bad(p+".concept.version", "Konzeptversion fehlt")
 			}
+			if c.Version == NoConceptVersion {
+				bad(p+".concept.version", "die Kennung %q ist für Aufträge ohne Konzeptbezug reserviert und keine Konzeptversion", NoConceptVersion)
+			}
 			if c.Class != "" && c.Class != skills.ConceptRoutine && c.Class != skills.ConceptStrategic {
 				bad(p+".concept.class", "unbekannte Einstufung %q", c.Class)
 			}
@@ -515,6 +565,9 @@ func (s ProjectSnapshot) Problems() []SnapshotProblem {
 			}
 			if !slices.Contains([]CIStatus{CIPassed, CIFailed, CIPending, CIMissing}, o.PR.CI) {
 				bad(p+".pr.ci", "unbekannter CI-Stand %q", o.PR.CI)
+			}
+			if o.PR.HeadCommit != "" && !commitPattern.MatchString(o.PR.HeadCommit) {
+				bad(p+".pr.head_commit", "kein vollständiger Commit-Hash")
 			}
 		}
 		if o.CodeRepairRounds < 0 || o.ConceptRepairRounds < 0 {

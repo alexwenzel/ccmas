@@ -55,14 +55,14 @@ fünf Workflow-Kategorien, und `ValidateWorkflow` weist einen Vertrag bei einem 
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ccmas-concept-ticket` | 3 | concept | approved | concept | concept | asana, vault | `aa4539d916264dde641aa64951e3e6636fbfdd5d4b9ae16d7ebfed56d1f8d162` |
 | `ccmas-concept-review` | 2 | concept_reviewer | approved (neu in CC-33) | review | concept_reviewer | – | `6b14e2d3c2c3f33b7e15e1cd5574c8732744f7255fe73946dbf0578c2acf7898` |
-| `ccmas-code-review` | 1 | reviewer | approved (neu in CC-33) | review | reviewer | – | `60797c5af7f5d43ced4827b6d668911da9b58343f17fb2cfee3f545fce300c9d` |
+| `ccmas-code-review` | 2 | reviewer | approved (neu in CC-33) | review | reviewer | – | `5084e2d980fcbb60428b6289cd72ebf92beba572593f20b70792cef762f1af0d` |
 | `ccmas-obsidian-seite` | 1 | concept, documentation, completion, question_handler | approved (completion und question_handler erlaubt, kein Standard) | knowledge | concept, documentation | vault | `1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7` |
 | `ccmas-asana-ticket` | 1 | supervisor, concept, completion, question_handler | approved (für concept nur auf ausdrückliche Anforderung, daher kein Standard) | tracking | – | asana | `fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556` |
 | `ccmas-regeln-pflegen` | 1 | documentation | approved (nur auf ausdrücklichen Auftrag, daher kein Standard) | rules | – | vault | `8986c0c0b04be22d478d9c270c44d90a6a1648ee5efd65c0290a6366e5d512fd` |
 | `ccmas-projekt-anlegen` | 1 | project_setup | pending: Zuschnitt auf lokale Projektzuordnung (M07) | setup | – | asana, vault | `7385b9f448ec150e60749af2b8bb46edfd82ab372bdf305e6fd6fd29b03d5bf0` |
 | `ccmas-neue-aufgabe-nehmen` | 1 | supervisor | pending: Zuordnung offen, in CC-14 nicht benötigt | planning | – | asana, vault | `c6c4138891c148fa20d2d09cbfe73b8a25753d424678887d279ab546e93bb9b2` |
 | `ccmas-morgen-briefing` | 1 | supervisor | pending: Zuordnung offen, in CC-14 nicht benötigt | planning | – | – | `1b95c0137ffad7ae2508ab7982e22594b4208c030651e1b43ae6f190d783a92b` |
-| `ccmas-supervisor` | 1 | supervisor | approved (neu in CC-14) | planning | supervisor | – | `a06927ccbef5136757b1f0fb3ce9c4626ece2f35dc4068aa50ec5b835094e09d` |
+| `ccmas-supervisor` | 2 | supervisor | approved (neu in CC-14) | planning | supervisor | – | `08359406ca7f6ce0676ddb3b1eaa6016f57e0e08205cdf8c965cc5aa40b000fc` |
 | `ccmas-work-assessment` | 1 | supervisor | approved (neu in CC-14) | planning | supervisor | – | `22b15830962cdb7457b63bbb74742b02882268719f7584be04ba7d25b1260926` |
 | `ccmas-feature-parallel` | 3 | implementer | approved (W33.2) | delivery | implementer | git | `5a6f547cacb7b9caf04272d47a4c916bfcbf0f0c2ccbe065b59e978a12d122ec` |
 | `ccmas-meilenstein-abschluss` | 3 | completion | approved (W33.2) | completion | completion | asana, vault | `221578e620cdd0086555b8af87300a92cd1be8886135f0a64b5243baaf675417` |

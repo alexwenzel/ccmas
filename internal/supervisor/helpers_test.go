@@ -200,21 +200,28 @@ func selection(role domain.Role, model string, effort domain.Effort, skillIDs ..
 	return &domain.Selection{Role: role, SkillIDs: skillIDs, Model: model, Effort: effort}
 }
 
+// delegated ergänzt, was jede Beauftragung außer der Auswahl nennt: erwartetes Ergebnis und Aufwandsschätzung.
+func delegated(d domain.Decision) domain.Decision {
+	d.ExpectedOutcome = "Das Ergebnis ist überprüfbar."
+	d.Estimate = &domain.Estimate{Size: domain.SizeM, Complexity: domain.LevelMedium, Uncertainty: domain.LevelLow}
+	return d
+}
+
 func implDecision(id, orderID string) domain.Decision {
-	d := baseDecision(id, domain.ActionImplementation, orderID)
+	d := delegated(baseDecision(id, domain.ActionImplementation, orderID))
 	d.Preconditions = []domain.Precondition{{Kind: domain.PrecConceptApproved}}
 	d.Selection = selection(domain.RoleImplementer, mMid, domain.EffortHigh, skImpl)
 	return d
 }
 
 func conceptDecision(id, orderID string) domain.Decision {
-	d := baseDecision(id, domain.ActionConceptWork, orderID)
+	d := delegated(baseDecision(id, domain.ActionConceptWork, orderID))
 	d.Selection = selection(domain.RoleConcept, mBig, domain.EffortHigh, skKnow)
 	return d
 }
 
 func codeReviewDecision(id, orderID, commit, concept string) domain.Decision {
-	d := baseDecision(id, domain.ActionReview, orderID)
+	d := delegated(baseDecision(id, domain.ActionReview, orderID))
 	d.Preconditions = []domain.Precondition{{Kind: domain.PrecWorkOrderCompleted}}
 	d.Selection = selection(domain.RoleReviewer, mBig, domain.EffortHigh, skReview)
 	d.ReviewTarget = &domain.ReviewTarget{WorkOrderID: orderID, Commit: commit, ConceptVersion: concept}
@@ -222,7 +229,7 @@ func codeReviewDecision(id, orderID, commit, concept string) domain.Decision {
 }
 
 func docDecision(id, orderID string) domain.Decision {
-	d := baseDecision(id, domain.ActionDocumentationWork, orderID)
+	d := delegated(baseDecision(id, domain.ActionDocumentationWork, orderID))
 	d.Selection = selection(domain.RoleDocumentation, mMid, domain.EffortMedium, skDoc)
 	return d
 }

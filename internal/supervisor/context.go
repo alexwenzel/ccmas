@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -15,19 +14,20 @@ import (
 const DefaultContextLimit = 64 << 10
 
 // Reduktionsregeln des Planungszustands (in dieser Reihenfolge, jede nur, solange der Zustand das Budget überschreitet).
-// Offene und blockierte Aufträge werden nie weggelassen und nie verkürzt, die Aufträge selbst nie entfernt:
-// Abhängigkeiten verweisen auf sie.
+// Offene und blockierte Aufträge werden nie weggelassen und nie verkürzt (auch ihre Befundtexte nicht), ebenso nicht die Texte
+// offener Fragen; die Aufträge selbst werden nie entfernt: Abhängigkeiten verweisen auf sie. Verkürzt werden darf nur, was keine
+// laufende Entscheidung trägt: abgeschlossene und abgebrochene Aufträge, die Skill-Liste und Texte bereits erledigter Fragen.
 const (
 	// ReduceSkillDescriptions: die Beschreibungen der Skill-Liste entfallen.
 	ReduceSkillDescriptions = "skill_descriptions_dropped"
 	// ReduceClosedOrders: abgeschlossene und abgebrochene Aufträge bleiben als Kurzform (ID, Art, Titel, Zustand, Modus,
 	// Abhängigkeiten); Konzeptstand, Review, Ergebnis, PR und Commit entfallen.
 	ReduceClosedOrders = "closed_orders_compacted"
-	// ReduceFindingTexts: Befundtexte offener Aufträge werden auf 160 Zeichen gekürzt.
-	ReduceFindingTexts = "finding_texts_shortened"
 	// ReduceSkillList: die Skill-Liste entfällt (die Rollenangebote nennen ihre erlaubten Skills weiterhin).
 	ReduceSkillList = "skill_list_dropped"
-	// ReduceQuestionTexts: Texte offener Fragen werden auf 200 Zeichen gekürzt.
+	// ReduceQuestionTexts: Texte erledigter Fragen (zugestellt, ersetzt, abgebrochen) werden auf 200 Zeichen gekürzt. Die
+	// Texte offener und beantworteter, noch nicht zugestellter Fragen bleiben vollständig: keine Antwort ist keine Freigabe, und
+	// die Frage hält den betroffenen Auftrag an.
 	ReduceQuestionTexts = "question_texts_shortened"
 )
 
@@ -56,13 +56,19 @@ type PlanningContext struct {
 	Reductions []string // angewandte Reduktionsregeln in Anwendungsreihenfolge; leer: unverkürzt
 }
 
+// questionPending: Die Frage ist offen oder beantwortet, aber noch nicht zugestellt, und hält ihren Auftrag an.
+func questionPending(q OpenQuestion) bool {
+	return q.State == domain.QuestionOpen || q.State == domain.QuestionAnswered
+}
+
 func closedOrder(o Order) bool { return o.State == domain.WOCompleted || o.State == domain.WOCancelled }
 
 // BuildPlanningContext stellt den Zustand für das Modell zusammen: deterministisch (gleicher Snapshot, gleiche Bytes) und
 // begrenzt auf limit Bytes (0: DefaultContextLimit). Passt der kanonisch serialisierte Snapshot nicht, greifen die
-// Reduktionsregeln (ReduceSkillDescriptions, ReduceClosedOrders, ReduceFindingTexts, ReduceSkillList, ReduceQuestionTexts) der
-// Reihe nach, jede nur, solange das Budget überschritten ist. Offene und blockierte Aufträge bleiben stets unverkürzt; reicht
-// es danach nicht, ist das ein *ContextError (errors.Is(err, ErrContextTooLarge)), nie ein stilles Weglassen.
+// Reduktionsregeln (ReduceSkillDescriptions, ReduceClosedOrders, ReduceSkillList, ReduceQuestionTexts) der Reihe nach, jede
+// nur, solange das Budget überschritten ist. Offene und blockierte Aufträge (mit ihren Befundtexten) und offene Fragen bleiben
+// stets unverkürzt; reicht es danach nicht, ist das ein *ContextError (errors.Is(err, ErrContextTooLarge)), nie ein stilles
+// Weglassen oder Kürzen. Befundtexte abgeschlossener Aufträge entfallen mit deren Kurzform.
 //
 // Der Snapshot des Aufrufers bleibt unverändert; die Reduktion wirkt auf einer tiefen Kopie. Der Validator prüft immer gegen
 // den vollständigen Snapshot, nicht gegen den reduzierten Zustand.
@@ -96,23 +102,12 @@ func BuildPlanningContext(snap ProjectSnapshot, limit int) (PlanningContext, err
 				}
 			}
 		}},
-		{ReduceFindingTexts, func() {
-			for i, o := range work.Orders {
-				if o.LastReview == nil || closedOrder(o) {
-					continue
-				}
-				r := *o.LastReview
-				r.Report.Findings = slices.Clone(r.Report.Findings)
-				for j := range r.Report.Findings {
-					r.Report.Findings[j].Summary = shorten(r.Report.Findings[j].Summary, 160)
-				}
-				work.Orders[i].LastReview = &r
-			}
-		}},
 		{ReduceSkillList, func() { work.Skills = []SkillOffer{} }},
 		{ReduceQuestionTexts, func() {
-			for i := range work.OpenQuestions {
-				work.OpenQuestions[i].Text = shorten(work.OpenQuestions[i].Text, 200)
+			for i, q := range work.OpenQuestions {
+				if !questionPending(q) {
+					work.OpenQuestions[i].Text = shorten(q.Text, 200)
+				}
 			}
 		}},
 	}

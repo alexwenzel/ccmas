@@ -171,7 +171,7 @@ func TestScenarioPlanContract(t *testing.T) {
 			{"gut: warten bis zum Merge", batch(wait("dec-1", scenario.S5A)), "", true},
 			{"gut: warten, mit Bedingung", batch(wait("dec-1", scenario.S5A, domain.Precondition{Kind: domain.PrecWorkOrderCompleted, Ref: scenario.S5A})), "", true},
 			{"schlecht: Zielabschluss bei offenem PR", batch(completion("dec-1")), "Zielabschluss", false},
-			{"schlecht: erneute Integration", batch(integration("dec-1", scenario.S5A)), "Integrationsanforderung", true},
+			{"schlecht: erneute Integration", batch(integration("dec-1", scenario.S5A)), "Integrationsanforderung", false},
 			{"schlecht: neuer Auftrag im Modus auto", batch(planAuto("dec-1"), wait("dec-2", scenario.S5A)), "Modus auto", false},
 			{"schlecht: kein wait", batch(planPR("dec-1")), "kein wait", true},
 		},

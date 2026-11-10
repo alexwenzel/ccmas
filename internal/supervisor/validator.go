@@ -351,6 +351,10 @@ func (r *run) decisionChecks(i int) {
 		r.reject(i, CodeProfileNotAllowed, "Rolle, Modell, Effort oder Skills der Auswahl sind unzulässig: %s", contractReason(selErr))
 	}
 
+	if isDelegation(d.Action) {
+		r.delegationComplete(i, d)
+	}
+
 	o, ok := r.target(i, d)
 	if ok {
 		switch d.Action {
@@ -374,6 +378,24 @@ func (r *run) decisionChecks(i int) {
 	// Wirksames Profil: nur für beauftragende Aktionen, deren Auswahl der Katalog angenommen hat.
 	if isDelegation(d.Action) && d.Selection != nil && selErr == nil {
 		r.resolveProfile(i, d)
+	}
+}
+
+// delegationComplete verlangt bei jeder Beauftragung das erwartete Ergebnis und die Aufwandsschätzung. Rolle, Skills, Modell
+// und Effort (Auswahl) und die Begründung verlangt das Schema; diese beiden Angaben sind dort aus Gründen der
+// Abwärtskompatibilität von v1 optional, im Betrieb aber Pflicht: Jede Delegation nennt Rolle, Skills, Modell, Effort,
+// erwartetes Ergebnis und Begründung (Spezifikation „Intelligente Arbeitsverteilung“), und der Aufwand ist eine eigene
+// Angabe, getrennt vom Effort. Vollständigkeit der Schätzung (Größe, Komplexität, Unsicherheit) erzwingt das Schema.
+func (r *run) delegationComplete(i int, d domain.Decision) {
+	var missing []string
+	if strings.TrimSpace(d.ExpectedOutcome) == "" {
+		missing = append(missing, "das erwartete Ergebnis fehlt (expected_outcome: ein kurzer, überprüfbarer Satz)")
+	}
+	if d.Estimate == nil {
+		missing = append(missing, "die Aufwandsschätzung fehlt (estimate: Größe, Komplexität, Unsicherheit; getrennt vom Effort)")
+	}
+	if len(missing) > 0 {
+		r.reject(i, CodeDelegationIncomplete, "Die Beauftragung %s ist unvollständig: %s. Jede Delegation nennt Rolle, Skills, Modell, Effort, erwartetes Ergebnis, Aufwand und Begründung.", d.Action, strings.Join(missing, "; "))
 	}
 }
 
@@ -516,8 +538,17 @@ func (r *run) review(i int, d domain.Decision, o *Order) {
 	case rt.Commit != o.HeadCommit:
 		r.reject(i, CodePreconditionUnmet, "Das Prüfziel %s ist nicht der aktuelle Stand %s von %s; ein Review ist an genau einen Commit gebunden.", rt.Commit, o.HeadCommit, o.ID)
 	}
-	if o.Concept != nil && rt.ConceptVersion != o.Concept.Version {
-		r.reject(i, CodePreconditionUnmet, "Das Prüfziel nennt die Konzeptversion %q, aktuell ist %q.", rt.ConceptVersion, o.Concept.Version)
+	// Das Prüfziel trägt die Konzeptversion des Auftrags, ohne Konzeptbezug die feste Kennung NoConceptVersion (das Schema
+	// verlangt dort einen Wert; das Modell erfindet keinen).
+	switch want := reviewConceptVersion(r.orders, o); {
+	case want == "":
+		if rt.ConceptVersion == NoConceptVersion {
+			r.reject(i, CodePreconditionUnmet, "Der Auftrag %s hat Konzeptbezug (Abhängigkeit auf den Konzeptauftrag %s) ohne Konzeptstand; die Kennung %q gilt nur für Aufträge ohne Konzeptbezug und ersetzt keinen Konzeptstand.", o.ID, strings.Join(r.conceptDependencies(o), ", "), NoConceptVersion)
+		}
+	case want == NoConceptVersion && rt.ConceptVersion != want:
+		r.reject(i, CodePreconditionUnmet, "Der Auftrag %s hat keinen Konzeptbezug: das Prüfziel trägt dafür die feste Kennung %q, nicht %q.", o.ID, NoConceptVersion, rt.ConceptVersion)
+	case rt.ConceptVersion != want:
+		r.reject(i, CodePreconditionUnmet, "Das Prüfziel nennt die Konzeptversion %q, aktuell ist %q.", rt.ConceptVersion, want)
 	}
 	if msg := r.conceptProblem(o); msg != "" {
 		r.reject(i, CodePreconditionUnmet, "%s", msg)
@@ -538,13 +569,39 @@ func (r *run) integration(i int, d domain.Decision, o *Order) {
 		r.reject(i, CodePreconditionUnmet, "Der Auftrag %s hat die aktive Ausführung %s; solange sie läuft, wird nicht integriert.", o.ID, strings.Join(ids, ", "))
 	}
 
-	// Review vor dem Push: derselbe Auswerter wie im Orchestrator, mit Rolle und Ausführungen aus dem Snapshot.
+	// Keine Dublette einer externen Aktion (Spezifikation „Externe Aktionen ohne Dubletten“; Review vor dem Push, Schritte 6 und
+	// 7): Ein gemergter PR ist erledigt, und ein offener PR, der schon den freigegebenen Commit trägt, ändert durch eine erneute
+	// Integration nichts. Zulässig bleibt die Aktualisierung eines offenen PR nach Reparatur und neuem FREIGEGEBEN für einen
+	// anderen Commit. Ist der Kopf-Commit des offenen PR nicht belegt, lässt sich eine neue Wirkung nicht nachweisen: abgelehnt.
+	if pr := o.PR; pr != nil {
+		approved := ""
+		if o.LastReview != nil && o.LastReview.Report.Verdict == domain.VerdictApproved {
+			approved = o.LastReview.Report.Commit
+		}
+		switch {
+		case pr.State == PRMerged:
+			r.reject(i, CodeDuplicateStart, "Der PR #%d von %s ist bereits gemergt; die Integration ist erfolgt und wird nicht wiederholt.", pr.Number, o.ID)
+		case pr.State == PROpen && pr.HeadCommit == "":
+			r.reject(i, CodeDuplicateStart, "Der PR #%d von %s ist offen, sein Kopf-Commit ist im Snapshot nicht belegt; ohne den Beleg einer neuen Wirkung wird nicht erneut integriert (wait, bis der Merge bestätigt ist).", pr.Number, o.ID)
+		case pr.State == PROpen && approved != "" && pr.HeadCommit == approved:
+			r.reject(i, CodeDuplicateStart, "Der offene PR #%d von %s trägt bereits den freigegebenen Commit %s; eine erneute Integration hätte keine neue Wirkung (wait, bis der Merge bestätigt ist).", pr.Number, o.ID, approved)
+		}
+	}
+
+	// Konzeptbezug nur über eine Abhängigkeit, ohne Konzeptstand am Auftrag: wie bei implementation und review nicht zulässig.
+	if o.Concept == nil && r.conceptRelated(o) {
+		if msg := r.conceptProblem(o); msg != "" {
+			r.reject(i, CodePreconditionUnmet, "%s", msg)
+		}
+	}
+
+	// Review vor dem Push: derselbe Auswerter wie im Orchestrator, mit Rolle und Ausführungen aus dem Snapshot. Der Bericht trägt
+	// die Konzeptversion des Auftrags, ohne Konzeptbezug die feste Kennung NoConceptVersion; es gibt keine Übernahme der
+	// Berichtsversion.
 	req := domain.IntegrationRequest{
 		RequestID: "validate-" + d.DecisionID, DecisionID: d.DecisionID, WorkOrderID: o.ID, Mode: o.Mode,
 		BaseBranch: domain.BaseBranch, HeadCommit: o.HeadCommit, Branch: o.Branch,
-	}
-	if o.Concept != nil {
-		req.ConceptVersion = o.Concept.Version
+		ConceptVersion: reviewConceptVersion(r.orders, o),
 	}
 	if o.PR != nil {
 		req.PRNumber = o.PR.Number
@@ -556,14 +613,9 @@ func (r *run) integration(i int, d domain.Decision, o *Order) {
 		rep := o.LastReview.Report
 		report, reviewerRole, implementerExec = &rep, o.LastReview.ReviewerRole, o.LastReview.ImplementerExecutionID
 		req.ReviewReportID = rep.ReportID
-		if o.Concept == nil {
-			// Ohne Konzeptstand gibt es keine Konzeptversion, an die der Bericht zu binden wäre; die Bindung an Auftrag,
-			// Commit, Urteil und die unabhängige Ausführung bleibt unverändert.
-			req.ConceptVersion = rep.ConceptVersion
-		}
 	}
 	if err := r.pol.Rules.PushAllowed(req, report, implementerExec, reviewerRole); err != nil {
-		r.reject(i, CodeIntegrationNotApproved, "Die Integration von %s hat keine gültige, unabhängige Review-Freigabe: %v (Regelcode %s). Ohne Review mit Urteil FREIGEGEBEN für genau diesen Commit und diese Konzeptversion wird nicht gepusht.", o.ID, err, skills.CodeOf(err))
+		r.reject(i, CodeIntegrationNotApproved, "Die Integration von %s hat keine gültige, unabhängige Review-Freigabe: %v (Regelcode %s). Ohne Review mit Urteil FREIGEGEBEN für genau diesen Commit und diese Konzeptversion (ohne Konzeptbezug: %q) wird nicht gepusht.", o.ID, err, skills.CodeOf(err), NoConceptVersion)
 	}
 }
 
@@ -628,15 +680,7 @@ func (c ConceptState) assessment() skills.ConceptAssessment {
 }
 
 // conceptDependencies nennt die Abhängigkeiten eines Auftrags, die Konzeptaufträge sind.
-func (r *run) conceptDependencies(o *Order) []string {
-	var out []string
-	for _, dep := range o.DependsOn {
-		if do := r.orders[dep]; do != nil && do.Kind == OrderConcept {
-			out = append(out, dep)
-		}
-	}
-	return out
-}
+func (r *run) conceptDependencies(o *Order) []string { return conceptDependencyIDs(r.orders, o) }
 
 // conceptRelated meldet, ob der Snapshot einen Konzeptbezug des Auftrags führt: ein Konzeptstand am Auftrag oder eine
 // Abhängigkeit auf einen Konzeptauftrag. Nur dann wird die Konzeptfreigabe verlangt (Spezifikation „Concept-Tickets in

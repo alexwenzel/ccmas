@@ -139,7 +139,7 @@ func Snapshot(id ID, env Env) (supervisor.ProjectSnapshot, error) {
 		a := impl(S5A, domain.WOWaitingIntegration)
 		a.HeadCommit, a.Branch = Commit, "feature/CC-3-a"
 		a.LastResult = &supervisor.LastResult{Role: domain.RoleReviewer, Result: "approved"}
-		a.PR = &supervisor.PRInfo{Number: 42, State: supervisor.PROpen, CI: supervisor.CIPassed}
+		a.PR = &supervisor.PRInfo{Number: 42, State: supervisor.PROpen, CI: supervisor.CIPassed, HeadCommit: Commit}
 		a.LastReview = &supervisor.ReviewRecord{
 			Report: domain.ReviewReport{
 				ReportID: "rep-" + S5A, WorkOrderID: S5A, ReviewerExecutionID: "exec-rev", Commit: Commit, ConceptVersion: "1.0",

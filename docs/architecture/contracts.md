@@ -70,7 +70,9 @@ Ein getrenntes Payload-Limit wäre in Go und Python nicht byte-identisch messbar
 Payload mit. Zusätzlich begrenzen `maxLength`/`maxItems` im Schema die einzelnen Felder (ebenfalls
 Größenfehler). Eine Ausnahme sind die zwei freien Objekte `start.output_schema` und `result.structured_output` (seit CC-14, siehe
 unten): Ihre Größe steht als `x-max-bytes` im Schema und wird in Go und Python nach der Schema-Prüfung an der kanonischen Form
-gemessen (sortierte Schlüssel, kompakt, UTF-8, Nicht-ASCII unmaskiert). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
+gemessen (sortierte Schlüssel, kompakt, UTF-8, Nicht-ASCII unmaskiert). Bekannte Abweichung: Die Zeichen U+2028 und U+2029 maskiert Go
+(`encoding/json`) als `\u2028` und `\u2029` und zählt dafür 6 Bytes, Python 3 Bytes; an der Grenze ist Go damit strenger als Python, also
+fail-safe (Go lehnt höchstens eine Ausgabe ab, die Python noch angenommen hätte, nie umgekehrt). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
 
 ### Nachrichtentypen
 

@@ -1,6 +1,6 @@
 # CCMAS – Supervisor: Snapshot, Validator und Planer
 
-Stand: Ticket CC-14, Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen) und Teil W14.2 (Supervisor-Skills, Planer, Systemprompt und strukturierte Ausgabe im Runner). **Führend ist die
+Stand: Ticket CC-14 (inklusive Befundrunde 2 des Reviews), Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen) und Teil W14.2 (Supervisor-Skills, Planer, Systemprompt und strukturierte Ausgabe im Runner). **Führend ist die
 Spezifikation** „Multi Agent Setup“, Abschnitte „Intelligente Arbeitsverteilung als Herzstück“ (Aufgabe des Supervisors,
 Skill und tatsächliche Intelligenz, Aufwand/Modell/Effort, Planungszyklus), „Supervisor-Entscheidungen“, „Projekt, Profile und
 Arbeitsauftrag“, „Zustandsmodell“, „Tickets und Mehrfachauswahl“, „PR und Auto-Merge“, „Milestones starten“, „Fragen und
@@ -53,7 +53,7 @@ auf einer Kopie und gibt nie `null` aus, sodass gleiche Inhalte byte-gleich sind
 | `goal` | Art (`ticket`, `feature`, `milestone`), ID, Titel, Akzeptanzkriterien, Umfang (`scope`: beauftragte Tickets/Features), `out_of_scope` (bekannt, aber nicht beauftragt), Abschlussnachweise (`evidence`) |
 | `integration_mode` | beauftragter Modus des Ziels (`pr` oder `auto`) |
 | `capacity` | `max_workers` und die aktiven Ausführungen (`execution_id`, `role`, `work_order_id`, `state`); der Supervisor selbst wird nicht mitgezählt |
-| `orders` | je Auftrag: `id`, `kind` (`concept`, `implementation`, `bug`, `organisation`), `state` (Zustandsmodell), `mode`, `depends_on`, `concept` (Version, Einstufung `class`, zutreffende `criteria`, Freigabe `approval` mit Version und Freigeber), `head_commit` und `branch`, `last_review` (Bericht mit Urteil, Commit, Konzeptversion und Ausführung des Reviewers, dazu Rolle der Reviewer-Ausführung und Ausführung der Implementierung), `last_result` (Rolle und Ergebnis der Rollenregeln), `pr` (Nummer, Stand, CI), Reparaturrunden je Schleife, `active_execution_id` |
+| `orders` | je Auftrag: `id`, `kind` (`concept`, `implementation`, `bug`, `organisation`), `state` (Zustandsmodell), `mode`, `depends_on`, `concept` (Version, Einstufung `class`, zutreffende `criteria`, Freigabe `approval` mit Version und Freigeber), `review_concept_version` (abgeleitet, siehe unten), `head_commit` und `branch`, `last_review` (Bericht mit Urteil, Commit, Konzeptversion und Ausführung des Reviewers, dazu Rolle der Reviewer-Ausführung und Ausführung der Implementierung), `last_result` (Rolle und Ergebnis der Rollenregeln), `pr` (Nummer, Stand, CI, optional `head_commit`), Reparaturrunden je Schleife, `active_execution_id` |
 | `open_questions` | noch nicht zugestellte Fragen (`question_id`, Auftrag, Zustand) |
 | `roles` | erlaubte Rollenprofile (`RoleOffer`): Rolle, optional der individuelle Agent, Standardmodell und -effort, Policy, wählbare Modelle und Stufen, erlaubte und Standard-Skills |
 | `skills` | freigegebene Skills mit Kategorie, Beschreibung, Rollen |
@@ -64,10 +64,23 @@ aktiven Ausführungen, vollständige Commit-Hashes, PR- und CI-Stand, konsistent
 Grundlage: der Validator lehnt jeden Batch mit `invalid_snapshot` ab. Eine fehlende Reviewer-Rolle gilt als „unbekannt“ und ist
 gültig; sie führt später zu `integration_not_approved`.
 
+**Konzeptversion für Reviews (`review_concept_version`).** `review_target.concept_version` ist im Schema Pflicht und nicht leer. Der Wert
+ist abgeleitet und steht je Auftrag im Zustand, das Modell erfindet nichts: die Version des Konzeptstands des Auftrags; für Umsetzungs- und
+Fehleraufträge **ohne Konzeptbezug** (kein Konzeptstand, keine Abhängigkeit auf einen Konzeptauftrag) die feste Kennung `kein-konzept`
+(`NoConceptVersion`, ohne Schemaänderung); leer, wo es keinen gültigen Wert gibt (Konzeptbezug nur über eine Abhängigkeit, kein Konzeptstand
+am Auftrag: dann sind Review und Integration nicht zulässig). `Canonical` setzt das Feld immer neu, ein vom Befüller gesetzter Wert zählt nicht;
+der Validator rechnet selbst. Die Kennung ist reserviert: ein Konzeptstand mit dieser Version macht den Snapshot ungültig. Derselbe Wert gilt für
+den Bericht des Reviewers (`concept_version`, Skill `ccmas-code-review`) und die Integrationsanforderung, damit die Bindung in `PushAllowed`
+(`CheckReview`) greift; eine Übernahme der Berichtsversion gibt es nicht.
+
 **Vom Orchestrator (M03) zu liefern.** Der Snapshot ist eine Schnittstelle: Befüllt wird er aus dem führenden Zustand. Was erst
 M03 kennt, ist hier als Feld vorbereitet, aber noch nicht produktiv befüllt: Ausführungsdatensätze (aktive Ausführungen, Rolle der
 Reviewer-Ausführung, Ausführung der Implementierung), Kopf-Commit und Branch, PR- und CI-Stand, Abschlussnachweise
-(`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die offenen Fragen. Der Validator
+(`goal.evidence`), das zuletzt gemeldete Rollenergebnis (`last_result`), Reparaturrunden und die offenen Fragen. Der PR-Stand trägt optional
+den Kopf-Commit des PR (`pr.head_commit`); ohne ihn lehnt der Validator bei einem offenen PR jede erneute Integration ab (fail-safe, siehe
+„Keine Dublette bei der Integration“). **Konzeptfreigabe abhängiger Aufträge:** Der Snapshot-Bauer überträgt den freigegebenen Konzeptstand (Version,
+Einstufung, Freigabe) auf Aufträge, die von einem Konzeptauftrag abhängen; ohne diesen Konzeptstand am Auftrag bleiben sie fail-safe blockiert
+(Implementierung, Review und Integration abgelehnt, `review_concept_version` leer). Der Validator
 verlässt sich nur auf den Snapshot, nie auf Angaben des Modells. Die Echtheit der Kennungen und Nachweise im Snapshot
 verantwortet der Orchestrator.
 
@@ -123,9 +136,9 @@ laufen unabhängig voneinander und werden gesammelt.
 | `duplicate_decision_id` | eine Entscheidungs-ID kommt im Batch mehrfach vor | Vergleich |
 | `duplicate_reference` | eine neue Ref ist schon vergeben (Auftrag, Ziel, Umfang oder zweimal im Batch) | Snapshot |
 | `dependency_cycle` | Abhängigkeitsgraph aus vorhandenen Abhängigkeiten plus `plan_extension` hat einen Zyklus (auch Selbstabhängigkeit); gemeldet bei den Entscheidungen, die Beteiligte anlegen oder beauftragen | Graph (starke Zusammenhangskomponenten) |
-| `precondition_unmet` | Auftrag blockiert, abgebrochen oder abgeschlossen (und andere nicht startbare Zustände); offene Abhängigkeit; bei Konzeptbezug des Auftrags (Konzeptstand am Auftrag oder Abhängigkeit auf einen Konzeptauftrag) Konzeptstand fehlt, Konzept nicht freigegeben oder Freigabe für andere Version; Konzeptprüfer gibt Strategisches frei (dann entscheidet der Nutzer, nur `ask_question`); offene Frage; Review ohne abgeschlossene Implementierung, mit anderem Commit oder anderer Konzeptversion; nicht erfüllte deklarierte Voraussetzung | `ConceptApprover`, `ConceptApprovalValid`, Snapshot |
+| `precondition_unmet` | Auftrag blockiert, abgebrochen oder abgeschlossen (und andere nicht startbare Zustände); offene Abhängigkeit; bei Konzeptbezug des Auftrags (Konzeptstand am Auftrag oder Abhängigkeit auf einen Konzeptauftrag) Konzeptstand fehlt (auch bei `request_integration`), Konzept nicht freigegeben oder Freigabe für andere Version; Konzeptprüfer gibt Strategisches frei (dann entscheidet der Nutzer, nur `ask_question`); offene Frage; Review ohne abgeschlossene Implementierung, mit anderem Commit oder anderer Konzeptversion (ohne Konzeptbezug muss das Prüfziel genau `kein-konzept` tragen, mit Konzeptbezug darf es die Kennung nicht); nicht erfüllte deklarierte Voraussetzung | `ConceptApprover`, `ConceptApprovalValid`, Snapshot |
 | `capacity_exceeded` | grundsätzlich startbare neue Ausführungen (`concept_work`, `implementation`, `review`, `documentation_work`; aus anderem Grund abgelehnte zählen nicht) plus aktive (ohne Supervisor) > `max_workers`; Reviewer zählen mit | Zählung |
-| `duplicate_start` | zwei startende Entscheidungen (Beauftragung oder `request_integration`) für denselben Auftrag, oder ein Auftrag mit aktiver Ausführung; `wait` und `ask_question` starten nichts | Snapshot |
+| `duplicate_start` | zwei startende Entscheidungen (Beauftragung oder `request_integration`) für denselben Auftrag, ein Auftrag mit aktiver Ausführung, oder eine erneute `request_integration` ohne neue Wirkung (PR gemergt; offener PR trägt bereits den freigegebenen Commit; Kopf-Commit des offenen PR nicht belegt); `wait` und `ask_question` starten nichts | Snapshot |
 | `scope_extension` | Ziel oder Abhängigkeit außerhalb des beauftragten Umfangs (`out_of_scope`), neue Ref, die ein nicht beauftragtes Ticket übernimmt | Snapshot |
 | `mode_extension` | Modus eines neuen Auftrags (`plan_extension[].mode`) oder eines Auftrags bei `request_integration` weitet den beauftragten Modus auf | `IntegrationModeAllowed` |
 | `integration_not_approved` | `request_integration` ohne gültiges, unabhängiges Review | `PushAllowed` (Rolle und Ausführungs-IDs aus dem Snapshot) |
@@ -133,6 +146,7 @@ laufen unabhängig voneinander und werden gesammelt.
 | `repair_budget_exhausted` | Reparaturbudget der Code- oder Konzeptschleife erschöpft; zulässig bleibt `ask_question` | `RepairStep` / `ConceptRepairStep` |
 | `profile_not_allowed` | Rolle passt nicht zur Aktion, Modell unbekannt, Effort nicht unterstützt und nicht genehmigt reduzierbar, Modell oder Effort für die Rolle nicht erlaubt, Skill unbekannt, nicht freigegeben oder für die Rolle nicht erlaubt, Agent nicht angelegt | `Decision.Check`, `Resolver.ResolveProfile` |
 | `step_not_covered` | Folgeschritt (Aktion und Rolle) steht nicht in den Rollenregeln, oder die dort geforderten Voraussetzungen fehlen unter `preconditions` | `NextSteps` |
+| `delegation_incomplete` | Beauftragung (`concept_work`, `implementation`, `review`, `documentation_work`) ohne erwartetes Ergebnis (`expected_outcome`) oder ohne Aufwandsschätzung (`estimate`); im Schema optional (v1-kompatibel), im Betrieb Pflicht | Vorhandensein, kein Urteil über den Inhalt |
 
 ### Auslegungen, die der Auftrag offenließ
 
@@ -155,8 +169,23 @@ Diese Festlegungen sind Entscheidungen dieses Stands und stehen hier, damit sie 
   eine Abhängigkeit ohne Konzeptstand am Auftrag wird abgelehnt (fail-safe); ohne Konzeptbezug gibt es nichts freizugeben, eine
   deklarierte Voraussetzung `concept_version_approved` ohne Version ist dort leer und kein Verstoß, mit Version falsch. Die
   Rollenregeln führen dafür zwei Schritte (`implementation` mit und ohne `concept_version_approved`); bei Konzeptbezug ergänzt
-  die Deckung die Voraussetzung auch für den Schritt ohne sie. Ohne Konzeptstand gibt es keine Konzeptversion, an die ein Review
-  zu binden wäre: die Integration bindet dann nur an Auftrag, Commit, Urteil und unabhängige Ausführung.
+  die Deckung die Voraussetzung auch für den Schritt ohne sie. Ohne Konzeptbezug gibt es keine Konzeptversion, an die ein Review
+  zu binden wäre; das Schema verlangt aber einen Wert. Prüfziel, Bericht und Integrationsanforderung tragen dann die feste Kennung
+  `kein-konzept` (Abschnitt ProjectSnapshot); der Validator verlangt genau sie, bei Konzeptbezug lehnt er sie ab. Bei einem
+  Konzeptbezug nur über eine Abhängigkeit (kein Konzeptstand am Auftrag) wird auch `request_integration` abgelehnt, wie `implementation`
+  und `review`; es gibt keine Übernahme der Berichtsversion.
+- **Keine Dublette bei der Integration.** Spezifikation „Externe Aktionen ohne Dubletten“ und „Unabhängiges Review vor dem Push“ (Schritte 6
+  und 7: Branch und PR werden bereitgestellt beziehungsweise aktualisiert; jede weitere Änderung braucht vor dem nächsten Push wieder
+  Review): Eine erneute `request_integration` wird mit `duplicate_start` abgelehnt, wenn der PR gemergt ist, wenn der offene PR bereits
+  den Commit des freigegebenen Reviews als Kopf trägt (keine neue Wirkung) oder wenn der Kopf-Commit des offenen PR im Snapshot
+  (`pr.head_commit`, optionales Feld, Schnittstelle zu M03) nicht belegt ist (fail-safe). Zulässig bleibt die Aktualisierung eines
+  offenen PR: nach Reparatur und neuem `FREIGEGEBEN` für einen anderen Commit. Ein geschlossener PR gilt nicht als Dublette. Gewählt
+  ist `duplicate_start` statt eines eigenen Codes: Es ist derselbe Fehler (ein zweiter Start derselben Wirkung); die Rückmeldung
+  nennt den Grund.
+- **Pflichtangaben je Delegation.** Jede Beauftragung nennt Rolle, Skills, Modell, Effort, erwartetes Ergebnis, Aufwand und Begründung
+  (Spezifikation „Intelligente Arbeitsverteilung“). Auswahl und Begründung verlangt das Schema; `expected_outcome` und `estimate` sind dort
+  v1-kompatibel optional, der Validator verlangt sie bei `concept_work`, `implementation`, `review` und `documentation_work`
+  (`delegation_incomplete`). Er prüft das Vorhandensein, nicht die Qualität.
 - **Kapazität.** Es zählen nur grundsätzlich startbare Delegationen des Batches; eine aus anderem Grund abgelehnte (offene
   Abhängigkeit, Profil, Doppelstart, …) belegt keinen Platz und löst kein `capacity_exceeded` aus. Die Entscheidungen, die nicht
   mehr hineinpassen, werden einzeln abgelehnt.
@@ -181,8 +210,8 @@ Modus, Review vor dem Push, Abschlussnachweise, Reparaturbudget, Profile (Modell
 Deckung durch die Rollenregeln.
 
 **Go entscheidet nicht** Planung: welches Ziel als Nächstes, welche Aufgaben in welcher Reihenfolge, wie zerlegt wird, welches
-Profil fachlich passt, wie hoch der Aufwand ist (`estimate` und `expected_outcome` sind Angaben des Modells ohne Prüfung gegen eine
-Zahl) und ob ein Review fachlich genügt. Das Modell plant im Rahmen der Zulässigkeit; ist der Supervisor nicht verfügbar, wartet die
+Profil fachlich passt, wie hoch der Aufwand ist (`estimate` und `expected_outcome` sind Angaben des Modells; der Validator verlangt ihr
+Vorhandensein bei Beauftragungen, prüft sie aber nicht gegen eine Zahl) und ob ein Review fachlich genügt. Das Modell plant im Rahmen der Zulässigkeit; ist der Supervisor nicht verfügbar, wartet die
 Disposition sichtbar und kontrolliert (Spezifikation): Der Planer meldet das als `*SuspendedError` („Planung ausgesetzt“, Abschnitt „Planer“); die
 Disposition darauf ist Sache des Orchestrators, nicht des Validators.
 
@@ -248,8 +277,10 @@ Ein Abbruch durch den Aufrufer (Kontext) ist kein Wartezustand; `Plan` gibt dann
 
 **Kontextbudget.** Der Zustand im Prompt ist auf `DefaultContextLimit` (64 KiB) begrenzt. Passt er nicht, greifen die Reduktionsregeln in dieser Reihenfolge, jede nur,
 solange das Budget überschritten ist: (1) `skill_descriptions_dropped`, (2) `closed_orders_compacted` (abgeschlossene und abgebrochene Aufträge bleiben als Kurzform: ID, Art, Titel,
-Zustand, Modus, Abhängigkeiten), (3) `finding_texts_shortened` (160 Zeichen), (4) `skill_list_dropped`, (5) `question_texts_shortened` (200 Zeichen). **Offene und blockierte Aufträge bleiben
-vollständig, kein Auftrag wird entfernt** (Abhängigkeiten verweisen auf sie); reicht es nicht, ist das `ContextError` und der Wartezustand `context_too_large`. Der Prompt weist auf eine Verkürzung hin; das
+Zustand, Modus, Abhängigkeiten; Konzeptstand, Review samt Befundtexten, Ergebnis, PR und Commit entfallen), (3) `skill_list_dropped`, (4) `question_texts_shortened` (200 Zeichen, nur für erledigte Fragen:
+zugestellt, ersetzt, abgebrochen). **Offene und blockierte Aufträge bleiben vollständig, auch ihre Befundtexte, ebenso die Texte offener und beantworteter, noch nicht zugestellter Fragen; kein Auftrag wird
+entfernt** (Abhängigkeiten verweisen auf sie). Kürzungen treffen nur Abgeschlossenes oder Abgebrochenes; reicht es danach nicht, ist das `ContextError` und der Wartezustand `context_too_large`
+(vor der Befundrunde 2 kürzte eine Regel `finding_texts_shortened` auch die Befunde offener Aufträge; sie entfällt). Der Prompt weist auf eine Verkürzung hin; das
 Protokoll nennt die angewandten Regeln. Der Validator prüft immer gegen den vollständigen Zustand.
 
 **Systemprompt.** `prompts/supervisor.md` (Rolle, Grenzen, Ausgabepflicht; kurz, höchstens 4000 Zeichen, die Fachlogik steht in den Skills) wird als `RunSpec.system_prompt` übergeben.
@@ -290,7 +321,7 @@ dieselben Prädikate auf die echten Ausgaben an.
 | S2 | Konzept unreif, einmal Routine, einmal strategisch (Umsetzungen hängen an den Konzeptaufträgen) | keine Implementierung; Konzeptarbeit oder Frage; weder Integration noch Abschluss |
 | S3 | `max_workers` 2, eine Ausführung läuft, eine Implementierung fertig ohne Review, ein weiterer startbarer Auftrag | Review (Rolle `reviewer`, an den Kopf-Commit gebunden) vor jeder neuen Implementierung; Beauftragungen ≤ freie Plätze |
 | S4 | Review mit BEFUNDE, Reparaturrunde 1 von 3 | Implementierung (Rolle `implementer`) für denselben Auftrag; weder Integration noch Abschluss |
-| S5 | PR-Modus, Review FREIGEGEBEN, PR offen, CI bestanden | `wait`; kein Zielabschluss, keine erneute Integration, keine Beauftragung für den Auftrag, kein neuer Auftrag im Modus `auto` |
+| S5 | PR-Modus, Review FREIGEGEBEN, PR offen mit dem freigegebenen Commit als Kopf, CI bestanden | `wait`; kein Zielabschluss, keine erneute Integration (der Validator lehnt sie zusätzlich als `duplicate_start` ab), keine Beauftragung für den Auftrag, kein neuer Auftrag im Modus `auto` |
 
 Für jede Beauftragung (alle Szenarien) verlangt `CheckDelegations`: Auswahl mit Rolle, mindestens einem Skill, Modell und Effort aus dem Angebot der Rolle im Snapshot, ein erwartetes Ergebnis, eine vollständige
 Aufwandsschätzung (`estimate`: Größe, Komplexität, Unsicherheit; getrennt vom Effort) und eine Begründung. Die Prädikate urteilen über den Inhalt; ob der Validator einen Batch annimmt, ist davon unabhängig

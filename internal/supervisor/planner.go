@@ -556,7 +556,7 @@ func buildPrompt(planning ProjectSnapshot, pc PlanningContext, leading []promptS
 
 	b.WriteString("\n# Zustand (JSON)\n")
 	if len(pc.Reductions) > 0 {
-		fmt.Fprintf(&b, "\nHinweis: Der Zustand wurde zur Größenbegrenzung verkürzt (%s). Offene und blockierte Aufträge sind vollständig.\n", strings.Join(pc.Reductions, ", "))
+		fmt.Fprintf(&b, "\nHinweis: Der Zustand wurde zur Größenbegrenzung verkürzt (%s). Offene und blockierte Aufträge (mit ihren Befunden) und offene Fragen sind vollständig und unverkürzt.\n", strings.Join(pc.Reductions, ", "))
 	}
 	b.WriteString("\n```json\n" + pc.JSON + "\n```\n")
 

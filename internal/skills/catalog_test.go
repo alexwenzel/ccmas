@@ -815,7 +815,8 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 	// Review: concept-ticket 3, concept-review 2. W33.2: feature-parallel, meilenstein-abschluss und
 	// antworten-abholen an Ort und Stelle angepasst (Version 3, approved). CC-14 (W14.2): ccmas-supervisor und
 	// ccmas-work-assessment sind neu (Planungsskills der Rolle supervisor, ohne Vertrag); neue-aufgabe-nehmen und
-	// morgen-briefing bleiben pending.
+	// morgen-briefing bleiben pending. CC-14 Befundrunde 2: ccmas-supervisor und ccmas-code-review Version 2 (feste Kennung
+	// für Aufträge ohne Konzeptbezug, Pflichtangaben je Delegation).
 	inventory := map[string]want{
 		"ccmas-concept-ticket":        {3, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
 		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation", "completion", "question_handler"), R("concept", "documentation"), []string{"vault"}},
@@ -827,9 +828,9 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 		"ccmas-feature-parallel":      {3, StatusApproved, CategoryDelivery, R("implementer"), R("implementer"), []string{"git"}},
 		"ccmas-meilenstein-abschluss": {3, StatusApproved, CategoryCompletion, R("completion"), R("completion"), []string{"asana", "vault"}},
 		"ccmas-antworten-abholen":     {3, StatusApproved, CategoryQuestions, R("question_handler"), R("question_handler"), []string{"asana", "vault"}},
-		"ccmas-code-review":           {1, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
+		"ccmas-code-review":           {2, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
 		"ccmas-concept-review":        {2, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
-		"ccmas-supervisor":            {1, StatusApproved, CategoryPlanning, R("supervisor"), R("supervisor"), nil},
+		"ccmas-supervisor":            {2, StatusApproved, CategoryPlanning, R("supervisor"), R("supervisor"), nil},
 		"ccmas-work-assessment":       {1, StatusApproved, CategoryPlanning, R("supervisor"), R("supervisor"), nil},
 	}
 	got := c.Skills()

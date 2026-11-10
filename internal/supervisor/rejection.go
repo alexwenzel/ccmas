@@ -39,8 +39,9 @@ const (
 	CodePreconditionUnmet Code = "precondition_unmet"
 	// CodeCapacityExceeded: Die neuen Ausführungen passen nicht in max_workers.
 	CodeCapacityExceeded Code = "capacity_exceeded"
-	// CodeDuplicateStart: Zwei startende Entscheidungen (Beauftragung oder Integration) für denselben Auftrag oder ein
-	// Auftrag mit aktiver Ausführung. wait und ask_question starten nichts.
+	// CodeDuplicateStart: Zwei startende Entscheidungen (Beauftragung oder Integration) für denselben Auftrag, ein Auftrag mit
+	// aktiver Ausführung oder eine erneute Integration ohne neue Wirkung (PR gemergt, oder der offene PR trägt bereits den
+	// freigegebenen Commit). wait und ask_question starten nichts.
 	CodeDuplicateStart Code = "duplicate_start"
 	// CodeScopeExtension: Das Ziel liegt außerhalb des beauftragten Umfangs.
 	CodeScopeExtension Code = "scope_extension"
@@ -56,6 +57,11 @@ const (
 	CodeProfileNotAllowed Code = "profile_not_allowed"
 	// CodeStepNotCovered: Die Entscheidung ist als Folgeschritt durch die Rollenregeln nicht gedeckt.
 	CodeStepNotCovered Code = "step_not_covered"
+	// CodeDelegationIncomplete: Eine Beauftragung (concept_work, implementation, review, documentation_work) nennt kein
+	// erwartetes Ergebnis oder keine Aufwandsschätzung. Das Schema lässt beides optional (v1-kompatibel); jede Delegation
+	// nennt aber Rolle, Skills, Modell, Effort, erwartetes Ergebnis und Begründung (Spezifikation „Intelligente
+	// Arbeitsverteilung“), und der Aufwand ist eine eigene Angabe neben dem Effort.
+	CodeDelegationIncomplete Code = "delegation_incomplete"
 )
 
 // Codes liefert alle Codes in fester Reihenfolge (die Reihenfolge ordnet auch die Ablehnungen einer Entscheidung).
@@ -65,7 +71,7 @@ func Codes() []Code {
 		CodeUnknownReference, CodeInvalidTarget, CodeDuplicateDecisionID, CodeDuplicateReference,
 		CodeDependencyCycle, CodePreconditionUnmet, CodeCapacityExceeded, CodeDuplicateStart,
 		CodeScopeExtension, CodeModeExtension, CodeIntegrationNotApproved, CodePrematureCompletion,
-		CodeRepairBudgetExhausted, CodeProfileNotAllowed, CodeStepNotCovered,
+		CodeRepairBudgetExhausted, CodeProfileNotAllowed, CodeStepNotCovered, CodeDelegationIncomplete,
 	}
 }
 

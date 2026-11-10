@@ -1071,9 +1071,9 @@ func TestConceptApprovalIsRequiredOnlyWhereTheOrderHasAConceptReference(t *testi
 		s := baseSnapshot()
 		noConcept(t, &s, "wo-review")
 		ready := noConcept(t, &s, "wo-ready")
-		// Ohne Konzeptversion ist die Bindung an den Commit die einzige; der Bericht nennt irgendeine Bezeichnung.
-		ready.LastReview.Report.ConceptVersion = "ohne-konzept"
-		e.mustAccept(batch(codeReviewDecision("dec-1", "wo-review", commitA, "ohne-konzept"), integrationDecision("dec-2", "wo-ready")), s)
+		// Ohne Konzeptversion tragen Prüfziel und Bericht die feste Kennung NoConceptVersion (siehe validator_round2_test.go).
+		ready.LastReview.Report.ConceptVersion = NoConceptVersion
+		e.mustAccept(batch(codeReviewDecision("dec-1", "wo-review", commitA, NoConceptVersion), integrationDecision("dec-2", "wo-ready")), s)
 		// Die Bindung an den Commit bleibt: ein Bericht für einen anderen Commit trägt die Integration nicht.
 		ready.LastReview.Report.Commit = commitA
 		_, err := e.check(batch(integrationDecision("dec-1", "wo-ready")), s)

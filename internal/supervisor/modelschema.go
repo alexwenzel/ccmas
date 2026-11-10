@@ -70,12 +70,12 @@ func ModelOutputSchema() json.RawMessage {
 		"review_target": obj(map[string]any{
 			"work_order_id":   str(""),
 			"commit":          str("vollständiger Commit-Hash des Zustands"),
-			"concept_version": str(""),
+			"concept_version": str("review_concept_version des Auftrags laut Zustand; ohne Konzeptbezug " + NoConceptVersion),
 		}, "work_order_id", "commit", "concept_version"),
 		"question":         obj(map[string]any{"text": str(""), "context": str(""), "recommendation": str("")}, "text", "context"),
-		"expected_outcome": str("erwartetes, überprüfbares Ergebnis"),
+		"expected_outcome": str("erwartetes, überprüfbares Ergebnis; Pflicht bei Beauftragungen"),
 		"estimate": map[string]any{
-			"description": "Aufwandsschätzung der Arbeit, getrennt vom Effort der Auswahl",
+			"description": "Aufwandsschätzung der Arbeit, getrennt vom Effort der Auswahl; Pflicht bei Beauftragungen",
 			"type":        "object",
 			"properties": map[string]any{
 				"size":        enum(strs(domain.EstimateSizes())...),

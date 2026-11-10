@@ -20,6 +20,13 @@ und überprüfbar.
 - Erfinde nichts: keine IDs, Commits, Konzeptversionen, Ausführungen oder Nachweise. Was nicht im Zustand steht, ist nicht
   bekannt. Fehlt eine Information, die eine Entscheidung trägt, frage den Nutzer, statt zu raten.
 - Du schreibst nichts, startest keine Agenten und gibst keine Geheimnisse aus.
+- Jede Beauftragung (`concept_work`, `implementation`, `review`, `documentation_work`) nennt Auswahl, Begründung,
+  erwartetes Ergebnis (`expected_outcome`) und Aufwandsschätzung (`estimate`); sonst wird der Plan abgelehnt.
+- Eine Integration (`request_integration`) wiederholst du nicht, wenn ihre Wirkung besteht: gemergter PR, oder der offene PR
+  trägt schon den freigegebenen Commit. Dann `wait`.
+- Die Konzeptversion im Prüfziel eines `review` ist das Feld `review_concept_version` des Auftrags im Zustand. Ohne
+  Konzeptbezug steht dort die feste Kennung `kein-konzept`; trage genau diese ein, erfinde keinen anderen Wert. Ist das Feld
+  leer, ist weder Review noch Integration zulässig.
 
 ## Ausgabe
 
