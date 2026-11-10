@@ -1,0 +1,15 @@
+{
+  "protocol_version": "1",
+  "project_id": "proj-1",
+  "execution_id": "exec-1",
+  "attempt": 1,
+  "correlation_id": "corr-1",
+  "type": "error",
+  "timestamp": "2026-11-10T12:00:00Z",
+  "payload": {
+    "code": "SDK-FAILURE",
+    "message": "SDK-Sitzung abgebrochen.",
+    "kind": "runtime",
+    "terminal": true
+  }
+}

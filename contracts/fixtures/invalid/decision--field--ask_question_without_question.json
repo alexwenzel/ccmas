@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "decision_id": "dec-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "target": {
+    "kind": "work_order",
+    "id": "wo-1"
+  },
+  "action": "ask_question",
+  "preconditions": [
+    {
+      "kind": "capacity_available"
+    }
+  ],
+  "rationale": "Kurze, überprüfbare Begründung."
+}

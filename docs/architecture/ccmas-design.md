@@ -120,6 +120,12 @@ Kompatibilität mit Claude Code (Recherche zum Stand 2026-11-10, aus SDK-Quellte
   Max-Abonnement zu belegen.
 - Unterstützte Python-Versionen laut SDK-Metadaten: 3.10 bis 3.13 (Entwicklungsstatus „Alpha“); CCMAS verlangt ≥ 3.12 und nutzt lokal 3.13 (`.python-version`).
 
+## Verträge
+
+Die Daten- und Nachrichtenverträge (Runner-Protokoll, Decision, Projekt/Profile/Arbeitsauftrag, Zustandsmodell,
+Fehlerkategorien, Kompatibilitätsregeln) stehen in [`contracts.md`](contracts.md). Spätere Pakete verwenden
+ausschließlich die Typen aus `internal/domain`.
+
 ## Reproduzierbare Prüfung eines sauberen Checkouts
 
 Voraussetzungen: Go 1.27.3, Python ≥ 3.12 (uv besorgt bei Bedarf eine passende Version), uv (getestet mit 0.13.7), make.

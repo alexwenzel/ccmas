@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "project_id": "ccmas",
+  "code_dir": "/work/code/ccmas",
+  "execution_dir": "/work/exec/ccmas",
+  "repository": "alexwenzel/ccmas",
+  "base_branch": "develop",
+  "vault": {
+    "id": "vault-main",
+    "path": "/work/vault",
+    "project_area": "Eigene Projekte/ccmas"
+  },
+  "asana_project_gid": "1220359723506992",
+  "max_workers": 5,
+  "default_mode": "auto",
+  "channels": [
+    "cli",
+    "tui",
+    "remote"
+  ],
+  "resources": {
+    "max_parallel_builds": 2,
+    "monitor_interval_seconds": 10,
+    "planning_interval_seconds": 120,
+    "attempt_runtime_minutes": 90
+  }
+}

@@ -1,0 +1,1029 @@
+{
+  "protocol_version": "1",
+  "project_id": "proj-1",
+  "execution_id": "exec-1",
+  "attempt": 1,
+  "correlation_id": "corr-1",
+  "type": "result",
+  "timestamp": "2026-11-10T12:00:00Z",
+  "payload": {
+    "outcome": "succeeded",
+    "summary": "Ticket umgesetzt und getestet.",
+    "review_report": {
+      "report_id": "rep-1",
+      "work_order_id": "wo-1",
+      "reviewer_execution_id": "exec-r1",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "concept_version": "1.2.0",
+      "verdict": "BEFUNDE",
+      "findings": [
+        {
+          "finding_id": "f-0",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-1",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-2",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-3",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-4",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-5",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-6",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-7",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-8",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-9",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-10",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-11",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-12",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-13",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-14",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-15",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-16",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-17",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-18",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-19",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-20",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-21",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-22",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-23",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-24",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-25",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-26",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-27",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-28",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-29",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-30",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-31",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-32",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-33",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-34",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-35",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-36",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-37",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-38",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-39",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-40",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-41",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-42",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-43",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-44",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-45",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-46",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-47",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-48",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-49",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-50",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-51",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-52",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-53",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-54",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-55",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-56",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-57",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-58",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-59",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-60",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-61",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-62",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-63",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-64",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-65",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-66",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-67",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-68",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-69",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-70",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-71",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-72",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-73",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-74",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-75",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-76",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-77",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-78",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-79",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-80",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-81",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-82",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-83",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-84",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-85",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-86",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-87",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-88",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-89",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-90",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-91",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-92",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-93",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-94",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-95",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-96",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-97",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-98",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-99",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-100",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-101",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-102",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-103",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-104",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-105",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-106",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-107",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-108",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-109",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-110",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-111",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-112",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-113",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-114",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-115",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-116",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-117",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-118",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-119",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-120",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-121",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-122",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-123",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-124",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-125",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-126",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-127",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-128",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-129",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-130",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-131",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-132",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-133",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-134",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-135",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-136",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-137",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-138",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-139",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-140",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-141",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-142",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-143",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-144",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-145",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-146",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-147",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-148",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-149",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-150",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-151",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-152",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-153",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-154",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-155",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-156",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-157",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-158",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-159",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-160",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-161",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-162",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-163",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-164",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-165",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-166",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-167",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-168",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-169",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-170",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-171",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-172",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-173",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-174",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-175",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-176",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-177",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-178",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-179",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-180",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-181",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-182",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-183",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-184",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-185",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-186",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-187",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-188",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-189",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-190",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-191",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-192",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-193",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-194",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-195",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-196",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-197",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-198",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-199",
+          "severity": "minor",
+          "summary": "x"
+        },
+        {
+          "finding_id": "f-200",
+          "severity": "minor",
+          "summary": "x"
+        }
+      ],
+      "created_at": "2026-11-10T12:30:00Z"
+    }
+  }
+}

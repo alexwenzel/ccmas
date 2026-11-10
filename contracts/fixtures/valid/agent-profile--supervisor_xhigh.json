@@ -1,0 +1,10 @@
+{
+  "profile_id": "supervisor-default",
+  "version": 3,
+  "role": "supervisor",
+  "runtime": "claude",
+  "model": "model-a",
+  "effort": "xhigh",
+  "skill_ids": [],
+  "policy_profile": "default"
+}

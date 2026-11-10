@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ccmas.invalid/contracts/decision-v1.schema.json",
+  "title": "CCMAS Supervisor-Entscheidung (v1)",
+  "description": "Strukturiertes Ergebnis des Supervisors und die daraus folgende Integrationsanforderung. Formal gültig ist nicht gleich ausführbar: Go prüft zusätzlich Revision, Bezug, Rollen, Modelle, Effort, Skills und Policies.",
+  "$defs": {
+    "decision": {
+      "type": "object",
+      "required": [
+        "schema_version", "decision_id", "project_id", "state_revision",
+        "target", "action", "preconditions", "rationale"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": 1, "x-error-class": "version" },
+        "decision_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "project_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "state_revision": { "$ref": "common-v1.schema.json#/$defs/uint" },
+        "target": {
+          "type": "object",
+          "required": ["kind", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["ticket", "feature", "milestone", "work_order"], "x-error-class": "value" },
+            "id": { "$ref": "common-v1.schema.json#/$defs/id" }
+          }
+        },
+        "action": {
+          "enum": [
+            "plan_extend", "concept_work", "implementation", "review",
+            "ask_question", "request_integration", "wait", "request_completion"
+          ],
+          "x-error-class": "action"
+        },
+        "preconditions": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "work_order_completed", "concept_version_approved", "review_approved",
+                  "ci_passed", "capacity_available"
+                ],
+                "x-error-class": "value"
+              },
+              "ref": { "$ref": "common-v1.schema.json#/$defs/id" }
+            }
+          }
+        },
+        "rationale": { "$ref": "common-v1.schema.json#/$defs/rationale_text" },
+        "selection": {
+          "description": "Rollen-, Skill-, Modell- und Effort-Wahl; Pflicht bei concept_work, implementation und review.",
+          "type": "object",
+          "required": ["role", "skill_ids", "model", "effort"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "$ref": "common-v1.schema.json#/$defs/role" },
+            "skill_ids": { "$ref": "common-v1.schema.json#/$defs/skill_ids" },
+            "model": { "$ref": "common-v1.schema.json#/$defs/model" },
+            "effort": { "$ref": "common-v1.schema.json#/$defs/effort" }
+          }
+        },
+        "review_target": {
+          "description": "Prüfziel; Pflicht bei review.",
+          "type": "object",
+          "required": ["work_order_id", "commit", "concept_version"],
+          "additionalProperties": false,
+          "properties": {
+            "work_order_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+            "commit": { "$ref": "common-v1.schema.json#/$defs/git_commit" },
+            "concept_version": { "$ref": "common-v1.schema.json#/$defs/label" }
+          }
+        },
+        "question": {
+          "description": "Rückfrage; Pflicht bei ask_question.",
+          "type": "object",
+          "required": ["text", "context"],
+          "additionalProperties": false,
+          "properties": {
+            "text": { "$ref": "common-v1.schema.json#/$defs/body_text" },
+            "context": { "$ref": "common-v1.schema.json#/$defs/context_text" },
+            "recommendation": { "$ref": "common-v1.schema.json#/$defs/note_text" }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "action": { "enum": ["concept_work", "implementation", "review"] } }, "required": ["action"] },
+          "then": { "required": ["selection"] } },
+        { "if": { "properties": { "action": { "const": "review" } }, "required": ["action"] },
+          "then": { "required": ["review_target"] } },
+        { "if": { "properties": { "action": { "const": "ask_question" } }, "required": ["action"] },
+          "then": { "required": ["question"] } }
+      ]
+    },
+    "integration_request": {
+      "description": "Anforderung der Integration eines geprüften Stands. Die Bindung an den Review-Beleg prüft Go.",
+      "type": "object",
+      "required": [
+        "request_id", "decision_id", "work_order_id", "mode", "base_branch",
+        "head_commit", "branch", "review_report_id", "concept_version", "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "decision_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "work_order_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "mode": { "$ref": "common-v1.schema.json#/$defs/integration_mode" },
+        "base_branch": { "const": "develop", "x-error-class": "value" },
+        "head_commit": { "$ref": "common-v1.schema.json#/$defs/git_commit" },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9._/-]+$",
+          "not": { "pattern": "\\n|\\.\\.|//|/$|^/|\\.lock$" },
+          "x-error-class": "value"
+        },
+        "pr_number": { "$ref": "common-v1.schema.json#/$defs/positive_int" },
+        "review_report_id": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "concept_version": { "$ref": "common-v1.schema.json#/$defs/label" },
+        "created_at": { "$ref": "common-v1.schema.json#/$defs/timestamp" }
+      }
+    }
+  }
+}
