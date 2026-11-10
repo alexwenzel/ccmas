@@ -47,8 +47,17 @@ func (c *tasksClock) Now() time.Time {
 // tasksTestStore öffnet und migriert eine echte SQLite-Datei in einem Testverzeichnis.
 func tasksTestStore(t *testing.T) *persistence.Store {
 	t.Helper()
+	s, _, _ := tasksTestStoreAt(t)
+	return s
+}
+
+// tasksTestStoreAt liefert zusätzlich die Uhr des Stores (damit Tasks dieselbe Uhr nutzt) und den Dateipfad (für eine zweite
+// Store-Instanz auf derselben Datei).
+func tasksTestStoreAt(t *testing.T) (*persistence.Store, *tasksClock, string) {
+	t.Helper()
 	clock := &tasksClock{t: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)}
-	s, err := persistence.Open(tasksCtx(t), filepath.Join(t.TempDir(), "state", "ccmas.db"), persistence.WithClock(clock.Now))
+	path := filepath.Join(t.TempDir(), "state", "ccmas.db")
+	s, err := persistence.Open(tasksCtx(t), path, persistence.WithClock(clock.Now))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -56,7 +65,7 @@ func tasksTestStore(t *testing.T) *persistence.Store {
 	if err := s.Migrate(tasksCtx(t)); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return s
+	return s, clock, path
 }
 
 func tasksUpdate(t *testing.T, s *persistence.Store, fn func(tx *persistence.Tx) error) persistence.UpdateResult {
@@ -170,6 +179,13 @@ func tasksStartExecution(tx *persistence.Tx, t *testing.T, execID, orderID, agen
 // tasksPolicy baut die Policy und die Angebote aus der Beispielkonfiguration und dem echten, geprüften Skill-Katalog.
 func tasksPolicy(t *testing.T) (supervisor.Policy, SnapshotOffers) {
 	t.Helper()
+	return tasksPolicyWith(t, nil, nil)
+}
+
+// tasksPolicyWith ergänzt die Beispielkonfiguration um individuelle Agenten (agents) und nennt im Angebot je Rolle den Agenten
+// (offerAgents): Dann lautet die profile_id der Delegation „<rolle>:<agent>“.
+func tasksPolicyWith(t *testing.T, agents map[string]profiles.Agent, offerAgents map[domain.Role]string) (supervisor.Policy, SnapshotOffers) {
+	t.Helper()
 	cat, rules, err := skills.LoadChecked(tasksRepo)
 	if err != nil {
 		t.Fatalf("LoadChecked: %v", err)
@@ -182,6 +198,9 @@ func tasksPolicy(t *testing.T) (supervisor.Policy, SnapshotOffers) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for id, a := range agents {
+		cfg.Agents[id] = a
+	}
 	res, err := profiles.NewResolver(cfg, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -190,5 +209,5 @@ func tasksPolicy(t *testing.T) (supervisor.Policy, SnapshotOffers) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pol, SnapshotOffers{Roles: supervisor.BuildRoleOffers(cfg, caps, cat, nil), Skills: supervisor.BuildSkillOffers(cat)}
+	return pol, SnapshotOffers{Roles: supervisor.BuildRoleOffers(cfg, caps, cat, offerAgents), Skills: supervisor.BuildSkillOffers(cat)}
 }
