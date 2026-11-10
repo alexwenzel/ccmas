@@ -141,7 +141,7 @@ mit denselben Typen. Ungültige oder veraltete Entscheidungen werden protokollie
 | Vertrag | Felder |
 | --- | --- |
 | `ProjectConfig` | `schema_version` (=1), `project_id`, `code_dir`, `execution_dir`, `repository` (`owner/name`), `base_branch` (fest `develop`), `vault` {`id`, `path`, `project_area`}, `asana_project_gid`; optional mit Standard: `max_workers` 1–16 (Standard 3), `default_mode` (Standard `pr`), `channels` (Standard `cli`, `tui`), `resources` {`max_parallel_builds` 1, `monitor_interval_seconds` 5, `planning_interval_seconds` 60, `attempt_runtime_minutes` 60} |
-| `AgentProfile` | `profile_id`, `version` (≥ 1), `role`, `runtime` (`claude`), `model`, `effort`, `skill_ids`, `policy_profile` |
+| `AgentProfile` | `profile_id`, `version` (≥ 1), `role`, `runtime` (`claude`), `model`, `effort`, `skill_ids`, `policy_profile`; optional (seit CC-46, siehe unten) `requested_model`, `requested_effort`, `fallback`, `value_sources` |
 | `WorkOrder` | `work_order_id`, `project_id`, `target` {`kind` `ticket`/`feature`/`milestone`, `ref`}, `user_order`, `goal`, `acceptance_criteria` (1–64), `allowed_scope` (relative Pfade), `mode` (`pr`/`auto`), `plan_version`, `state` |
 | `IntegrationRequest` | `request_id`, `decision_id`, `work_order_id`, `mode`, `base_branch` (=`develop`), `head_commit`, `branch`, `pr_number` (optional), `review_report_id`, `concept_version`, `created_at` |
 | `ReviewReport` | `report_id`, `work_order_id`, `reviewer_execution_id`, `commit`, `concept_version`, `verdict` (`FREIGEGEBEN`/`BEFUNDE`), `findings`, `created_at` |
@@ -157,7 +157,31 @@ Modell-IDs stehen **nicht** im Code: das Schema verlangt einen nicht leeren Stri
 Steuerzeichen; ob das Modell bekannt ist und welche Stufen es unterstützt, prüft Go gegen den konfigurierten
 `Catalog` (`CheckModelEffort`: unbekanntes Modell → `model`, unbekannte oder nicht unterstützte Stufe →
 `effort`). Eine dokumentierte Reduktion einer Effort-Stufe wird über das wirksame `effort` in
-`session_started` sichtbar.
+`session_started` sichtbar und seit CC-46 zusätzlich im `AgentProfile` selbst (nächster Abschnitt).
+
+### AgentProfile: angefordert, Reduktion, Herkunft (ab CC-46, v1-kompatibel)
+
+Vier neue **optionale** Felder; kein bisher gültiges Profil wird ungültig, es gibt keine neuen Pflichtfelder.
+`model`, `effort` und `skill_ids` bleiben die **wirksamen** Werte, die der Runner erhält. Aufgelöst und befüllt
+werden sie von `internal/profiles` ([`profiles.md`](profiles.md)).
+
+| Feld | Inhalt |
+| --- | --- |
+| `requested_model` | angefordertes Modell. Modelle werden nie ersetzt: der Wert gleicht `model` (Go-Prüfung, Klasse `model`) |
+| `requested_effort` | angeforderter Effort vor einer genehmigten Reduktion; ohne `fallback` gleich `effort` |
+| `fallback` | `{kind, from, to, source}`: `kind` ist `effort_reduction`, `from` der angeforderte, `to` der wirksame Effort, `source` die Quelle der Genehmigung in `models.yaml` (1–512 Zeichen). Nur vorhanden, wenn reduziert wurde; verlangt `requested_effort` (Schema, Klasse `field`) |
+| `value_sources` | `{model, effort, skill_ids}`, je eines von `order`, `agent`, `supervisor`, `role` (Rangfolge ausdrücklicher Auftragswert > Agentenwert > Wahl des Supervisors > Rollenstandard; bei Skills ist `role` auch die Standardausstattung des Skill-Katalogs). Alle drei Schlüssel sind Pflicht, wenn das Objekt vorhanden ist |
+
+Das Schema prüft Form und Aufzählungen. `Catalog.CheckProfile` prüft zusätzlich die Widerspruchsfreiheit
+(Klasse `model`, `effort` oder `value`): `requested_model` gleich `model`; ein abweichender `requested_effort` nur
+mit `fallback`; `fallback.from` gleich `requested_effort`, `fallback.to` gleich `effort`, `to` unter `from`; das
+Modell unterstützt `from` nicht (und `to` laut Katalog schon); jede Herkunft ist bekannt. Der wirksame Effort ist
+**abgeleitet** (Konfiguration plus dokumentierte Regel), nicht gemessen: das SDK meldet ihn nicht
+([`runtime-capabilities.md`](runtime-capabilities.md)).
+
+`profile_id` benennt die Quelle (`<rolle>` oder `<rolle>:<agent>`), `version` die Konfigurationsrevision
+(Revision von `agents.yaml` plus Revision von `models.yaml` minus 1; 1 nach der Einrichtung, mit jeder Änderung einer
+Datei größer). Zusammen identifizieren sie den Konfigurationsstand eines Profils, nicht einen Prozess.
 
 ### Nur in Go definierte Typen
 
@@ -185,7 +209,7 @@ dieselben Namen und Prüfmethoden (`Check`):
 `sha256`, aufsteigend nach Pfad) und `source` (`package` vault-relativ, `package_sha256`). Keine absoluten Pfade und
 keine persönlichen Daten. Das Schema prüft Form und Formate; Sortierung und Eindeutigkeit prüft Go
 (`SkillSnapshot.Check`); die Hashes (Dateien, `tree_sha256`, `snapshot_id`) rechnet `skills.VerifySnapshotDir` gegen das
-Verzeichnis nach, ebenso der Python-Runner vor jedem Sitzungsstart (`skill_snapshot.py`, W35.2). Ziel der Fixtures: `skill-snapshot`. Die vollständige Beispiel-
+Verzeichnis nach, ebenso der Python-Runner vor jedem Sitzungsstart (`skill_snapshot.py`, CC-35). Ziel der Fixtures: `skill-snapshot`. Die vollständige Beispiel-
 Verzeichnisstruktur liegt unter `contracts/fixtures/skill-snapshots/example/` und wird vom Go-Test
 `TestExampleSnapshotFixture` aus einem Test-Katalog neu erzeugt und Byte für Byte verglichen.
 
@@ -284,12 +308,12 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | Nachrichtengröße 1 MiB, strikter JSON-Parser (Duplikate, Kommazahlen, UTF-8, Folgedaten) | nur der Grenzwert `x-max-message-bytes` | ja | ja |
 | Richtung der Nachrichtentypen | ja (zwei Umschläge) | ja | ja |
 | Typisiertes Dekodieren ohne unbekannte Felder (Schutz vor Drift zwischen Schema und Typ) | – | ja | – |
-| Modell bekannt, Effort vom Modell unterstützt, Skills/Policies bekannt | – (nur Format) | ja (`Catalog`) | – |
+| Modell bekannt, Effort vom Modell unterstützt, Skills/Policies bekannt; Profil: angefordert/Fallback/Herkunft widerspruchsfrei | – (nur Format und Aufzählungen) | ja (`Catalog`, `CheckProfile`) | – |
 | Projektbezug und Zustandsrevision einer Entscheidung, Rolle ↔ Aktion | – | ja (`Decision.Check`) | – |
 | Nachrichtenfolge, terminales Ergebnis, veraltete Versuche | – | ja (`ExecutionTracker`) | – |
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
-| Skill-Snapshot: Sortierung und Eindeutigkeit (`SkillSnapshot.Check`), Hashes gegen das Verzeichnis (`skills.VerifySnapshotDir`) | nur Form und Formate | ja | ja (`skill_snapshot.verify_snapshot_dir`, seit W35.2) |
+| Skill-Snapshot: Sortierung und Eindeutigkeit (`SkillSnapshot.Check`), Hashes gegen das Verzeichnis (`skills.VerifySnapshotDir`) | nur Form und Formate | ja | ja (`skill_snapshot.verify_snapshot_dir`, seit CC-35) |
 | `skill_ids` ohne `skill_snapshot`; Snapshot ↔ Auftrag (Kennung, Rolle, Skill-IDs); geladene Skills ↔ Snapshot (Init-Frame) | – | – (Go übergibt den Snapshot, siehe CC-46) | ja (`skill_snapshot.verify_for_spec`, `runtime.check_skills_loaded`) |
 
 Der Python-Runner prüft eingehende Kommandos und kann seine ausgehenden Meldungen vor dem Senden mit

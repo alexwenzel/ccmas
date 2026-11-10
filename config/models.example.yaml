@@ -1,0 +1,39 @@
+# Beispiel für models.yaml: Fähigkeiten der Modelle. `ccmas profile init` kopiert diese Datei
+# nach <Konfigurationsverzeichnis>/models.yaml und überschreibt nie eine vorhandene Datei.
+#
+# Modell-IDs stehen nur hier (und in der kopierten models.yaml), nie im Code. Keine Zugangsdaten
+# in diese Datei schreiben.
+#
+# Die Stufen je Modell stammen aus der Tabelle „Effort levels by model“ der Claude-Code-Dokumentation.
+# Der wirksame Effort einer Ausführung ist daraus abgeleitet (Konfiguration plus dokumentierte
+# Regel), nicht gemessen: das SDK meldet ihn nicht (docs/architecture/runtime-capabilities.md).
+schema_version: 1
+revision: 1
+source: "https://code.claude.com/docs/en/model-config, Abschnitt „Effort levels by model“"
+checked_on: "2026-11-10"
+
+# Bekannte Policy-Profile (Prüfprofile des Runners; ein unbeaufsichtigter Modus ist nicht freigegeben).
+policies: [readonly, scoped_write]
+
+models:
+  claude-opus-5-5:
+    efforts: [low, medium, high, xhigh, max]
+  claude-sonnet-5-5:
+    efforts: [low, medium, high, xhigh, max]
+  claude-haiku-5-5:
+    efforts: [low, medium, high, xhigh, max]
+
+# Ausdrücklich genehmigte Reduktionen. Ohne Eintrag wird ein vom Modell nicht unterstützter Effort
+# abgelehnt (unsupported_effort). Ein Eintrag gilt nur für genau dieses Modell und genau diese
+# angeforderte Stufe; `effective` ist laut Dokumentation die höchste unterstützte Stufe auf oder
+# unter der angeforderten („If you set a level the active model does not support, Claude Code falls
+# back to the highest supported level at or below the one you set.“). Die Reduktion steht im
+# aufgelösten Profil (requested_effort, effort, fallback). Beispiel (das Modell muss unter `models`
+# stehen):
+#
+# fallbacks:
+#   - model: claude-opus-4-6
+#     requested: xhigh
+#     effective: high
+#     source: "https://code.claude.com/docs/en/model-config: xhigh läuft auf Opus 4.6 als high"
+fallbacks: []

@@ -1,0 +1,16 @@
+{
+  "profile_id": "implementer",
+  "version": 4,
+  "role": "implementer",
+  "runtime": "claude",
+  "model": "model-a",
+  "effort": "high",
+  "skill_ids": [],
+  "policy_profile": "scoped_write",
+  "value_sources": {
+    "model": "role",
+    "effort": "role",
+    "skill_ids": "agent",
+    "policy_profile": "role"
+  }
+}

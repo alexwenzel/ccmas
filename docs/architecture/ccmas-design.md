@@ -13,8 +13,9 @@ organisiert die Arbeit zwischen Obsidian, Asana und Code; unabhängige Agenten k
 und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMAS läuft lokal, die Claude-Modelle
 rechnen beim Anbieter.
 
-Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35). Vorhanden sind die CLI-Hülle
-(`version`, `skills`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
+Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01) mit dem Skill-Katalog (CC-35) und den Profilen für Modell
+und Effort (CC-46, W46.1). Vorhanden sind die CLI-Hülle
+(`version`, `skills`, `profile`, `agent`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
 `runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
 ## Festgelegte Produktentscheidungen
@@ -44,21 +45,24 @@ cmd/ccmas/            Einstieg (dünn)                                   vorhand
 internal/cli/         Befehlsbaum, Ausgabe, Exit-Codes                 vorhanden
 internal/domain/      Gemeinsame Verträge, Zustände, Prüflogik          vorhanden
 internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhanden
+internal/profiles/    Rollenprofile, Agenten, Modell/Effort (CC-46)     vorhanden
 internal/orchestrator/ supervisor/ workers/ git/ integrations/
          monitoring/ persistence/ api/ tui/                             geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
-config/ prompts/ rules/ scripts/ tests/                                 geplant
+config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
+prompts/ rules/ scripts/ tests/                                 geplant
 .claude/skills/       Führender CCMAS-Skillbestand (ccmas-<name>)       vorhanden
                       samt manifest.yaml; der Platzhalter skills/ entfällt
 docs/architecture/    dieser Snapshot                                   vorhanden
 ```
 
 Go-Modul: `github.com/alexwenzel/ccmas`, Go-Direktive `1.27.3`. Die CLI nutzt
-`github.com/spf13/cobra`, der Skill-Katalog `go.yaml.in/yaml/v3` (strikt dekodiert), beide gepinnt in `go.mod`/`go.sum`.
+`github.com/spf13/cobra`, der Skill-Katalog und die Profilkonfiguration `go.yaml.in/yaml/v3` (strikt dekodiert), beide gepinnt in `go.mod`/`go.sum`.
 
 Der Skill-Bestand (Manifest, Statusbedeutung, Hash-Definitionen, Snapshot-Layout, Ablauf bei Änderungen) ist in
-[`skill-migration.md`](skill-migration.md) beschrieben.
+[`skill-migration.md`](skill-migration.md) beschrieben. Rollenprofile, individuelle Agenten, Rangfolge, Fallback-Regel
+und Speicher der Konfiguration (`models.yaml`, `agents.yaml`) stehen in [`profiles.md`](profiles.md).
 
 ## CLI-Gruppen und Exit-Codes
 
@@ -71,7 +75,7 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 | `project` | Projektzuordnung, Arbeitsorte, Integrationen |
 | `skills` | Bestand prüfen, anzeigen und als Snapshot bereitstellen (**verfügbar** seit CC-35; Import und Zuordnung folgen) |
 | `rules` | Regeln prüfen, importieren, Zuordnung verwalten |
-| `agent`, `profile` | Rollen, Modelle, Effort, Limits |
+| `agent`, `profile` | Rollen, individuelle Modelle, Effort, Skills (**verfügbar** seit CC-46; Limits folgen) |
 | `task`, `feature`, `milestone` | Aufträge planen, starten, pausieren, fortsetzen, abbrechen |
 | `question` | Offene Fragen lesen und beantworten |
 | `review`, `merge` | Prüfungen, Befunde, Integrationsentscheidungen |
@@ -81,7 +85,10 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 **Heute implementiert:** `ccmas version` (`ccmas <version>`, mit `--json` ein JSON-Objekt mit `version`),
 `ccmas --version`, `ccmas --help` und `ccmas help [befehl]` sowie, seit CC-35, `ccmas skills list|show|validate|snapshot`
 (Ausgabe wahlweise als `--json`; Details, Root-Auflösung und Exit-Codes in [`skill-migration.md`](skill-migration.md)).
-Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
+Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve` und `ccmas agent list|show|set|unset`
+(Lesebefehle mit `--json`; `set` prüft vor dem Speichern und schreibt bei Fehlern nichts; Konfigurationsverzeichnis
+`--config-dir`, `CCMAS_CONFIG_DIR` oder `<Softwareordner>/.ccmas/config`, Einzelheiten in [`profiles.md`](profiles.md)).
+`profile verify` folgt mit W46.2. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
 Ihr Aufruf täuscht kein Verhalten vor.
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`
@@ -92,7 +99,7 @@ gesetzt (`make build` nimmt `git describe`), Standard ist `dev`.
 | Code | Konstante | Bedeutung |
 | --- | --- | --- |
 | 0 | `ExitOK` | Erfolg (auch `--help`, `version`) |
-| 1 | `ExitError` | Laufzeitfehler oder Prüfbefund bei gültig aufgerufenem Befehl (zum Beispiel `skills validate` mit Befunden) |
+| 1 | `ExitError` | Laufzeitfehler oder Prüfbefund bei gültig aufgerufenem Befehl (zum Beispiel `skills validate` mit Befunden, `profile set` mit unzulässiger Kombination) |
 | 2 | `ExitUsage` | Bedienfehler: unbekannter Befehl, unbekanntes Flag, unerwartetes Argument |
 | 3 | `ExitNotAvailable` | Befehlsgruppe ist vorgesehen, aber noch nicht verfügbar |
 

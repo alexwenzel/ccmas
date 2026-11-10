@@ -70,7 +70,10 @@ func DefaultProjectConfig() ProjectConfig {
 	}
 }
 
-// AgentProfile beschreibt die erlaubte Auswahl einer Rolle (versioniert).
+// AgentProfile beschreibt das aufgelöste Profil einer Ausführung (versioniert). Model, Effort
+// und SkillIDs sind die wirksamen Werte. Die vier optionalen Felder (seit CC-46) machen
+// Anforderung, Reduktion und Herkunft sichtbar; ohne sie gilt: angefordert gleich wirksam,
+// Herkunft unbekannt.
 type AgentProfile struct {
 	ProfileID     string   `json:"profile_id"`
 	Version       int      `json:"version"`
@@ -80,6 +83,50 @@ type AgentProfile struct {
 	Effort        Effort   `json:"effort"`
 	SkillIDs      []string `json:"skill_ids"`
 	PolicyProfile string   `json:"policy_profile"`
+
+	RequestedModel  string          `json:"requested_model,omitempty"`
+	RequestedEffort Effort          `json:"requested_effort,omitempty"`
+	Fallback        *EffortFallback `json:"fallback,omitempty"`
+	ValueSources    *ValueSources   `json:"value_sources,omitempty"`
+}
+
+// FallbackEffortReduction ist die einzige Art eines sichtbaren Fallbacks: die ausdrücklich
+// genehmigte Reduktion einer nicht unterstützten Effort-Stufe.
+const FallbackEffortReduction = "effort_reduction"
+
+// EffortFallback hält eine in models.yaml genehmigte Reduktion fest (From = angefordert,
+// To = wirksam, Source = Quelle der Genehmigung). Der wirksame Wert ist abgeleitet
+// (Konfiguration plus dokumentierte Regel), nicht gemessen.
+type EffortFallback struct {
+	Kind   string `json:"kind"`
+	From   Effort `json:"from"`
+	To     Effort `json:"to"`
+	Source string `json:"source"`
+}
+
+// ValueSource nennt die Stufe der Rangfolge, aus der ein Wert stammt.
+type ValueSource string
+
+const (
+	SourceOrder      ValueSource = "order"      // ausdrücklicher Auftragswert
+	SourceAgent      ValueSource = "agent"      // individueller Agentenwert
+	SourceSupervisor ValueSource = "supervisor" // Wahl des Supervisors
+	SourceRole       ValueSource = "role"       // Rollenstandard (bei Skills auch die Standardausstattung des Katalogs)
+)
+
+// ValueSourceLevels liefert die Stufen in Rangfolge, höchste zuerst.
+func ValueSourceLevels() []ValueSource {
+	return []ValueSource{SourceOrder, SourceAgent, SourceSupervisor, SourceRole}
+}
+
+// Valid meldet, ob s eine bekannte Stufe ist.
+func (s ValueSource) Valid() bool { return contains(ValueSourceLevels(), s) }
+
+// ValueSources hält je Feld die Herkunft des wirksamen Werts.
+type ValueSources struct {
+	Model    ValueSource `json:"model"`
+	Effort   ValueSource `json:"effort"`
+	SkillIDs ValueSource `json:"skill_ids"`
 }
 
 // WorkOrderTarget nennt Ticket, Feature oder Milestone eines Auftrags.

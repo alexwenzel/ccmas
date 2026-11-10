@@ -18,8 +18,6 @@ var plannedCommandSpecs = []plannedGroup{
 	{"ui", "Terminaloberfläche öffnen"},
 	{"project", "Projektzuordnung, Arbeitsorte und Integrationen verwalten"},
 	{"rules", "Regeln prüfen, importieren und zuordnen"},
-	{"agent", "Rollen, individuelle Modelle, Effort und Limits verwalten"},
-	{"profile", "Rollenprofile verwalten"},
 	{"task", "Einzelne Aufträge planen, starten, pausieren, fortsetzen, abbrechen"},
 	{"feature", "Feature-Aufträge planen, starten, pausieren, fortsetzen, abbrechen"},
 	{"milestone", "Milestones planen, starten, pausieren, fortsetzen, abbrechen"},

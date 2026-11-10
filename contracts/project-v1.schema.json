@@ -73,8 +73,46 @@
         "model": { "$ref": "common-v1.schema.json#/$defs/model" },
         "effort": { "$ref": "common-v1.schema.json#/$defs/effort" },
         "skill_ids": { "$ref": "common-v1.schema.json#/$defs/skill_ids" },
-        "policy_profile": { "$ref": "common-v1.schema.json#/$defs/id" }
-      }
+        "policy_profile": { "$ref": "common-v1.schema.json#/$defs/id" },
+        "requested_model": {
+          "description": "Seit CC-46, optional: das angeforderte Modell. Modelle werden nicht ersetzt; der Wert gleicht daher model und macht die Anforderung neben dem wirksamen Wert sichtbar.",
+          "$ref": "common-v1.schema.json#/$defs/model"
+        },
+        "requested_effort": {
+          "description": "Seit CC-46, optional: der angeforderte Effort vor einer genehmigten Reduktion. Weicht er von effort ab, steht fallback daneben.",
+          "$ref": "common-v1.schema.json#/$defs/effort"
+        },
+        "fallback": {
+          "description": "Seit CC-46, optional: die sichtbare, in models.yaml ausdrücklich genehmigte Reduktion der Effort-Stufe (from = requested_effort, to = effort). Ohne genehmigten Eintrag wird ein nicht unterstützter Effort abgelehnt, nicht reduziert.",
+          "type": "object",
+          "required": ["kind", "from", "to", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["effort_reduction"], "x-error-class": "value" },
+            "from": { "$ref": "common-v1.schema.json#/$defs/effort" },
+            "to": { "$ref": "common-v1.schema.json#/$defs/effort" },
+            "source": { "$ref": "common-v1.schema.json#/$defs/summary_text" }
+          }
+        },
+        "value_sources": {
+          "description": "Seit CC-46, optional: aus welcher Stufe der Rangfolge (order, agent, supervisor, role) model, effort und skill_ids stammen.",
+          "type": "object",
+          "required": ["model", "effort", "skill_ids"],
+          "additionalProperties": false,
+          "properties": {
+            "model": { "$ref": "#/$defs/value_source" },
+            "effort": { "$ref": "#/$defs/value_source" },
+            "skill_ids": { "$ref": "#/$defs/value_source" }
+          }
+        }
+      },
+      "if": { "required": ["fallback"] },
+      "then": { "required": ["requested_effort"] }
+    },
+    "value_source": {
+      "description": "Stufe der Rangfolge ausdrücklicher Auftragswert > individueller Agentenwert > Wahl des Supervisors > Rollenstandard.",
+      "enum": ["order", "agent", "supervisor", "role"],
+      "x-error-class": "value"
     },
     "work_order": {
       "type": "object",

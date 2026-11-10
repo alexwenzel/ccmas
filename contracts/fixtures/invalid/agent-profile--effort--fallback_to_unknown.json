@@ -1,0 +1,17 @@
+{
+  "profile_id": "reviewer:rev-1",
+  "version": 7,
+  "role": "reviewer",
+  "runtime": "claude",
+  "model": "model-b",
+  "effort": "high",
+  "skill_ids": [],
+  "policy_profile": "readonly",
+  "requested_effort": "xhigh",
+  "fallback": {
+    "kind": "effort_reduction",
+    "from": "xhigh",
+    "to": "mittel",
+    "source": "models.yaml"
+  }
+}
