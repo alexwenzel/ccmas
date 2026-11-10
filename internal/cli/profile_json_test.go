@@ -214,7 +214,8 @@ func TestProfileResolveHelpNamesFullPrecedence(t *testing.T) {
 	}
 	flat := strings.Join(strings.Fields(out), " ")
 	want := "Auftragswert > Agentenwert > Wahl des Supervisors > Rollenstandard"
-	if !strings.Contains(flat, want) || !strings.Contains(flat, "CC-14") {
+	// Seit CC-14 hat die Wahl des Supervisors eigene Schalter; der Hinweis auf das offene Ticket entfällt.
+	if !strings.Contains(flat, want) || !strings.Contains(flat, "--supervisor-model") || strings.Contains(flat, "CC-14") {
 		t.Errorf("Hilfetext nennt die Rangfolge nicht vollständig:\n%s", out)
 	}
 }

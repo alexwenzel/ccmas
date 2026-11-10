@@ -10,22 +10,27 @@ import (
 // SpecRecord ist der RunSpec einer Ausführung ohne Prompt-Text: der Datensatz hält nur Länge und
 // SHA-256 des Prompts.
 type SpecRecord struct {
-	WorkOrderID       string                   `json:"work_order_id"`
-	ProfileID         string                   `json:"profile_id,omitempty"`
-	ProfileVersion    int                      `json:"profile_version,omitempty"`
-	Role              domain.Role              `json:"role"`
-	Runtime           domain.Runtime           `json:"runtime"`
-	Model             string                   `json:"model"`
-	Effort            domain.Effort            `json:"effort"`
-	SkillIDs          []string                 `json:"skill_ids"`
-	PolicyProfile     string                   `json:"policy_profile"`
-	Cwd               string                   `json:"cwd"`
-	ClaudeBinary      string                   `json:"claude_binary"`
-	PromptBytes       int                      `json:"prompt_bytes"`
-	PromptSHA256      string                   `json:"prompt_sha256"`
-	ResumeSessionID   string                   `json:"resume_session_id,omitempty"`
-	MaxRuntimeSeconds int                      `json:"max_runtime_seconds"`
-	SkillSnapshot     *domain.SkillSnapshotRef `json:"skill_snapshot,omitempty"`
+	WorkOrderID    string         `json:"work_order_id"`
+	ProfileID      string         `json:"profile_id,omitempty"`
+	ProfileVersion int            `json:"profile_version,omitempty"`
+	Role           domain.Role    `json:"role"`
+	Runtime        domain.Runtime `json:"runtime"`
+	Model          string         `json:"model"`
+	Effort         domain.Effort  `json:"effort"`
+	SkillIDs       []string       `json:"skill_ids"`
+	PolicyProfile  string         `json:"policy_profile"`
+	Cwd            string         `json:"cwd"`
+	ClaudeBinary   string         `json:"claude_binary"`
+	PromptBytes    int            `json:"prompt_bytes"`
+	PromptSHA256   string         `json:"prompt_sha256"`
+	// Systemprompt und Ausgabeschema (CC-14): wie der Prompt nur Länge und SHA-256, nie der Text.
+	SystemPromptBytes  int                      `json:"system_prompt_bytes,omitempty"`
+	SystemPromptSHA256 string                   `json:"system_prompt_sha256,omitempty"`
+	OutputSchemaBytes  int                      `json:"output_schema_bytes,omitempty"`
+	OutputSchemaSHA256 string                   `json:"output_schema_sha256,omitempty"`
+	ResumeSessionID    string                   `json:"resume_session_id,omitempty"`
+	MaxRuntimeSeconds  int                      `json:"max_runtime_seconds"`
+	SkillSnapshot      *domain.SkillSnapshotRef `json:"skill_snapshot,omitempty"`
 }
 
 // Violation ist eine Nachricht oder Zeile des Runners, die nicht übernommen wurde: ungültig,
@@ -92,6 +97,17 @@ func (e Execution) Result() (domain.Result, bool) {
 		}
 	}
 	return domain.Result{}, false
+}
+
+// StructuredOutput liefert die strukturierte Ausgabe des Ergebnisses (roh, wie sie der Runner gemeldet hat), wenn der
+// Versuch mit einem Ergebnis endete und eines trug. Den Inhalt prüft der Aufrufer fachlich; das Ausgabeschema hat
+// bereits der Runner geprüft.
+func (e Execution) StructuredOutput() (json.RawMessage, bool) {
+	res, ok := e.Result()
+	if !ok || len(res.StructuredOutput) == 0 {
+		return nil, false
+	}
+	return append(json.RawMessage(nil), res.StructuredOutput...), true
 }
 
 // TerminalError liefert den terminalen Fehler, wenn der Versuch so endete.

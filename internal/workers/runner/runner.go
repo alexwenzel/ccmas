@@ -29,6 +29,9 @@ const (
 	maxViolationMessageLen = 300
 )
 
+// MaxTurnsLimit ist die größte Rundenzahl, die der Runner für --max-turns annimmt.
+const MaxTurnsLimit = 200
+
 // Config konfiguriert den Adapter. Der Nullwert ist bis auf SoftwareRoot (oder Command)
 // brauchbar.
 type Config struct {
@@ -88,8 +91,11 @@ func RunnerProjectDir(softwareRoot string) string {
 	return filepath.Join(softwareRoot, "runners", "claude_sdk")
 }
 
-// command liefert den Befehl des Runner-Prozesses.
-func (r *Runner) command() ([]string, error) {
+// command liefert den Befehl des Runner-Prozesses mit den Runden aus der Konfiguration.
+func (r *Runner) command() ([]string, error) { return r.commandFor(0) }
+
+// commandFor liefert den Befehl für eine Ausführung; maxTurns > 0 geht vor Config.MaxTurns.
+func (r *Runner) commandFor(maxTurns int) ([]string, error) {
 	if len(r.cfg.Command) > 0 {
 		return append([]string{}, r.cfg.Command...), nil
 	}
@@ -101,8 +107,11 @@ func (r *Runner) command() ([]string, error) {
 		return nil, errors.New("uv nicht gefunden (PATH)")
 	}
 	argv := []string{uv, "run", "--frozen", "--project", RunnerProjectDir(r.cfg.SoftwareRoot), "python", "-m", "claude_sdk_runner"}
-	if r.cfg.MaxTurns > 0 {
-		argv = append(argv, "--max-turns", strconv.Itoa(r.cfg.MaxTurns))
+	if maxTurns <= 0 {
+		maxTurns = r.cfg.MaxTurns
+	}
+	if maxTurns > 0 {
+		argv = append(argv, "--max-turns", strconv.Itoa(maxTurns))
 	}
 	return argv, nil
 }
@@ -172,7 +181,7 @@ func (r *Runner) Start(ctx context.Context, req Request) (*Run, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Start nicht gültig: %w", err)
 	}
-	argv, err := r.command()
+	argv, err := r.commandFor(req.MaxTurns)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +278,9 @@ func (r *Runner) normalize(req Request) (Request, error) {
 	}
 	if req.Prompt == "" {
 		return req, errors.New("Prompt fehlt")
+	}
+	if req.MaxTurns < 0 || req.MaxTurns > MaxTurnsLimit {
+		return req, fmt.Errorf("MaxTurns %d ungültig (0 oder 1 bis %d)", req.MaxTurns, MaxTurnsLimit)
 	}
 	if req.Cwd == "" {
 		return req, errors.New("Sitzungsverzeichnis (cwd) fehlt")

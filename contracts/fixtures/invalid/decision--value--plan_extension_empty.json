@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "decision_id": "dec-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "target": {
+    "kind": "work_order",
+    "id": "wo-1"
+  },
+  "action": "plan_extend",
+  "preconditions": [],
+  "rationale": "Kurze, überprüfbare Begründung.",
+  "plan_extension": {
+    "work_orders": []
+  }
+}

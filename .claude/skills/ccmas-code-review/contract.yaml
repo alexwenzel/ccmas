@@ -10,7 +10,7 @@ inputs:
   - {name: worktree, required: true, description: "Pfad des vorbereiteten Worktrees, exklusiv für diese Prüfung reserviert"}
   - {name: commit, required: true, description: "Zu prüfender Commit (vollständiger Hash)"}
   - {name: base, required: true, description: "Vergleichsbasis, immer origin/develop"}
-  - {name: concept_version, required: true, description: "Freigegebene Konzeptversion, gegen die geprüft wird"}
+  - {name: concept_version, required: true, description: "Freigegebene Konzeptversion, gegen die geprüft wird; ohne Konzeptbezug des Auftrags die feste Kennung kein-konzept"}
   - {name: acceptance_criteria, required: true, description: "Akzeptanzkriterien des Auftrags"}
   - {name: implementer_execution_id, required: true, description: "Ausführung der Implementierung, zum Nachweis der Unabhängigkeit"}
   - {name: implementer_report, required: false, description: "Bericht des Implementierers mit Prüfergebnissen und offenen Punkten"}

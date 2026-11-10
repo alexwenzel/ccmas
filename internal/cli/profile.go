@@ -151,11 +151,12 @@ func parseEffort(s string) (domain.Effort, error) {
 	return e, nil
 }
 
-// skillValues prüft wiederholbare --skill-Werte; leere Angaben sind ein Bedienfehler.
-func skillValues(vals []string) ([]string, error) {
+// skillValues prüft wiederholbare Skill-Werte des Schalters flag (zum Beispiel "--skill"); leere Angaben sind ein
+// Bedienfehler.
+func skillValues(flag string, vals []string) ([]string, error) {
 	for _, v := range vals {
 		if strings.TrimSpace(v) == "" {
-			return nil, usageErrorf("--skill braucht eine Skill-ID")
+			return nil, usageErrorf("%s braucht eine Skill-ID", flag)
 		}
 	}
 	return vals, nil
@@ -441,7 +442,7 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 					return err
 				}
 			}
-			ids, err := skillValues(skillIDs)
+			ids, err := skillValues("--skill", skillIDs)
 			if err != nil {
 				return err
 			}
@@ -518,22 +519,29 @@ func printResolved(out io.Writer, p domain.AgentProfile) {
 
 func newProfileResolveCommand(opts *profileOpts) *cobra.Command {
 	var (
-		asJSON  bool
-		role    string
-		agent   string
-		model   string
-		effort  string
-		skillID []string
+		asJSON         bool
+		role           string
+		agent          string
+		model          string
+		effort         string
+		skillID        []string
+		supervisorMod  string
+		supervisorEff  string
+		supervisorSkil []string
 	)
 	cmd := &cobra.Command{
-		Use:   "resolve --role <rolle> [--agent <id>] [--model M] [--effort E] [--skill ID …]",
+		Use: "resolve --role <rolle> [--agent <id>] [--model M] [--effort E] [--skill ID …] " +
+			"[--supervisor-model M] [--supervisor-effort E] [--supervisor-skill ID …]",
 		Short: "Das aufgelöste Profil einer Ausführung anzeigen",
 		Long: "Löst Rolle (und optional einen individuellen Agenten) je Feld einzeln mit der Rangfolge Auftragswert > " +
-			"Agentenwert > Wahl des Supervisors > Rollenstandard auf (die Wahl des Supervisors hat noch keinen CLI-Schalter, " +
-			"sie kommt mit CC-14) und zeigt Modell, angeforderten und wirksamen Effort, eventuelle genehmigte Reduktion, " +
-			"Skills, Policy, Version und die Herkunft jedes Werts (value_sources). --model, --effort und --skill sind " +
-			"ausdrückliche Auftragswerte. Der Effort ist abgeleitet (Konfiguration und dokumentierte Regel), nicht " +
-			"gemessen. Es wird nichts gespeichert.",
+			"Agentenwert > Wahl des Supervisors > Rollenstandard auf und zeigt Modell, angeforderten und wirksamen " +
+			"Effort, eventuelle genehmigte Reduktion, Skills, Policy, Version und die Herkunft jedes Werts " +
+			"(value_sources). --model, --effort und --skill sind ausdrückliche Auftragswerte (höchster Rang). " +
+			"--supervisor-model, --supervisor-effort und --supervisor-skill sind die Wahl des Supervisors; sie " +
+			"liegt über dem Rollenstandard und unter Agenten- und Auftragswerten, und auch sie muss innerhalb der " +
+			"Rollenerlaubnis liegen. So lässt sich nachvollziehen, welches Profil eine Entscheidung des Supervisors " +
+			"ergibt. Der Effort ist abgeleitet (Konfiguration und dokumentierte Regel), nicht gemessen. Es wird " +
+			"nichts gespeichert.",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if role == "" {
@@ -550,7 +558,16 @@ func newProfileResolveCommand(opts *profileOpts) *cobra.Command {
 					return err
 				}
 			}
-			if ov.Order.SkillIDs, err = skillValues(skillID); err != nil {
+			if ov.Order.SkillIDs, err = skillValues("--skill", skillID); err != nil {
+				return err
+			}
+			ov.Supervisor.Model = supervisorMod
+			if supervisorEff != "" {
+				if ov.Supervisor.Effort, err = parseEffort(supervisorEff); err != nil {
+					return err
+				}
+			}
+			if ov.Supervisor.SkillIDs, err = skillValues("--supervisor-skill", supervisorSkil); err != nil {
 				return err
 			}
 			s, err := opts.loadSession()
@@ -588,6 +605,9 @@ func newProfileResolveCommand(opts *profileOpts) *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "Modell-ID als ausdrücklicher Auftragswert")
 	cmd.Flags().StringVar(&effort, "effort", "", "Effort-Stufe als ausdrücklicher Auftragswert")
 	cmd.Flags().StringArrayVar(&skillID, "skill", nil, "Skill-ID als ausdrücklicher Auftragswert (wiederholbar)")
+	cmd.Flags().StringVar(&supervisorMod, "supervisor-model", "", "Modell-ID als Wahl des Supervisors")
+	cmd.Flags().StringVar(&supervisorEff, "supervisor-effort", "", "Effort-Stufe als Wahl des Supervisors")
+	cmd.Flags().StringArrayVar(&supervisorSkil, "supervisor-skill", nil, "Skill-ID als Wahl des Supervisors (wiederholbar)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Ausgabe als JSON-Objekt (das AgentProfile)")
 	return cmd
 }

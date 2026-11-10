@@ -79,3 +79,81 @@ func TestResolvedProfilesPassTheCatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildCatalogCarriesApprovedFallbacksAndSkillRoles(t *testing.T) {
+	caps := testCaps()
+	cat := BuildCatalog(caps, newTestSkills(t))
+
+	// Die genehmigten Reduktionen stammen aus models.yaml (Capabilities), es gibt keine zweite Liste.
+	want := domain.CatalogFallback{Model: mMid, Requested: domain.EffortXHigh, Effective: domain.EffortHigh, Source: "Testdoku: xhigh läuft als high"}
+	if len(cat.Fallbacks) != 1 || cat.Fallbacks[0] != want {
+		t.Fatalf("Fallbacks = %+v, erwartet %+v", cat.Fallbacks, want)
+	}
+	// Je freigegebenem Skill stehen die erlaubten Rollen im Katalog; ein nicht freigegebener Skill fehlt.
+	if got := cat.SkillRoles[skReview]; !slices.Equal(got, []domain.Role{domain.RoleReviewer, domain.RoleConceptReviewer}) {
+		t.Errorf("Rollen von %s = %v", skReview, got)
+	}
+	if got := cat.SkillRoles[skImpl]; !slices.Equal(got, []domain.Role{domain.RoleImplementer}) {
+		t.Errorf("Rollen von %s = %v", skImpl, got)
+	}
+	if _, ok := cat.SkillRoles[skPlan]; ok {
+		t.Error("nicht freigegebener Skill hat Rollen im Katalog")
+	}
+	// Mit Rolleninformation, auch wenn kein Skill freigegeben ist: nie nil (sonst entfiele die Rollenprüfung).
+	if empty := BuildCatalog(caps, nil); empty.SkillRoles == nil {
+		t.Error("SkillRoles darf ohne Katalog nicht nil sein")
+	}
+	// Kopie: Änderungen am Katalog verändern die Capabilities nicht.
+	cat.Fallbacks[0].Effective = domain.EffortLow
+	if caps.Fallbacks[0].Effective != domain.EffortHigh {
+		t.Error("der Katalog teilt Speicher mit den Capabilities")
+	}
+}
+
+func TestDecisionCheckUsesApprovedFallbackFromModelsYAML(t *testing.T) {
+	cat := BuildCatalog(testCaps(), newTestSkills(t))
+	ctx := domain.DecisionContext{ProjectID: "proj-1", StateRevision: 3, Catalog: cat}
+	decision := func(model string, effort domain.Effort) domain.Decision {
+		return domain.Decision{
+			Action: domain.ActionImplementation, ProjectID: "proj-1", StateRevision: 3,
+			Selection: &domain.Selection{Role: domain.RoleImplementer, Model: model, Effort: effort, SkillIDs: []string{skImpl}},
+		}
+	}
+	// mMid unterstützt xhigh nicht, models.yaml genehmigt die Reduktion auf high: zulässig und sichtbar.
+	got, err := decision(mMid, domain.EffortXHigh).CheckEffective(ctx)
+	if err != nil {
+		t.Fatalf("genehmigter Fallback abgewiesen: %v", err)
+	}
+	if got.Effort != domain.EffortHigh || got.RequestedEffort != domain.EffortXHigh || got.Fallback == nil || got.Fallback.To != domain.EffortHigh {
+		t.Fatalf("wirksame Auswahl = %+v", got)
+	}
+	// Für max ist nichts genehmigt; mSmall hat gar keinen Fallback.
+	var ce *domain.ContractError
+	if err := decision(mMid, domain.EffortMax).Check(ctx); !errors.As(err, &ce) || ce.Category() != domain.CatEffort {
+		t.Errorf("max auf mMid: %v", err)
+	}
+	if err := decision(mSmall, domain.EffortXHigh).Check(ctx); !errors.As(err, &ce) || ce.Category() != domain.CatEffort {
+		t.Errorf("xhigh auf mSmall: %v", err)
+	}
+}
+
+func TestDecisionCheckRejectsSkillOfAnotherRole(t *testing.T) {
+	cat := BuildCatalog(testCaps(), newTestSkills(t))
+	ctx := domain.DecisionContext{ProjectID: "proj-1", StateRevision: 3, Catalog: cat}
+	d := domain.Decision{
+		Action: domain.ActionImplementation, ProjectID: "proj-1", StateRevision: 3,
+		Selection: &domain.Selection{Role: domain.RoleImplementer, Model: mMid, Effort: domain.EffortHigh, SkillIDs: []string{skReview}},
+	}
+	var ce *domain.ContractError
+	if err := d.Check(ctx); !errors.As(err, &ce) || ce.Category() != domain.CatRole {
+		t.Fatalf("Review-Skill für den Implementierer: %v", err)
+	}
+	d.Action, d.Selection = domain.ActionDocumentationWork, &domain.Selection{Role: domain.RoleDocumentation, Model: mMid, Effort: domain.EffortHigh, SkillIDs: []string{skDoc, skExtra}}
+	if err := d.Check(ctx); err != nil {
+		t.Fatalf("documentation_work mit Dokumentationsskills: %v", err)
+	}
+	d.Selection.SkillIDs = []string{skImpl}
+	if err := d.Check(ctx); !errors.As(err, &ce) || ce.Category() != domain.CatRole {
+		t.Fatalf("Implementierungsskill für die Dokumentation: %v", err)
+	}
+}

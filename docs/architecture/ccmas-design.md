@@ -47,12 +47,15 @@ internal/domain/      Gemeinsame Verträge, Zustände, Prüflogik          vorha
 internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhanden
 internal/profiles/    Rollenprofile, Agenten, Modell/Effort (CC-46)     vorhanden
 internal/workers/     Adapter zum Python-Runner: runner/ (CC-46)        vorhanden (minimal)
-internal/orchestrator/ supervisor/ git/ integrations/
+internal/supervisor/  ProjectSnapshot, Validator, Policy, Planer (CC-14) vorhanden
+internal/orchestrator/ git/ integrations/
          monitoring/ persistence/ api/ tui/                             geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
 config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
-prompts/ rules/ scripts/ tests/                                         geplant
+rules/                Rollenregeln roles.yaml (CC-33)                   vorhanden
+prompts/             Systemprompts der Rollen (supervisor.md, CC-14)   vorhanden (nur supervisor)
+scripts/ tests/                                                         geplant
 .claude/skills/       Führender CCMAS-Skillbestand (ccmas-<name>)       vorhanden
                       samt manifest.yaml; der Platzhalter skills/ entfällt
 docs/architecture/    dieser Snapshot                                   vorhanden
@@ -60,6 +63,14 @@ docs/architecture/    dieser Snapshot                                   vorhande
 
 Go-Modul: `github.com/alexwenzel/ccmas`, Go-Direktive `1.27.3`. Die CLI nutzt
 `github.com/spf13/cobra`, der Skill-Katalog und die Profilkonfiguration `go.yaml.in/yaml/v3` (strikt dekodiert), beide gepinnt in `go.mod`/`go.sum`.
+
+Die Auswerter der Rollenregeln (`PushAllowed`, `ConceptApprover`, `RepairStep`, `FeatureComplete`, `IntegrationModeAllowed`,
+`NextSteps`, …) sind **Bausteine des Orchestrators** ([`workflow-rules.md`](workflow-rules.md)). Seit CC-14 ruft sie für
+Planungsergebnisse des Supervisors der Validator in `internal/supervisor` auf ([`supervisor.md`](supervisor.md)); den Validator
+ruft erst der Orchestrator (M03, geplant) vor jeder Ausführung auf. `internal/supervisor` enthält nur Zulässigkeitsregeln, keine
+Planung; die Planung macht der Claude-Supervisor: Der Planer (`internal/supervisor/planner.go`, W14.2) ruft ihn mit Systemprompt (`prompts/supervisor.md`), Skills
+und strukturierter Ausgabe auf; die Live-Szenarien folgen in W14.3. Die Systemprompts der Rollen liegen unter `prompts/` (Go-Paket `prompts`, eingebettet),
+bleiben kurz (Rolle, Grenzen, Ausgabepflicht) und enthalten keine Fachlogik: die steht in den Skills.
 
 Der Skill-Bestand (Manifest, Statusbedeutung, Hash-Definitionen, Snapshot-Layout, Ablauf bei Änderungen) ist in
 [`skill-migration.md`](skill-migration.md) beschrieben. Rollenprofile, individuelle Agenten, Rangfolge, Fallback-Regel
@@ -89,7 +100,8 @@ Der vorgesehene Befehlsraum („Vollständige CLI-Steuerung“) umfasst diese Gr
 Ebenfalls seit CC-46: `ccmas profile init|list|show|set|resolve|verify` und `ccmas agent list|show|set|unset`
 (alle Befehle mit `--json`, die ändernden mit einem Ergebnisobjekt; `set` prüft vor dem Speichern und schreibt bei Fehlern nichts; Konfigurationsverzeichnis
 `--config-dir`, `CCMAS_CONFIG_DIR` oder `<Softwareordner>/.ccmas/config`, Einzelheiten in [`profiles.md`](profiles.md)).
-`ccmas profile verify [--live]` (seit CC-46) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent; mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
+`ccmas profile resolve` hat seit CC-14 die Schalter `--supervisor-model`, `--supervisor-effort` und `--supervisor-skill` für die Wahl des Supervisors.
+`ccmas profile verify [--live]` (seit CC-46) prüft Konfiguration, Auflösbarkeit, Runner-Projekt, `uv` und Claude-Binary ohne Prozessstart und Kontingent (Skill-Bestand und Rollenregeln geprüft geladen, seit CC-14); mit `--live` läuft je Modell ein Minimallauf über den Runner-Adapter. Alle übrigen Gruppen oben sind in der Hilfe unter „Geplante Befehlsgruppen (noch nicht verfügbar)“ aufgeführt.
 Ihr Aufruf täuscht kein Verhalten vor.
 
 Die Version wird beim Bauen per `-ldflags "-X github.com/alexwenzel/ccmas/internal/cli.Version=<v>"`

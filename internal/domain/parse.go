@@ -67,6 +67,16 @@ func ParseDecision(raw []byte) (Decision, error) {
 	return v, nil
 }
 
+// ParseDecisionBatch prüft und dekodiert ein Planungsergebnis formal. Ausführbar ist es erst nach der
+// Prüfung durch den Validator (internal/supervisor).
+func ParseDecisionBatch(raw []byte) (DecisionBatch, error) {
+	var v DecisionBatch
+	if err := parseInto(TargetDecisionBatch, raw, &v); err != nil {
+		return DecisionBatch{}, err
+	}
+	return v, nil
+}
+
 // ParseIntegrationRequest prüft und dekodiert einen IntegrationRequest.
 func ParseIntegrationRequest(raw []byte) (IntegrationRequest, error) {
 	var v IntegrationRequest
@@ -102,7 +112,7 @@ func ParseSkillSnapshot(raw []byte) (SkillSnapshot, error) {
 }
 
 // Parse prüft und dekodiert ein Dokument des Ziels t und liefert den typisierten Wert:
-// RunCommand, RunEvent, ProjectConfig, AgentProfile, WorkOrder, Decision,
+// RunCommand, RunEvent, ProjectConfig, AgentProfile, WorkOrder, Decision, DecisionBatch,
 // IntegrationRequest, ReviewReport oder SkillSnapshot.
 func Parse(t Target, raw []byte) (any, error) {
 	switch t {
@@ -118,6 +128,8 @@ func Parse(t Target, raw []byte) (any, error) {
 		return ParseWorkOrder(raw)
 	case TargetDecision:
 		return ParseDecision(raw)
+	case TargetDecisionBatch:
+		return ParseDecisionBatch(raw)
 	case TargetIntegrationRequest:
 		return ParseIntegrationRequest(raw)
 	case TargetReviewReport:

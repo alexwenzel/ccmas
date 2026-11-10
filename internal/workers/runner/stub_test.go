@@ -129,6 +129,19 @@ func stubMain(scenario, dump string) int {
 		s.emit(attempt, "tool_event", map[string]any{"tool_use_id": "t1", "tool": "Read", "phase": "finished"})
 		s.result(attempt, "succeeded")
 		return 0
+	case "structured":
+		// Gibt die Auftragsfelder von CC-14 zurück, damit der Test sieht, was beim Runner ankam.
+		s.started(attempt)
+		out := map[string]any{"system_prompt": s.spec.SystemPrompt, "schema_present": len(s.spec.OutputSchema) > 0, "skill_ids": s.spec.SkillIDs}
+		if s.spec.SkillSnapshot != nil {
+			out["snapshot_id"] = s.spec.SkillSnapshot.SnapshotID
+		}
+		s.emit(attempt, "result", map[string]any{"outcome": "succeeded", "summary": "fertig", "structured_output": out})
+		return 0
+	case "structured-missing":
+		s.started(attempt)
+		s.emit(attempt, "error", map[string]any{"code": "structured_output_failed", "message": "keine gültige Ausgabe", "kind": "runtime", "terminal": true})
+		return 0
 	case "exit0-noresult":
 		s.started(attempt)
 		return 0

@@ -37,6 +37,12 @@ Verzeichnisses). `claude_sdk_runner.skill_snapshot` rechnet vor dem Start alle H
 diesen Skills (`ccmas:<id>`) und bricht ab, wenn der Init-Frame etwas anderes zeigt (`skills_not_loaded`). Ohne Snapshot ist kein Skill
 aufrufbar. Live-Tests: `CCMAS_LIVE_TESTS=1 uv run --frozen pytest -q -m live -k skill`.
 
+Systemprompt und strukturierte Ausgabe (CC-14): `start.system_prompt` ersetzt den Systemprompt der Sitzung (ohne Angabe startet das SDK die CLI
+mit `--system-prompt ""`, also ohne den Standardprompt von Claude Code). `start.output_schema` (JSON-Schema, Draft-07, vorab geprüft) wird zu
+`output_format`; das Ergebnis trägt dann `structured_output`, oder der Versuch endet mit `output_schema_invalid`, `structured_output_failed`,
+`structured_output_missing`, `structured_output_invalid` beziehungsweise `structured_output_too_large`. Die Werkzeugaufrufe `StructuredOutput`
+werden gezählt (Log), nicht als Werkzeugereignis gemeldet. Felder und Fehlercodes: `docs/architecture/contracts.md`.
+
 ```bash
 uv run --frozen pytest tests/test_runtime_smoke.py -q                              # ohne Konto, ohne Netzwerk
 CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # 4 echte Läufe (Unterprozess, Allowlist-Umgebung), verbraucht Abo-Kontingent

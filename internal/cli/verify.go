@@ -226,8 +226,9 @@ func runOfflineChecks(opts *profileOpts, rep *verifyReport, roles []domain.Role,
 	}
 	rep.add("models.yaml", levelConfigured, capsErr, fmt.Sprintf("gültig (Revision %d, %d Modelle)", caps.Revision, len(caps.ModelIDs())))
 	st.caps = caps
-	cat, catErr := loadCatalog(opts.root)
-	rep.add("Skill-Katalog", levelPresent, catErr, "geladen")
+	// Wie jeder Pfad, der eine Ausführung vorbereitet: geprüft geladen (Katalog, Rollenregeln, Verträge).
+	cat, _, catErr := loadCheckedCatalog(opts.root)
+	rep.add("Skill-Katalog", levelPresent, catErr, "geladen; Rollenregeln und Workflow-Verträge geprüft")
 
 	if cfgErr == nil && capsErr == nil && catErr == nil {
 		res, err := profiles.NewResolver(cfg, cat)

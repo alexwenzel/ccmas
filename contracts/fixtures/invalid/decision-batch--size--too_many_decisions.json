@@ -1,0 +1,442 @@
+{
+  "schema_version": 1,
+  "batch_id": "batch-1",
+  "project_id": "ccmas",
+  "state_revision": 7,
+  "goal": {
+    "kind": "milestone",
+    "id": "ms-1"
+  },
+  "rationale": "Kurze Begründung des Plans.",
+  "decisions": [
+    {
+      "schema_version": 1,
+      "decision_id": "dec-0",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-1",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-2",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-3",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-4",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-5",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-6",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-7",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-8",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-9",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-10",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-11",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-12",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-13",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-14",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-15",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-16",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-17",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-18",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-19",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-20",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-21",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-22",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-23",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-24",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-25",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-26",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-27",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-28",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-29",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-30",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-31",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    },
+    {
+      "schema_version": 1,
+      "decision_id": "dec-32",
+      "project_id": "ccmas",
+      "state_revision": 7,
+      "target": {
+        "kind": "work_order",
+        "id": "wo-1"
+      },
+      "action": "wait",
+      "preconditions": [],
+      "rationale": "Kurze, überprüfbare Begründung."
+    }
+  ]
+}

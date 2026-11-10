@@ -281,7 +281,7 @@ func TestStrictParsing(t *testing.T) {
 // TestDecisionActions: nur die vereinbarten Supervisor-Aktionen sind gültig.
 func TestDecisionActions(t *testing.T) {
 	want := []string{
-		"plan_extend", "concept_work", "implementation", "review",
+		"plan_extend", "concept_work", "implementation", "review", "documentation_work",
 		"ask_question", "request_integration", "wait", "request_completion",
 	}
 	var got []string
@@ -330,7 +330,7 @@ func TestDecisionActions(t *testing.T) {
 
 	t.Run("Bedingte Pflichtfelder", func(t *testing.T) {
 		for action, field := range map[string]string{
-			"implementation": "selection", "concept_work": "selection", "review": "review_target", "ask_question": "question",
+			"implementation": "selection", "concept_work": "selection", "documentation_work": "selection", "review": "review_target", "ask_question": "question",
 		} {
 			d := decisionFor(action)
 			delete(d, field)
@@ -352,8 +352,8 @@ func decisionFor(action string) map[string]any {
 		"rationale":      "Kurze, überprüfbare Begründung.",
 	}
 	switch action {
-	case "concept_work", "implementation", "review":
-		role := map[string]string{"concept_work": "concept", "implementation": "implementer", "review": "reviewer"}[action]
+	case "concept_work", "implementation", "review", "documentation_work":
+		role := map[string]string{"concept_work": "concept", "implementation": "implementer", "review": "reviewer", "documentation_work": "documentation"}[action]
 		d["selection"] = map[string]any{"role": role, "skill_ids": []any{"ccmas-feature-parallel"}, "model": "model-a", "effort": "high"}
 	}
 	if action == "review" {

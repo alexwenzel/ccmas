@@ -186,8 +186,67 @@ type DecisionQuestion struct {
 	Recommendation string `json:"recommendation,omitempty"`
 }
 
+// EstimateSize ist die geschätzte Größe der Arbeit (Aufwandsschätzung, getrennt vom Modell-Effort).
+type EstimateSize string
+
+const (
+	SizeXS EstimateSize = "xs"
+	SizeS  EstimateSize = "s"
+	SizeM  EstimateSize = "m"
+	SizeL  EstimateSize = "l"
+	SizeXL EstimateSize = "xl"
+)
+
+// EstimateLevel ist eine dreistufige Einschätzung (Komplexität, Unsicherheit).
+type EstimateLevel string
+
+const (
+	LevelLow    EstimateLevel = "low"
+	LevelMedium EstimateLevel = "medium"
+	LevelHigh   EstimateLevel = "high"
+)
+
+// Estimate ist die Aufwandsschätzung einer Entscheidung: erwartete Größe, Komplexität und Unsicherheit der
+// Arbeit. Sie beschreibt die Arbeit, nicht die Denkintensität einer Modellausführung (Selection.Effort) und ist
+// keine garantierte Laufzeit.
+type Estimate struct {
+	Size        EstimateSize  `json:"size"`
+	Complexity  EstimateLevel `json:"complexity"`
+	Uncertainty EstimateLevel `json:"uncertainty"`
+}
+
+// PlanKind ordnet einen neuen Auftrag einer Plan-Ergänzung ein: Teil-, Korrektur- oder Reparaturauftrag
+// innerhalb des beauftragten Ziels. Neue Milestones oder fachlich andere Vorhaben gibt es hier nicht.
+type PlanKind string
+
+const (
+	PlanPartial    PlanKind = "partial"
+	PlanCorrection PlanKind = "correction"
+	PlanRepair     PlanKind = "repair"
+)
+
+// PlannedWorkOrder ist ein neuer Auftrag in einer Plan-Ergänzung (plan_extend). Ref ist eine neue, noch
+// nicht vergebene ID; DependsOn nennt vorhandene Aufträge oder andere neue Refs derselben Ergänzung. Mode
+// ist optional und darf den beauftragten Modus nie aufweiten.
+type PlannedWorkOrder struct {
+	Ref                string          `json:"ref"`
+	Kind               PlanKind        `json:"kind"`
+	Title              string          `json:"title"`
+	Goal               string          `json:"goal"`
+	AcceptanceCriteria []string        `json:"acceptance_criteria"`
+	DependsOn          []string        `json:"depends_on"`
+	Mode               IntegrationMode `json:"mode,omitempty"`
+}
+
+// PlanExtension sind die neuen Aufträge einer plan_extend-Entscheidung.
+type PlanExtension struct {
+	WorkOrders []PlannedWorkOrder `json:"work_orders"`
+}
+
 // Decision ist das strukturierte Ergebnis des Supervisors. Eine formal gültige Decision
 // ist allein keine Ausführungsfreigabe; Check prüft sie gegen den aktuellen Zustand.
+// ExpectedOutcome, Estimate und PlanExtension sind optional (seit CC-14, v1-kompatibel); PlanExtension
+// gibt es nur bei plan_extend.
 type Decision struct {
 	SchemaVersion int               `json:"schema_version"`
 	DecisionID    string            `json:"decision_id"`
@@ -200,6 +259,23 @@ type Decision struct {
 	Selection     *Selection        `json:"selection,omitempty"`
 	ReviewTarget  *ReviewTarget     `json:"review_target,omitempty"`
 	Question      *DecisionQuestion `json:"question,omitempty"`
+
+	ExpectedOutcome string         `json:"expected_outcome,omitempty"`
+	Estimate        *Estimate      `json:"estimate,omitempty"`
+	PlanExtension   *PlanExtension `json:"plan_extension,omitempty"`
+}
+
+// DecisionBatch ist ein Planungsergebnis des Supervisors (plan-v1): mehrere Entscheidungen für denselben
+// Zustand mit Zielbezug und kurzer Begründung des Plans. Formal gültig ist er nicht ausführbar; die
+// Zulässigkeit prüft der Validator in internal/supervisor gegen den ProjectSnapshot.
+type DecisionBatch struct {
+	SchemaVersion int            `json:"schema_version"`
+	BatchID       string         `json:"batch_id"`
+	ProjectID     string         `json:"project_id"`
+	StateRevision int64          `json:"state_revision"`
+	Goal          DecisionTarget `json:"goal"` // Art ticket, feature oder milestone
+	Rationale     string         `json:"rationale"`
+	Decisions     []Decision     `json:"decisions"`
 }
 
 // IntegrationRequest fordert die Integration eines geprüften Stands an.
@@ -280,6 +356,13 @@ type RunSpec struct {
 	// SkillSnapshot verweist auf den unveränderlichen Skill-Snapshot der Ausführung (CC-35). Pflicht
 	// für den Runner, sobald SkillIDs nicht leer ist; der Vertrag erzwingt das nicht (siehe contracts.md).
 	SkillSnapshot *SkillSnapshotRef `json:"skill_snapshot,omitempty"`
+	// SystemPrompt ersetzt den Systemprompt der Sitzung (CC-14, optional). Ohne Angabe startet das SDK die CLI mit
+	// --system-prompt "" (kein Standardprompt von Claude Code).
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	// OutputSchema ist das JSON-Schema (Draft-07) der strukturierten Ausgabe (CC-14, optional). Mit Angabe endet ein
+	// erfolgreicher Versuch mit Result.StructuredOutput oder einem eigenen Fehlercode. Roh gehalten: das Schema der
+	// Ausgabe ist der Auftrag, nicht dieser Vertrag (CheckOutputSchema prüft es gegen Draft-07).
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
 // SkillSnapshotRef benennt einen geschriebenen Skill-Snapshot: seine Kennung und das Verzeichnis
@@ -326,6 +409,8 @@ type SessionStarted struct {
 	// einem fehlenden Feld zusammen.
 	SkillSnapshotID string   `json:"skill_snapshot_id,omitempty"`
 	Skills          []string `json:"skills,omitempty"`
+	// SDKVersion ist die Version des Claude Agent SDK, mit dem der Runner läuft (CC-14, optional).
+	SDKVersion string `json:"sdk_version,omitempty"`
 }
 
 // Activity ist der Payload von activity.
@@ -356,6 +441,9 @@ type Result struct {
 	Outcome      Outcome       `json:"outcome"`
 	Summary      string        `json:"summary"`
 	ReviewReport *ReviewReport `json:"review_report,omitempty"`
+	// StructuredOutput ist die strukturierte Ausgabe der Sitzung (CC-14, optional): nur mit RunSpec.OutputSchema und nur,
+	// wenn sie dessen Schema erfüllt. Roh gehalten; den Inhalt prüft der Aufrufer (zum Beispiel gegen plan-v1).
+	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
 }
 
 // ErrorPayload ist der Payload von error. Terminal=true ist ein terminales Ergebnis.

@@ -813,7 +813,11 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 	R := func(rs ...domain.Role) []domain.Role { return rs }
 	// Version 2: contract.yaml ergänzt (CC-33); die beiden Prüfskills sind neu in CC-33. Nachbesserung nach dem
 	// Review: concept-ticket 3, concept-review 2. W33.2: feature-parallel, meilenstein-abschluss und
-	// antworten-abholen an Ort und Stelle angepasst (Version 3, approved).
+	// antworten-abholen an Ort und Stelle angepasst (Version 3, approved). CC-14 (W14.2): ccmas-supervisor und
+	// ccmas-work-assessment sind neu (Planungsskills der Rolle supervisor, ohne Vertrag); neue-aufgabe-nehmen und
+	// morgen-briefing bleiben pending. CC-14 Befundrunde 2: ccmas-supervisor und ccmas-code-review Version 2 (feste Kennung
+	// für Aufträge ohne Konzeptbezug, Pflichtangaben je Delegation). W14.3: ccmas-code-review Version 3 (Wortlaut: die Kennung
+	// gilt für Implementierungs- und Fehleraufträge ohne Konzeptbezug, nicht für Organisationsaufträge).
 	inventory := map[string]want{
 		"ccmas-concept-ticket":        {3, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
 		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation", "completion", "question_handler"), R("concept", "documentation"), []string{"vault"}},
@@ -825,8 +829,10 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 		"ccmas-feature-parallel":      {3, StatusApproved, CategoryDelivery, R("implementer"), R("implementer"), []string{"git"}},
 		"ccmas-meilenstein-abschluss": {3, StatusApproved, CategoryCompletion, R("completion"), R("completion"), []string{"asana", "vault"}},
 		"ccmas-antworten-abholen":     {3, StatusApproved, CategoryQuestions, R("question_handler"), R("question_handler"), []string{"asana", "vault"}},
-		"ccmas-code-review":           {1, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
+		"ccmas-code-review":           {3, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
 		"ccmas-concept-review":        {2, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
+		"ccmas-supervisor":            {2, StatusApproved, CategoryPlanning, R("supervisor"), R("supervisor"), nil},
+		"ccmas-work-assessment":       {1, StatusApproved, CategoryPlanning, R("supervisor"), R("supervisor"), nil},
 	}
 	got := c.Skills()
 	if len(got) != len(inventory) {
@@ -990,6 +996,50 @@ func TestResolveConcurrent(t *testing.T) {
 	for _, id := range ids {
 		if id != ids[0] {
 			t.Fatalf("uneinheitliche IDs: %v", ids)
+		}
+	}
+}
+
+// TestSupervisorSkillsAreTheLeadingPlanningSkills: Die Standardausstattung der Rolle supervisor besteht aus den
+// Planungsskills von CC-14. Sie sind Hilfsskills (kein Workflow-Vertrag), tragen die Herkunft „kein Originalpaket“ und
+// bleiben im Snapshot der Rolle vollständig und prüfbar.
+func TestSupervisorSkillsAreTheLeadingPlanningSkills(t *testing.T) {
+	c := mustLoadRepo(t)
+	if got := c.DefaultSkillIDs(domain.RoleSupervisor); !slices.Equal(got, []string{"ccmas-supervisor", "ccmas-work-assessment"}) {
+		t.Fatalf("Standardausstattung supervisor = %v", got)
+	}
+	for _, id := range []string{"ccmas-supervisor", "ccmas-work-assessment"} {
+		sk, _ := c.Skill(id)
+		if sk.Source.Package != "none" || sk.Source.PackageSHA256 != strings.Repeat("0", 64) {
+			t.Errorf("%s: Herkunft = %+v", id, sk.Source)
+		}
+		if _, hasContract := c.Contract(id); hasContract {
+			t.Errorf("%s ist ein Hilfsskill und hat keinen Vertrag", id)
+		}
+	}
+	snap, err := c.Resolve(domain.RoleSupervisor, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, ok := snap.File("ccmas-supervisor", "SKILL.md")
+	if !ok {
+		t.Fatal("SKILL.md fehlt im Snapshot")
+	}
+	// Der Skill deckt die Aufgaben des Tickets ab (Inhalt, nicht Wortlaut jedes Satzes).
+	for _, want := range []string{"Konzeptreife", "Risiko", "Abhängigkeit", "Kapazität", "Befunde", "Ablehnung", "DecisionBatch", "ask_question", "Moduswechsel|Integrationsmodus"} {
+		alts := strings.Split(want, "|")
+		found := false
+		for _, a := range alts {
+			found = found || strings.Contains(string(body), a)
+		}
+		if !found {
+			t.Errorf("ccmas-supervisor behandelt %q nicht", want)
+		}
+	}
+	other, _ := snap.File("ccmas-work-assessment", "SKILL.md")
+	for _, want := range []string{"Aufwandsschätzung", "Modell-Effort", "Pflichtprüfungen"} {
+		if !strings.Contains(string(other), want) {
+			t.Errorf("ccmas-work-assessment behandelt %q nicht", want)
 		}
 	}
 }

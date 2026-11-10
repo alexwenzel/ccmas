@@ -99,7 +99,7 @@ skills:
   - id: ccmas-neue-aufgabe-nehmen
     version: 1
     status: pending_adaptation
-    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    adaptation: "Zuordnung offen: in CC-14 nicht benötigt, der Supervisor-Planer nutzt diesen Skill nicht (interaktiver Vorbereitungslauf über Asana, Vault und Git); bleibt unangepasst, bis ein Ticket ihn zuordnet"
     category: planning
     roles: [supervisor]
     default_for: []
@@ -116,7 +116,7 @@ skills:
   - id: ccmas-morgen-briefing
     version: 1
     status: pending_adaptation
-    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    adaptation: "Zuordnung offen: in CC-14 nicht benötigt, der Supervisor-Planer nutzt diesen Skill nicht (Tagesbriefing über Asana, Vault und Git); bleibt unangepasst, bis ein Ticket ihn zuordnet"
     category: planning
     roles: [supervisor]
     default_for: []
@@ -203,20 +203,52 @@ skills:
       derived: "2026-11-10"
       changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängige Konzeptprüfung nach der Spezifikation (Rollen und Ergebnisse, Konzeptprüfer). Version 2: Bericht bezieht sich auf die Konzeptversion, commit ist nur Bezugsstand und keine Code-Freigabe; Konzeptschleife mit demselben Reparaturbudget wie die Code-Schleife."
   - id: ccmas-code-review
-    version: 1
+    version: 3
     status: approved
     category: review
     roles: [reviewer]
     default_for: [reviewer]
     external_writes: []
-    tree_sha256: 60797c5af7f5d43ced4827b6d668911da9b58343f17fb2cfee3f545fce300c9d
+    tree_sha256: 1fcf6a8dbaa6eb40358bbc91ee93073e55f331669dd2ede436158f3dc6b00f32
     files:
       - path: SKILL.md
-        sha256: cbd76f5c30036bb5631c5b0568638cbaba82ec18431fe23fa4b114b4f39c0a54
+        sha256: 59147583df4c936fe8c022f80b58c88a0cc04a61ebc4e1d0c70c26d30ec0097c
       - path: contract.yaml
-        sha256: 58709145c0efc9b0e15cf84e803c91ba5567f2e5c080fb803df82850eb3a41cf
+        sha256: 919fde47e40e1551512de257fcceb6a71c5c7a72f23c14d3e67d018ff1fe6ead
     source:
       package: none
       package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       derived: "2026-11-10"
-      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push)."
+      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push). CC-14 Befundrunde 2: Konzeptversion ohne Konzeptbezug ist die feste Kennung kein-konzept und steht unverändert im Bericht (SKILL.md, contract.yaml-Beschreibung); sonst unverändert. CC-14 W14.3: Wortlaut der Kennung kein-konzept (gilt für Implementierungs- und Fehleraufträge ohne Konzeptbezug, nicht für Organisationsaufträge); sonst unverändert."
+  - id: ccmas-supervisor
+    version: 2
+    status: approved
+    category: planning
+    roles: [supervisor]
+    default_for: [supervisor]
+    external_writes: []
+    tree_sha256: 08359406ca7f6ce0676ddb3b1eaa6016f57e0e08205cdf8c965cc5aa40b000fc
+    files:
+      - path: SKILL.md
+        sha256: 7c4c6536573781290a173946da1581c1e3f22599c9d60c37f46c98317fa7923d
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-14 (W14.2), ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Führender Supervisor-Skill nach der Spezifikation (Intelligente Arbeitsverteilung als Herzstück, Supervisor-Entscheidungen): Entscheidungsablauf für Zielverständnis, Konzeptreife, Risiko und Aufwand, Abhängigkeiten, nächste Arbeit, Parallelität im Kapazitätsrahmen, Ergebnisbewertung und Reaktion auf Ablehnungen der Plattform; Ausgabe als DecisionBatch. Kein Workflow-Skill, daher ohne contract.yaml. CC-14 Befundrunde 2: Aufwand/Erwartung als Pflicht je Delegation (delegation_incomplete), feste Kennung kein-konzept und review_concept_version für Prüfziele ohne Konzeptbezug, keine erneute Integration ohne neue Wirkung (duplicate_start), Reparaturbudget statt fester drei Runden."
+  - id: ccmas-work-assessment
+    version: 1
+    status: approved
+    category: planning
+    roles: [supervisor]
+    default_for: [supervisor]
+    external_writes: []
+    tree_sha256: 22b15830962cdb7457b63bbb74742b02882268719f7584be04ba7d25b1260926
+    files:
+      - path: SKILL.md
+        sha256: 97d349c09e1198de13d49fc83c3dec5a3f019afb4d3d10f0296c77cee6a0244f
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-14 (W14.2), ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Arbeitsbewertung nach der Spezifikation (Aufwand, Modell und Effort): Aufwandsschätzung getrennt vom Modell-Effort, Profilwahl nach Qualität, Pflichtprüfungen entfallen nie. Kein Workflow-Skill, daher ohne contract.yaml."

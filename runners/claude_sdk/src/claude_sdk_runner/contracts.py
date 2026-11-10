@@ -36,12 +36,16 @@ TARGETS: dict[str, tuple[str, str]] = {
     "agent-profile": ("project-v1.schema.json", "agent_profile"),
     "work-order": ("project-v1.schema.json", "work_order"),
     "decision": ("decision-v1.schema.json", "decision"),
+    "decision-batch": ("plan-v1.schema.json", "decision_batch"),
     "integration-request": ("decision-v1.schema.json", "integration_request"),
     "review-report": ("runner-v1.schema.json", "review_report"),
     "skill-snapshot": ("skill-snapshot-v1.schema.json", "skill_snapshot"),
 }
 
 _MAX_NESTING_NOTE = "Verschachtelung zu tief"
+
+# Freie Objekte mit Größengrenze (x-max-bytes im Schema, seit CC-14): (Nachrichtentyp, Definition unter $defs, Feld).
+_BYTE_LIMITED = (("start", "run_spec", "output_schema"), ("result", "result", "structured_output"))
 
 
 class ContractError(ValueError):
@@ -77,6 +81,8 @@ class _Loaded:
     validators: dict[str, jsonschema.protocols.Validator]
     max_message_bytes: int
     categories: tuple[str, ...]
+    byte_limits: dict[tuple[str, str], int]
+    """Grenzen `x-max-bytes` freier Objekte: (Nachrichtentyp, Feld) -> Bytes der kanonischen Form."""
 
 
 @lru_cache(maxsize=None)
@@ -99,11 +105,17 @@ def _load(directory: str) -> _Loaded:
     for target, (file, definition) in TARGETS.items():
         schema = {"$ref": f"{docs[file]['$id']}#/$defs/{definition}"}
         validators[target] = jsonschema.Draft202012Validator(schema, registry=registry)
+    runner = docs["runner-v1.schema.json"]["$defs"]
+    byte_limits = {
+        (msg_type, field): int(runner[definition]["properties"][field]["x-max-bytes"])
+        for msg_type, definition, field in _BYTE_LIMITED
+    }
     return _Loaded(
         registry=registry,
         validators=validators,
         max_message_bytes=int(docs["runner-v1.schema.json"]["x-max-message-bytes"]),
         categories=tuple(docs["common-v1.schema.json"]["x-error-classes"]),
+        byte_limits=byte_limits,
     )
 
 
@@ -114,6 +126,30 @@ def _loaded() -> _Loaded:
 def max_message_bytes() -> int:
     """Größtes zulässiges Nachrichtenvolumen in Bytes (x-max-message-bytes im Schema)."""
     return _loaded().max_message_bytes
+
+
+def byte_limit(msg_type: str, field: str) -> int:
+    """Grenze (Bytes der kanonischen Form) eines freien Objekts im Protokoll, zum Beispiel ``("result", "structured_output")``."""
+    return _loaded().byte_limits[(msg_type, field)]
+
+
+def canonical_size(value: Any) -> int:
+    """Größe der kanonischen Form: sortierte Schlüssel, kompakt, UTF-8, Nicht-ASCII unmaskiert (wie Go, ``canonicalSize``)."""
+    return len(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+
+def _check_byte_limits(target: str, instance: dict[str, Any]) -> None:
+    if target not in ("to-runner", "from-runner"):
+        return
+    payload = instance.get("payload")
+    if not isinstance(payload, dict):
+        return
+    for (msg_type, field), limit in _loaded().byte_limits.items():
+        if instance.get("type") != msg_type or field not in payload:
+            continue
+        size = canonical_size(payload[field])
+        if size > limit:
+            raise ContractError(["size"], f"{field} hat {size} Bytes (kanonische Form), erlaubt sind höchstens {limit}", f"/payload/{field}")
 
 
 def categories() -> tuple[str, ...]:
@@ -227,4 +263,5 @@ def validate(target: str, raw: bytes | str) -> dict[str, Any]:
     errors = list(validator.iter_errors(instance))
     if errors:
         raise _classify(errors)
+    _check_byte_limits(target, instance)
     return instance

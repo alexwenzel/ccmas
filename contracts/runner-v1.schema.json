@@ -105,6 +105,27 @@
             "path": { "$ref": "common-v1.schema.json#/$defs/abs_path" }
           }
         },
+        "system_prompt": {
+          "description": "Systemprompt der Sitzung (Rollenvorgabe, siehe prompts/). Optional, ab CC-14. Ohne Angabe startet das SDK die CLI mit --system-prompt \"\" (kein Standardprompt von Claude Code); mit Angabe ersetzt dieser Text den Systemprompt vollständig. Der Prompt geht als Kommandozeilenargument an die CLI, daher die Obergrenze.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32000
+        },
+        "output_schema": {
+          "description": "JSON-Schema (Draft-07, wie es das SDK prüft) für die strukturierte Ausgabe der Sitzung (output_format). Optional, ab CC-14. Mit Angabe endet ein erfolgreicher Versuch nur mit result.structured_output, sonst mit einem eigenen Fehlercode (structured_output_failed, structured_output_missing, structured_output_invalid). Der Vertrag lässt nur ein Objekt zu, verbietet $schema außer Draft-07 und die Schlüsselwörter von Draft 2020-12 auf oberster Ebene und begrenzt die Größe (x-max-bytes: kanonische Form, sortierte Schlüssel, kompakt, UTF-8; geprüft in Go und Python nach dem Schema); tiefer liegende Schlüsselwörter prüfen Go (CheckOutputSchema) und der Runner (Draft-07-Metaschema).",
+          "type": "object",
+          "maxProperties": 32,
+          "x-max-bytes": 32768,
+          "properties": { "$schema": { "const": "http://json-schema.org/draft-07/schema#" } },
+          "not": {
+            "anyOf": [
+              { "required": ["$defs"] }, { "required": ["prefixItems"] }, { "required": ["unevaluatedProperties"] },
+              { "required": ["unevaluatedItems"] }, { "required": ["dependentSchemas"] }, { "required": ["dependentRequired"] },
+              { "required": ["$anchor"] }, { "required": ["$dynamicRef"] }, { "required": ["$dynamicAnchor"] },
+              { "required": ["$recursiveRef"] }, { "required": ["minContains"] }, { "required": ["maxContains"] }
+            ]
+          }
+        },
         "resume_session_id": { "$ref": "common-v1.schema.json#/$defs/id" },
         "max_runtime_seconds": {
           "type": "integer", "minimum": 1, "maximum": 86400, "x-error-class": "limit"
@@ -173,6 +194,10 @@
         "skills": {
           "description": "Skill-IDs ohne Plugin-Präfix, die die CLI laut Init-Meldung wirksam geladen hat (gleich der Menge im Snapshot; weicht sie ab, bricht der Runner mit skills_not_loaded ab). Nur bei einem Skill-Snapshot im Auftrag; eine leere Liste heißt: keine Skills geladen. Optional, ab CC-35.",
           "$ref": "common-v1.schema.json#/$defs/skill_ids"
+        },
+        "sdk_version": {
+          "description": "Version des Claude Agent SDK, mit dem der Runner läuft (gepinnt, der Runner bricht bei Abweichung ab). Optional, ab CC-14.",
+          "$ref": "common-v1.schema.json#/$defs/label"
         }
       }
     },
@@ -217,7 +242,13 @@
       "properties": {
         "outcome": { "enum": ["succeeded", "controlled_failure", "cancelled"], "x-error-class": "value" },
         "summary": { "$ref": "common-v1.schema.json#/$defs/body_text" },
-        "review_report": { "$ref": "#/$defs/review_report" }
+        "review_report": { "$ref": "#/$defs/review_report" },
+        "structured_output": {
+          "description": "Strukturierte Ausgabe der Sitzung (ResultMessage.structured_output), nur wenn der Auftrag output_schema trug und die Ausgabe dessen Schema erfüllt. Optional, ab CC-14. Das Schema der Ausgabe ist der Auftrag, nicht dieser Vertrag; Go prüft den Inhalt fachlich (zum Beispiel gegen plan-v1 und den ProjectSnapshot). Größe begrenzt (x-max-bytes, siehe output_schema).",
+          "type": "object",
+          "maxProperties": 64,
+          "x-max-bytes": 262144
+        }
       }
     },
     "error": {

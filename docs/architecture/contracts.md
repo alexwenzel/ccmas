@@ -1,6 +1,6 @@
 # CCMAS – Daten- und Nachrichtenverträge (v1)
 
-Stand: Ticket CC-24 (Meilenstein M01). **Führend ist die Spezifikation** „Multi Agent Setup“
+Stand: Ticket CC-24 (Meilenstein M01), ergänzt um CC-14 (W14.1: Planungsergebnis, Aufwand, Dokumentationsarbeit; W14.2: Systemprompt und strukturierte Ausgabe im Runner-Protokoll). **Führend ist die Spezifikation** „Multi Agent Setup“
 (Version 1.2.0), Abschnitte „Verbindliche Ausführungsverträge“, „Intelligente Arbeitsverteilung“,
 „Prozessübersicht“, „Unabhängiges Review vor dem Push“ und „Kommunikation und Persistenz“. Diese
 Datei hält fest, wie das Repository diese Verträge umsetzt, und ist keine Kopie der Spezifikation.
@@ -35,6 +35,7 @@ gepinnt in `go.mod` beziehungsweise `pyproject.toml` und `uv.lock`; Python als n
 | `common-v1.schema.json` | Gemeinsame Bausteine: ID, Pfade, Modell, Effort, Rolle, Zeitstempel, Commit, Textlängen; Liste der Fehlerklassen |
 | `runner-v1.schema.json` | Runner-Umschlag beider Richtungen, alle Payloads, `ReviewReport` |
 | `decision-v1.schema.json` | `Decision`, `IntegrationRequest` |
+| `plan-v1.schema.json` | `DecisionBatch`: Planungsergebnis des Supervisors mit 1–32 Entscheidungen (seit CC-14) |
 | `project-v1.schema.json` | `ProjectConfig`, `AgentProfile`, `WorkOrder` |
 | `skill-snapshot-v1.schema.json` | `snapshot.json` eines Skill-Snapshots (`SkillSnapshot`, seit CC-35) |
 
@@ -67,7 +68,11 @@ von dort) und als Go-Konstante `MaxMessageBytes` (ein Test hält beide gleich). 
 dieser Länge ist gültig, ein Byte mehr ist ein Größenfehler. Der Größenfehler wird vor dem Parsen gemeldet.
 Ein getrenntes Payload-Limit wäre in Go und Python nicht byte-identisch messbar; das Zeilenlimit begrenzt die
 Payload mit. Zusätzlich begrenzen `maxLength`/`maxItems` im Schema die einzelnen Felder (ebenfalls
-Größenfehler). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
+Größenfehler). Eine Ausnahme sind die zwei freien Objekte `start.output_schema` und `result.structured_output` (seit CC-14, siehe
+unten): Ihre Größe steht als `x-max-bytes` im Schema und wird in Go und Python nach der Schema-Prüfung an der kanonischen Form
+gemessen (sortierte Schlüssel, kompakt, UTF-8, Nicht-ASCII unmaskiert). Bekannte Abweichung: Die Zeichen U+2028 und U+2029 maskiert Go
+(`encoding/json`) als `\u2028` und `\u2029` und zählt dafür 6 Bytes, Python 3 Bytes; an der Grenze ist Go damit strenger als Python, also
+fail-safe (Go lehnt höchstens eine Ausgabe ab, die Python noch angenommen hätte, nie umgekehrt). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
 
 ### Nachrichtentypen
 
@@ -77,14 +82,14 @@ Go → Python: `start`, `answer`, `interrupt`, `stop`. Python → Go: `session_s
 
 | Typ | Payload (Go-Typ) | Felder (Pflicht fett) |
 | --- | --- | --- |
-| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id, skill_snapshot (ab CC-35, siehe unten) |
+| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id, skill_snapshot (ab CC-35, siehe unten), system_prompt, output_schema (ab CC-14, siehe unten) |
 | `answer` | `Answer` | **answer_id, question_id, text, created_at**; delivery_confirmed_at (wird nie mitgesendet; Go lehnt es beim Senden ab) |
 | `interrupt`, `stop` | `InterruptPayload`, `StopPayload` | **reason** (`user_request`, `timeout`, `shutdown`, `superseded`) |
-| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); skill_snapshot_id, skills (ab CC-35, optional, siehe unten); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
+| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); skill_snapshot_id, skills (ab CC-35, optional, siehe unten); sdk_version (ab CC-14, optional); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
 | `activity` | `Activity` | **kind** (`assistant_text`, `thinking`, `waiting`, `idle`), **summary** (≤ 512 Zeichen); keine Fortschrittsprozente |
 | `tool_event` | `ToolEvent` | **tool_use_id, tool, phase** (`started`, `finished`, `failed`); summary |
 | `question` | `QuestionPayload` | **question_id, question, context**; recommendation |
-| `result` | `Result` | **outcome** (`succeeded`, `controlled_failure`, `cancelled`), **summary**; review_report |
+| `result` | `Result` | **outcome** (`succeeded`, `controlled_failure`, `cancelled`), **summary**; review_report; structured_output (ab CC-14, optional, siehe unten) |
 | `error` | `ErrorPayload` | **code, message, kind** (`runtime`, `subscription_limit`, `protocol`, `internal`), **terminal** |
 
 `RunSpec` und `RunEvent`/`RunCommand` sind die Go-Namen für den Start-Payload beziehungsweise die validierten
@@ -118,23 +123,59 @@ Der Supervisor liefert ein strukturiertes Ergebnis nach `decision-v1`.
 | `decision_id`, `project_id` | ID |
 | `state_revision` | Ganzzahl ≥ 0 |
 | `target` | `kind` (`ticket`, `feature`, `milestone`, `work_order`) und `id` |
-| `action` | genau eine von acht Aktionen (unten) |
+| `action` | genau eine von neun Aktionen (unten) |
 | `preconditions` | bis 32 Einträge `kind` (`work_order_completed`, `concept_version_approved`, `review_approved`, `ci_passed`, `capacity_available`), `ref` optional |
 | `rationale` | 1–1000 Zeichen (kurze, überprüfbare Begründung) |
-| `selection` | Rolle, `skill_ids`, `model`, `effort`; Pflicht bei `concept_work`, `implementation`, `review` |
+| `selection` | Rolle, `skill_ids`, `model`, `effort`; Pflicht bei `concept_work`, `implementation`, `review`, `documentation_work` |
 | `review_target` | `work_order_id`, `commit`, `concept_version`; Pflicht bei `review` |
 | `question` | `text`, `context`, `recommendation`; Pflicht bei `ask_question` |
+| `expected_outcome` | optional (seit CC-14), 1–512 Zeichen: erwartetes, überprüfbares Ergebnis |
+| `estimate` | optional (seit CC-14): `size` (`xs`, `s`, `m`, `l`, `xl`), `complexity` und `uncertainty` (je `low`, `medium`, `high`), alle drei Pflicht. Aufwand der Arbeit, **getrennt** vom Modell-Effort der `selection` und keine garantierte Laufzeit |
+| `plan_extension` | optional (seit CC-14), **nur bei `plan_extend`** (sonst Klasse `value`): `work_orders` mit 1–32 neuen Aufträgen, je `ref` (neue ID), `kind` (`partial`, `correction`, `repair`), `title`, `goal`, `acceptance_criteria` (1–32), `depends_on` (ID-Liste, auch leer) und optional `mode` (`pr`/`auto`) |
 
 Aktionen: `plan_extend` (Plan ergänzen), `concept_work` (Konzeptarbeit beauftragen), `implementation`
-(Implementierung anfordern), `review` (Review anfordern), `ask_question` (Rückfrage stellen),
-`request_integration` (Integration anfordern), `wait` (warten), `request_completion` (Zielabschluss anfordern).
-Alles andere ist ein Fehler der Klasse `action`.
+(Implementierung anfordern), `review` (Review anfordern), `documentation_work` (Dokumentationsarbeit beauftragen, seit CC-14),
+`ask_question` (Rückfrage stellen), `request_integration` (Integration anfordern), `wait` (warten), `request_completion`
+(Zielabschluss anfordern). Alles andere ist ein Fehler der Klasse `action`. Die Rolle der Auswahl ist je Aktion festgelegt
+(`Action.Roles()`): `concept_work` → `concept`, `implementation` → `implementer`, `review` → `reviewer` oder
+`concept_reviewer`, `documentation_work` → `documentation`. Damit ist die Rolle `documentation` über eine Entscheidung erreichbar
+(`rules/roles.yaml`: Folgeschritt des Supervisors).
+
+**v1-kompatibel.** `expected_outcome`, `estimate`, `plan_extension` und die Aktion `documentation_work` sind neue optionale Felder
+beziehungsweise ein neuer Aufzählungswert; jede bisher gültige Entscheidung bleibt gültig (Test: `decision--implementation.json`
+trägt keines der Felder und wird weiter angenommen). `plan_extension.work_orders[].kind` und die Pflichtfelder innerhalb der neuen
+Objekte gelten nur für das neue Feld.
+
+### Planungsergebnis (`DecisionBatch`, `plan-v1`, seit CC-14)
+
+Der Supervisor liefert mehrere Entscheidungen als ein Planungsergebnis (Prüfziel `decision-batch`, Go: `domain.DecisionBatch`,
+`ParseDecisionBatch`):
+
+| Feld | Regel |
+| --- | --- |
+| `schema_version` | genau `1` |
+| `batch_id`, `project_id` | ID |
+| `state_revision` | Ganzzahl ≥ 0 |
+| `goal` | Zielbezug: `kind` (`ticket`, `feature`, `milestone`) und `id` |
+| `rationale` | 1–1000 Zeichen: kurze Begründung des Plans |
+| `decisions` | 1–32 Entscheidungen nach `decision-v1` (jede mit eigener `state_revision`; der Abgleich mit dem Snapshot ist Sache des Validators) |
+
+Ob ein Batch ausführbar ist, entscheidet der Validator in `internal/supervisor` ([`supervisor.md`](supervisor.md)); das
+Schema prüft nur die Form.
 
 Eine formal gültige Decision ist **keine Ausführungsfreigabe**. `Decision.Check(DecisionContext)` prüft in Go:
 Projektbezug (`id`), unveränderte Zustandsrevision (`revision`), bekannte und zur Aktion passende Rolle
-(`role`), Modell und Effort gegen den konfigurierten `Catalog` (`model`, `effort`) und bekannte Skills
-(`value`). Voraussetzungen, Zyklenfreiheit, Kapazität, Locks und Qualitätsbelege prüft der Orchestrator (M03)
-mit denselben Typen. Ungültige oder veraltete Entscheidungen werden protokolliert und nicht ausgeführt.
+(`role`), Modell und Effort gegen den konfigurierten `Catalog` (`model`, `effort`) und Skills: bekannt und freigegeben
+(`value`) sowie, seit CC-14, **für die Rolle der Auswahl erlaubt** (`role`; `Catalog.SkillRoles`). Ein vom Modell nicht
+unterstützter Effort ist seit CC-14 zulässig, wenn `models.yaml` genau diese Reduktion genehmigt (`Catalog.Fallbacks`,
+befüllt von `profiles.BuildCatalog`, keine zweite Liste). `CheckEffective` liefert dann die wirksame Auswahl:
+angeforderter und wirksamer Effort und die Reduktion (`EffortFallback`); die Reduktion bleibt sichtbar, `Check`
+verändert die Entscheidung nie. Ein Katalog ohne `SkillRoles` (nil) führt keine Rolleninformation und prüft nur, ob der
+Skill bekannt ist; `BuildCatalog` setzt die Abbildung immer. Voraussetzungen, Zyklenfreiheit, Kapazität, Doppelstart,
+Umfang, Modus, Review vor dem Push, Abschluss, Reparaturbudget, Profile und die Deckung durch die Rollenregeln prüft der
+Validator in `internal/supervisor` gegen einen `ProjectSnapshot` ([`supervisor.md`](supervisor.md)); Locks und
+Qualitätsbelege über den Snapshot hinaus der Orchestrator (M03). Ungültige oder veraltete Entscheidungen werden protokolliert
+und nicht ausgeführt.
 
 ## Projekt, Profile, Arbeitsauftrag
 
@@ -244,6 +285,37 @@ dieselben Skills. Bei leeren `skill_ids` fehlt das Feld (kein Snapshot). Der Ada
 Meldungen sind deutsch, nennen Skill und Pfad **innerhalb** des Snapshots (`skills/<id>/<datei>`) und enthalten nie
 Dateiinhalte oder Hashwerte. Ablauf in der Sitzung: [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt „Skills in der Sitzung (CC-35)“.
 
+### Systemprompt und strukturierte Ausgabe im Protokoll (ab CC-14, v1-kompatibel)
+
+Vier neue **optionale** Felder; kein bisher gültiges Dokument wird ungültig, es gibt keine neuen Pflichtfelder.
+
+| Nachricht | Feld | Inhalt |
+| --- | --- | --- |
+| `start` | `system_prompt` | Systemprompt der Sitzung (1–32 000 Zeichen). Er geht als Kommandozeilenargument an die CLI (`--system-prompt`), daher die Obergrenze. **Ohne Angabe** bleibt das Verhalten wie zuvor: das SDK startet die CLI mit `--system-prompt ""`, also ohne den Standardprompt von Claude Code (CC-17; am SDK-Quelltext durch einen Test belegt). Mit Angabe ersetzt der Text den Systemprompt vollständig. Rollenbezogene Prompts liegen unter `prompts/` ([`supervisor.md`](supervisor.md)) |
+| `start` | `output_schema` | JSON-Schema (Objekt) für `output_format` des SDK. Das SDK validiert nach **Draft-07**. Der Vertrag lässt nur ein Objekt zu, höchstens 32 Schlüssel auf oberster Ebene, `$schema` nur als `http://json-schema.org/draft-07/schema#`, keines der Schlüsselwörter von Draft 2020-12 auf oberster Ebene (`$defs`, `prefixItems`, `unevaluatedProperties`, `unevaluatedItems`, `dependentSchemas`, `dependentRequired`, `$anchor`, `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `minContains`, `maxContains`) und höchstens 32 768 Bytes (kanonische Form). Die tieferen Ebenen prüft Go vor dem Start (`domain.CheckOutputSchema`, Metaschema Draft-07, keine Verweise auf fremde Dokumente) und der Runner in der Vorprüfung (`jsonschema.Draft7Validator.check_schema`) |
+| `session_started` | `sdk_version` | Version des Claude Agent SDK, mit dem der Runner läuft (gepinnt; der Runner bricht bei Abweichung ab) |
+| `result` | `structured_output` | `ResultMessage.structured_output` als Objekt (höchstens 64 Schlüssel auf oberster Ebene, höchstens 262 144 Bytes in kanonischer Form), nur wenn der Auftrag `output_schema` trug und die Ausgabe dessen Schema erfüllt |
+
+Verhalten des Runners bei gesetztem `output_schema` (alle Fehler sind **terminale** `error`, Art `runtime`, ohne weiteres `result`):
+
+| Code | Auslöser |
+| --- | --- |
+| `output_schema_invalid` | das Schema ist kein gültiges Draft-07-Schema (Vorprüfung, kein Prozess, kein Modellaufruf) |
+| `structured_output_failed` | `ResultMessage.subtype` ist `error_max_structured_output_retries`: auch nach den Nachbesserungen des SDK keine gültige Ausgabe (die `errors` des SDK stehen gekürzt in der Meldung) |
+| `structured_output_missing` | Untertyp `success`, aber ohne `structured_output` |
+| `structured_output_invalid` | die Ausgabe ist kein Objekt oder verletzt das Schema (der Runner prüft sie zusätzlich selbst gegen Draft-07; die Meldung nennt Ort und Schlüsselwort, nie Werte) |
+| `structured_output_too_large` | die Ausgabe überschreitet die Größengrenze |
+
+Andere Enden (Abo-Limit, Abbruch, `error_max_turns`) behalten ihr bisheriges Ergebnis ohne `structured_output`. Ohne `output_schema` wird
+ein `structured_output` des SDK nicht gemeldet. Die Werkzeugaufrufe `StructuredOutput` (der Mechanismus der CLI; ein abgelehnter Aufruf wird vom
+SDK wiederholt) meldet der Runner **nicht** als `tool_event`; er zählt sie und schreibt `structured_output: aufrufe=N abgelehnt=M` ins Log
+(stderr). Ohne `system_prompt` und `output_schema` ist jede Nachricht byte-gleich zu vor CC-14.
+
+**Go (seit CC-14):** `RunSpec.SystemPrompt` (`string`) und `RunSpec.OutputSchema` (`json.RawMessage`), `SessionStarted.SDKVersion`, `Result.StructuredOutput`
+(`json.RawMessage`: roh gehalten, den Inhalt prüft der Aufrufer fachlich). Der Adapter (`runner.Request`) nimmt `SystemPrompt`, `OutputSchema`,
+`MaxTurns` je Ausführung und `SkillSnapshot` (einen bereits geschriebenen Snapshot) entgegen; der Datensatz (`SpecRecord`) hält von Systemprompt und
+Schema nur Länge und SHA-256, `Execution.StructuredOutput()` liefert die Ausgabe. Das Beispiel des Planers: [`supervisor.md`](supervisor.md).
+
 ## Zustandsmodell (Akzeptanzkriterium 3)
 
 Vier Ebenen mit je **eigenem Go-Typ** (kein gemeinsames String-Alias): `AgentAvailability`,
@@ -312,10 +384,13 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | ID-Format, Pfadform (absolut, kanonisch, ohne `..`), Zeitstempel, Commit-Format | ja (Muster) | über das Schema; zusätzlich `CheckID`, `CheckCanonicalPath`, `CheckRelativePath` für direkt gebaute Werte | über das Schema |
 | Bedingte Pflichtfelder (zum Beispiel `review` verlangt `review_target`), Urteil ↔ Befunde | ja (`if`/`then`) | über das Schema | über das Schema |
 | Nachrichtengröße 1 MiB, strikter JSON-Parser (Duplikate, Kommazahlen, UTF-8, Folgedaten) | nur der Grenzwert `x-max-message-bytes` | ja | ja |
+| Größe der freien Objekte `output_schema` und `structured_output` (kanonische Form) | Annotation `x-max-bytes` | ja (`checkPayloadLimits`) | ja (`contracts._check_byte_limits`) |
+| Ausgabeschema ist Draft-07 (alle Ebenen); Ausgabe erfüllt das Schema | nur oberste Ebene | ja (`domain.CheckOutputSchema`, vor dem Start) | ja (`runtime.check_output_schema`, `Session._structured_result`) |
 | Richtung der Nachrichtentypen | ja (zwei Umschläge) | ja | ja |
 | Typisiertes Dekodieren ohne unbekannte Felder (Schutz vor Drift zwischen Schema und Typ) | – | ja | – |
 | Modell bekannt, Effort vom Modell unterstützt, Skills/Policies bekannt; Profil: angefordert/Fallback/Herkunft widerspruchsfrei | – (nur Format und Aufzählungen) | ja (`Catalog`, `CheckProfile`) | – |
-| Projektbezug und Zustandsrevision einer Entscheidung, Rolle ↔ Aktion | – | ja (`Decision.Check`) | – |
+| Projektbezug und Zustandsrevision einer Entscheidung, Rolle ↔ Aktion, Effort mit genehmigtem Fallback, Skills ↔ Rolle der Auswahl | – | ja (`Decision.Check`, `CheckEffective`) | – |
+| Entscheidungen gegen den Snapshot: Bezüge, Voraussetzungen, Zyklen, Kapazität, Doppelstart, Umfang, Modus, Review, Abschluss, Budget, Profil, Rollenregeln | – | ja (`supervisor.Validator`, seit CC-14) | – |
 | Nachrichtenfolge, terminales Ergebnis, veraltete Versuche | – | ja (`ExecutionTracker`) | – |
 | Zustandsübergänge | – | ja (`CanTransition`) | – |
 | Review-Beleg ↔ Commit/Konzeptversion, Antwort ↔ Frage, Snapshot-Konsistenz, Prozessidentität | – | ja (`Check`-Methoden) | – |
@@ -332,7 +407,7 @@ Pfade sind POSIX-Pfade (v1 gilt für macOS und Linux); Windows-Pfade sind nicht 
 `contracts/fixtures/valid/<ziel>--<name>.json` muss akzeptiert werden,
 `contracts/fixtures/invalid/<ziel>--<fehlerklasse>--<name>.json` muss mit **genau dieser Fehlerklasse** (und
 keiner weiteren) abgewiesen werden. Ziele: `to-runner`, `from-runner`, `project-config`, `agent-profile`,
-`work-order`, `decision`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
+`work-order`, `decision`, `decision-batch`, `integration-request`, `review-report`, `skill-snapshot`. Go (`TestContractFixtures`) und Python
 (`test_contract_fixtures`) lesen dieselben Dateien; keine Seite hat eigene Fixtures für dieselbe Regel. Ein
 neues Verhalten wird durch eine neue Fixture beider Seiten belegt. Ungültige Fixtures enthalten genau einen
 Verstoß. Fixtures sind Testdaten und enthalten keine Produktdaten; Beispielaufgaben stehen nur dort.
@@ -365,8 +440,10 @@ abgelegt, sondern in beiden Sprachen im Test erzeugt (`TestMessageSizeLimit`, `t
 
 - **Rollenmenge, Voraussetzungsarten, Zielarten, Fehlerarten, Aktivitätsarten, Interrupt-Gründe** sind in
   der Spezifikation nicht aufgezählt und hier festgelegt. Sie stehen als Aufzählungen im Schema.
-- **`plan_extend`** trägt in v1 nur Ziel, Voraussetzungen und Begründung; die konkreten Planergänzungen
-  (neue Aufträge, Abhängigkeiten) legt M02 fest, weil sie vom Supervisor-Skill abhängen.
+- **`plan_extend`** trug in v1 zunächst nur Ziel, Voraussetzungen und Begründung. Seit CC-14 trägt es optional `plan_extension`
+  mit den neuen Aufträgen (Ref, Art, Titel, Ziel, Akzeptanzkriterien, Abhängigkeiten, optional Modus). Die Art
+  (`partial`, `correction`, `repair`) ist eine Festlegung dieses Repositorys: Neue Milestones oder fachlich andere Vorhaben
+  sind in einer Plan-Ergänzung damit nicht ausdrückbar („Milestones starten“).
 - **`Execution`** (Versuch-ID, Session, Worktree, Prozessidentität, Start/Ende) ist ein Persistenzobjekt des
   Dienstes (M03). Hier definiert sind Zustand, Nachrichtenfolge (`ExecutionTracker`) und Prozessidentität.
 - **`interrupt` und `stop`** führen beide in „wird beendet“; sie unterscheiden sich im Runner (Runde beenden

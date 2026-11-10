@@ -233,20 +233,22 @@ func (r *Resolver) checkSkills(role domain.Role, chosen []string, src domain.Val
 
 // BuildCatalog baut aus den Capabilities und dem Skill-Katalog den domain.Catalog für
 // Decision.Check und AgentProfile-Prüfungen. Es entsteht keine zweite Modellliste: Modelle,
-// Stufen und Policies sind Kopien der Capabilities; als bekannte Skills gelten nur die
-// freigegebenen (approved) des Katalogs.
-//
-// Hinweis: Der Domain-Katalog kennt keine Fallbacks. Decision.Check weist deshalb auch dort
-// einen nicht unterstützten Effort ab, wo models.yaml eine Reduktion genehmigt; ob die Wahl
-// des Supervisors Fallbacks nutzen darf, ist Teil von CC-14.
+// Stufen, genehmigte Effort-Fallbacks und Policies sind Kopien der Capabilities (models.yaml);
+// als bekannte Skills gelten nur die freigegebenen (approved) des Katalogs, mit den Rollen, die sie
+// erhalten dürfen (SkillRoles). Decision.Check erkennt damit eine genehmigte Reduktion an und weist
+// einen Skill zurück, der für die Rolle der Auswahl nicht erlaubt ist.
 func BuildCatalog(caps Capabilities, cat *skills.Catalog) domain.Catalog {
 	out := domain.Catalog{
-		Models:   make(map[string][]domain.Effort, len(caps.Models)),
-		Skills:   map[string]bool{},
-		Policies: map[string]bool{},
+		Models:     make(map[string][]domain.Effort, len(caps.Models)),
+		Skills:     map[string]bool{},
+		Policies:   map[string]bool{},
+		SkillRoles: map[string][]domain.Role{},
 	}
 	for id, efforts := range caps.Models {
 		out.Models[id] = slices.Clone(efforts)
+	}
+	for _, f := range caps.Fallbacks {
+		out.Fallbacks = append(out.Fallbacks, domain.CatalogFallback{Model: f.Model, Requested: f.Requested, Effective: f.Effective, Source: f.Source})
 	}
 	for _, p := range caps.Policies {
 		out.Policies[p] = true
@@ -255,6 +257,7 @@ func BuildCatalog(caps Capabilities, cat *skills.Catalog) domain.Catalog {
 		for _, s := range cat.Skills() {
 			if s.Status == skills.StatusApproved {
 				out.Skills[s.ID] = true
+				out.SkillRoles[s.ID] = slices.Clone(s.Roles)
 			}
 		}
 	}

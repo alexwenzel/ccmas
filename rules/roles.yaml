@@ -140,10 +140,16 @@ roles:
       plan_updated:
         next:
           - {action: implementation, role: implementer, requires: [concept_version_approved]}
+          # Derselbe Schritt ohne Konzeptbezug (Fehler- und Organisationsaufträge, Umsetzung ohne Konzeptstand und ohne
+          # Konzeptauftrag als Abhängigkeit): dort gibt es nichts freizugeben. Wo der Snapshot einen Konzeptbezug führt,
+          # verlangt der Validator concept_version_approved trotzdem (docs/architecture/supervisor.md).
+          - {action: implementation, role: implementer}
           - {action: concept_work, role: concept}
           - {action: review, role: reviewer, requires: [work_order_completed]}
+          - {action: documentation_work, role: documentation}
           - {action: request_integration, requires: [review_approved]}
           - {action: request_completion, role: completion}
+          - {action: plan_extend, role: supervisor}
           - {action: wait}
       user_decision_needed:
         next:

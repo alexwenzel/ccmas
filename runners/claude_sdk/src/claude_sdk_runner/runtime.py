@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, MutableMapping, Protocol
 
 import claude_agent_sdk
+import jsonschema
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -35,6 +36,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from . import contracts
 from . import diagnostics as dx
 from .diagnostics import RuntimeDiagnostic, fit, redact
 from .environment import ScrubResult, prepare_environment
@@ -112,6 +114,7 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
     if scrub is None:
         scrub = prepare_environment(environ)
     pol = build_policy(spec["policy_profile"], spec["cwd"])
+    check_output_schema(spec.get("output_schema"))
     # Skills nur aus einem geprüften Snapshot: Hashes, Verzeichnisbestand, Kennung, Rolle und Skill-IDs (ohne Modellaufruf).
     snapshot = verify_for_spec(spec)
     binary = spec["claude_binary"]
@@ -154,6 +157,22 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
         raise RuntimeDiagnostic(dx.NOT_SUBSCRIPTION_LOGIN, "Der aktive Weg ist nicht die claude.ai-Anmeldung. Es gibt keinen Wechsel zu API-Abrechnung.")
     pre = Preflight(binary, version_text, "claude_ai", scrub.removed, version_text != VERIFIED_CLI_VERSION, snapshot)
     return pre, pol
+
+
+STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
+"""Name des Werkzeugs, das die CLI bei gesetztem `output_format` ergänzt (SDK-Dokumentation, „Structured outputs“): der
+Mechanismus der strukturierten Ausgabe, kein fachlicher Schritt. Der Runner meldet es nicht als `tool_event`."""
+
+
+def check_output_schema(schema: Any) -> None:
+    """Das Ausgabeschema muss ein gültiges Draft-07-Schema sein (nach Draft-07 validiert das SDK). Sonst endet der Versuch vor
+    jedem Prozess und jedem Modellaufruf mit `output_schema_invalid`. `None`: keine strukturierte Ausgabe."""
+    if schema is None:
+        return
+    try:
+        jsonschema.Draft7Validator.check_schema(schema)
+    except jsonschema.SchemaError as e:
+        raise RuntimeDiagnostic(dx.OUTPUT_SCHEMA_INVALID, f"Das Ausgabeschema ist kein gültiges Draft-07-Schema: {fit(e.message, 300)}") from None
 
 
 def _config_dir() -> str:
@@ -269,6 +288,7 @@ class Session:
         self._limit_reported = False
         self._assistant_error: str | None = None
         self._tools: dict[str, str] = {}
+        self._structured_calls: dict[str, bool] = {}  # tool_use_id des Werkzeugs StructuredOutput -> abgelehnt?
         self._pending: list[asyncio.Task[None]] = []
 
     # --- Steuerung ---------------------------------------------------------------------------------------
@@ -320,8 +340,15 @@ class Session:
             setting_sources=[],
             max_turns=self._max_turns,
             resume=self.spec.get("resume_session_id"),
+            # Ohne Angabe `None`: das SDK startet die CLI mit `--system-prompt ""` (kein Standardprompt von Claude Code).
+            system_prompt=self.spec.get("system_prompt"),
+            output_format=self._output_format(),
             stderr=lambda line: self.log("cli: " + line.strip()[:300]),
         )
+
+    def _output_format(self) -> dict[str, Any] | None:
+        schema = self.spec.get("output_schema")
+        return None if schema is None else {"type": "json_schema", "schema": schema}
 
     async def run(self) -> None:
         try:
@@ -444,6 +471,7 @@ class Session:
             # Die CLI meldet das wirksame Effort nicht (Init-Frame ohne Effort-Feld): hier steht der übergebene Wert.
             "effort": self.spec["effort"],
             "claude_version": version,
+            "sdk_version": claude_agent_sdk.__version__,
             "claude_binary": self.pre.claude_binary,
             "auth_source": self.pre.auth_source,
         }
@@ -462,6 +490,8 @@ class Session:
                 self.sink.send("activity", {"kind": "assistant_text", "summary": fit(block.text, 500)})
             elif isinstance(block, ThinkingBlock):
                 self.sink.send("activity", {"kind": "thinking", "summary": "Denkt nach"})
+            elif isinstance(block, ToolUseBlock) and block.name == STRUCTURED_OUTPUT_TOOL:
+                self._structured_calls[block.id] = False  # gezählt und im Log ausgewiesen, nicht als Schritt gemeldet
             elif isinstance(block, ToolUseBlock):
                 self._tools[block.id] = block.name
                 payload = {"tool_use_id": _safe_id(block.id), "tool": fit(block.name, 100), "phase": "started"}
@@ -474,7 +504,9 @@ class Session:
         if not isinstance(msg.content, list):
             return
         for block in msg.content:
-            if isinstance(block, ToolResultBlock):
+            if isinstance(block, ToolResultBlock) and block.tool_use_id in self._structured_calls:
+                self._structured_calls[block.tool_use_id] = bool(block.is_error)  # Inhalt der Ablehnung bleibt im Log
+            elif isinstance(block, ToolResultBlock):
                 payload = {
                     "tool_use_id": _safe_id(block.tool_use_id),
                     "tool": fit(self._tools.get(block.tool_use_id, "unbekannt"), 100),
@@ -503,6 +535,39 @@ class Session:
             kind="subscription_limit",
         )
 
+    def _log_structured_calls(self) -> None:
+        if self._structured_calls:
+            rejected = sum(1 for r in self._structured_calls.values() if r)
+            self.log(f"structured_output: aufrufe={len(self._structured_calls)} abgelehnt={rejected}")
+
+    def _structured_result(self, msg: ResultMessage) -> None:
+        """Erfolg bei gesetztem Ausgabeschema: nur mit einer gültigen strukturierten Ausgabe (Objekt, Schema, Größe)."""
+        self._log_structured_calls()
+        out = msg.structured_output
+        if out is None:
+            self._fail(dx.STRUCTURED_OUTPUT_MISSING, "Die Sitzung endete erfolgreich, aber ohne strukturierte Ausgabe, obwohl ein "
+                       "Ausgabeschema gesetzt war.")
+            return
+        if not isinstance(out, dict):
+            self._fail(dx.STRUCTURED_OUTPUT_INVALID, f"Die strukturierte Ausgabe ist kein Objekt (Typ {type(out).__name__}).")
+            return
+        try:
+            jsonschema.Draft7Validator(self.spec["output_schema"]).validate(out)
+        except jsonschema.ValidationError as e:  # nur Ort und Schlüsselwort, nie Werte der Ausgabe
+            where = "/" + "/".join(str(p) for p in e.absolute_path)
+            self._fail(dx.STRUCTURED_OUTPUT_INVALID, f"Die strukturierte Ausgabe verletzt das Ausgabeschema bei {where} (Schlüsselwort {e.validator}).")
+            return
+        limit = contracts.byte_limit("result", "structured_output")
+        size = contracts.canonical_size(out)
+        if size > limit:
+            self._fail(dx.STRUCTURED_OUTPUT_TOO_LARGE, f"Die strukturierte Ausgabe hat {size} Bytes, erlaubt sind höchstens {limit}.")
+            return
+        try:
+            self.sink.send("result", {"outcome": "succeeded", "summary": fit(msg.result or "Lauf beendet.", 8000), "structured_output": out})
+        except contracts.ContractError as e:  # zum Beispiel mehr als 64 Schlüssel auf oberster Ebene
+            code = dx.STRUCTURED_OUTPUT_TOO_LARGE if "size" in e.categories else dx.STRUCTURED_OUTPUT_INVALID
+            self._fail(code, f"Die strukturierte Ausgabe verletzt den Vertrag des Ergebnisses (Klasse {','.join(e.categories)}).")
+
     def _on_result(self, msg: ResultMessage) -> None:
         err = self._assistant_error
         if self._limit_reported or err == "rate_limit" or msg.api_error_status == 429:
@@ -516,7 +581,15 @@ class Session:
         elif self._interrupt_requested and (msg.terminal_reason or "").startswith("aborted"):
             self._result("cancelled", "Lauf auf Anforderung kontrolliert beendet.")
         elif msg.subtype == "success" and not msg.is_error:
-            self._result("succeeded", msg.result or "Lauf beendet.")
+            if self.spec.get("output_schema") is not None:
+                self._structured_result(msg)
+            else:
+                self._result("succeeded", msg.result or "Lauf beendet.")
+        elif msg.subtype == "error_max_structured_output_retries":
+            self._log_structured_calls()
+            detail = fit("; ".join(msg.errors or []), 400) if msg.errors else "ohne Angabe"
+            self._fail(dx.STRUCTURED_OUTPUT_FAILED, "Das SDK konnte nach mehreren Versuchen keine gültige strukturierte Ausgabe "
+                       f"erzeugen (Untertyp error_max_structured_output_retries; {detail}).")
         elif msg.subtype == "error_max_turns":
             self._result("controlled_failure", "Die maximale Rundenzahl wurde erreicht.")
         else:

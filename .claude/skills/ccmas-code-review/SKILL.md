@@ -28,11 +28,14 @@ Alle sind Pflicht, außer dem Bericht des Implementierers:
 - Auftrag mit Ziel und Akzeptanzkriterien,
 - Worktree-Pfad und zu prüfender Commit (vollständiger Hash),
 - Basis `origin/develop`,
-- Konzeptversion, gegen die geprüft wird,
+- Konzeptversion, gegen die geprüft wird (hat der Auftrag keinen Konzeptbezug, also ein Implementierungs- oder Fehlerauftrag
+  ohne Konzeptstand und ohne Abhängigkeit auf einen Konzeptauftrag, lautet die feste Kennung `kein-konzept`; Organisationsaufträge
+  werden nicht geprüft und tragen sie nicht),
 - Ausführungskennung der Implementierung (für den Nachweis der Unabhängigkeit),
 - optional: Bericht des Implementierers mit Testergebnissen und offenen Punkten.
 
-Fehlt etwas, nicht raten: als Befund melden (Prüfstand nicht eindeutig).
+Fehlt etwas, nicht raten: als Befund melden (Prüfstand nicht eindeutig). Die Konzeptversion (oder `kein-konzept`) wird
+unverändert in `concept_version` des Berichts übernommen: Nur ein Bericht mit genau dieser Kennung trägt die Integration.
 
 ## Ablauf
 

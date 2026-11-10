@@ -177,7 +177,7 @@ func TestLiveRunWithSnapshotFromGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cat, err := skills.Load(root)
+	cat, _, err := skills.LoadChecked(root) // wie ein produktiver Aufrufer: der Adapter verlangt den geprüft geladenen Katalog
 	if err != nil {
 		t.Fatal(err)
 	}
