@@ -435,6 +435,7 @@ func TestEnumsMatchSchema(t *testing.T) {
 	check("interrupt.reason", strs(StopReasons()), schemaEnum(t, "runner-v1.schema.json", "interrupt", "reason"))
 	check("tool_event.phase", strs(ToolPhases()), schemaEnum(t, "runner-v1.schema.json", "tool_event", "phase"))
 	check("activity.kind", strs(ActivityKinds()), schemaEnum(t, "runner-v1.schema.json", "activity", "kind"))
+	check("session_started.auth_source", strs(AuthSources()), schemaEnum(t, "runner-v1.schema.json", "session_started", "auth_source"))
 	check("decision.target.kind", strs(TargetKinds()), schemaNestedEnum(t, "decision-v1.schema.json", "decision", "target", "kind"))
 }
 

@@ -14,8 +14,8 @@ und prüfen. Der Nutzer behält Überblick und Entscheidungsmöglichkeiten. CCMA
 rechnen beim Anbieter.
 
 Stand dieses Repositorys: **Grundgerüst** (Ticket CC-22, Meilenstein M01). Vorhanden sind die CLI-Hülle
-(`version`, `--help`, stabile Exit-Codes), das Python-Runner-Paket ohne Ausführungslogik und die
-Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
+(`version`, `--help`, stabile Exit-Codes), das Python-Runner-Paket (seit CC-17 mit Runner-Einstieg und Nachweisen, siehe
+`runtime-capabilities.md`) und die Qualitätsprüfungen. Alles Übrige ist geplant und in der CLI als „noch nicht verfügbar“ gekennzeichnet.
 
 ## Festgelegte Produktentscheidungen
 
@@ -96,7 +96,7 @@ sind bis dahin die Festlegung dieses Repositorys.
 startet je Agentenausführung einen eigenen Runner mit explizitem Arbeitsverzeichnis, Argumenten und kontrollierter
 Umgebung. Der Runner ruft das offizielle Claude Agent SDK auf und verbindet Sitzungen, Ereignisse, Fragen,
 Ergebnisse und Abbruch mit Go. Er ist keine zweite Aufgabenverwaltung: Limits, SQLite, Worktree-Locks und externe
-Schreibaktionen bleiben in Go. Das Runner-Protokoll ist noch nicht umgesetzt; das Gerüst importiert nur Paket und SDK.
+Schreibaktionen bleiben in Go. Der Runner-Einstieg (`python -m claude_sdk_runner`) setzt das Protokoll in einem ersten Umfang um (Start, Ereignisse, Interrupt, genau ein terminales Ergebnis); Fragen, Teilnachrichten und vollständige Steuerung folgen in M04. Nachweise, Diagnosen, Isolationsbefund und Remote-Vorprüfung: [`runtime-capabilities.md`](runtime-capabilities.md).
 
 ### Gepinnte Abhängigkeiten und Kompatibilität
 
@@ -115,9 +115,8 @@ Kompatibilität mit Claude Code (Recherche zum Stand 2026-11-10, aus SDK-Quellte
   Version unter `2.0.0` liegt; für die Option `verbatim_prompts` nennt es zusätzlich die Mindestversion `2.1.248`.
   Die lokal installierte Claude-Code-CLI **2.1.311** liegt über beiden Schwellen.
 - Es gibt keine offizielle Kompatibilitätsmatrix „SDK-Version ↔ CLI-Version“. Das gebündelte CLI (2.1.321) ist neuer als
-  das lokale (2.1.311). **Funktionale Kompatibilität der Kombination SDK 0.2.180 mit CLI 2.1.311 ist hiermit nicht
-  nachgewiesen**; sie gehört zum echten SDK-Nachweis in M01 (spätere Tickets). Dort ist auch die Anmeldung mit dem
-  Max-Abonnement zu belegen.
+  das lokale (2.1.311). Die funktionale Kompatibilität der Kombination SDK 0.2.180 mit CLI 2.1.311 und die Anmeldung mit dem
+  Max-Abonnement sind seit CC-17 in echten Läufen belegt (`runtime-capabilities.md`, Belege unter `evidence/`); mit anderen CLI-Versionen nicht.
 - Unterstützte Python-Versionen laut SDK-Metadaten: 3.10 bis 3.13 (Entwicklungsstatus „Alpha“); CCMAS verlangt ≥ 3.12 und nutzt lokal 3.13 (`.python-version`).
 
 ## Verträge

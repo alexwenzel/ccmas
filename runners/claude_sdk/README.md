@@ -19,3 +19,15 @@ keine eigene Typdefinition. Regeln und Fehlerklassen: `docs/architecture/contrac
 ```bash
 uv run --frozen pytest tests/test_contracts.py -q
 ```
+
+## Runner und Live-Tests
+
+`python -m claude_sdk_runner` liest JSON-Lines-Kommandos (`start`, `answer`, `interrupt`, `stop`) von stdin und
+schreibt Ereignisse nach stdout (Protokoll, redigierte Logs auf stderr). Er verwendet das offizielle SDK mit dem
+ausdrücklich gewählten lokalen Claude-Binary (`RunSpec.claude_binary`) und dessen eigener claude.ai-Anmeldung; es gibt
+keinen API-Fallback. Befunde und Belege: `docs/architecture/runtime-capabilities.md`.
+
+```bash
+uv run --frozen pytest tests/test_runtime_smoke.py -q                              # ohne Konto, ohne Netzwerk
+CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # echte Läufe, verbraucht Abo-Kontingent
+```

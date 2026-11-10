@@ -227,6 +227,18 @@ func ActivityKinds() []ActivityKind {
 	return []ActivityKind{ActivityAssistantText, ActivityThinking, ActivityWaiting, ActivityIdle}
 }
 
+// AuthSource ist die Art der aktiven Anmeldung einer Sitzung (nie Konto-Daten).
+type AuthSource string
+
+const (
+	AuthClaudeAI AuthSource = "claude_ai"
+	AuthAPIKey   AuthSource = "api_key"
+	AuthOther    AuthSource = "other"
+)
+
+// AuthSources liefert die Anmeldearten.
+func AuthSources() []AuthSource { return []AuthSource{AuthClaudeAI, AuthAPIKey, AuthOther} }
+
 // Verdict ist das Urteil eines ReviewReport.
 type Verdict string
 

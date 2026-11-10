@@ -22,3 +22,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "live: echter SDK-Lauf mit dem lokalen Claude-Binary und der eigenen Anmeldung (verbraucht Abo-Kontingent); nur mit CCMAS_LIVE_TESTS=1",
+]

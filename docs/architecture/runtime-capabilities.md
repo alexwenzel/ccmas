@@ -1,15 +1,66 @@
 # CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17)
 
-Stand: **Zwischenstand von Ticket CC-17 (Meilenstein M01), Datum der Recherche und Läufe: 2026-11-10.**
-Das Ticket ist **nicht abgeschlossen**: Recherche und Vorversuche liegen vor, der Runner-Code, die Tests und die
-Belegdateien fehlen noch (Abschnitt „Weiter geht es hier“). Führend ist die Spezifikation „Multi Agent Setup“
-(Version 1.2.1), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und Abonnement“,
-„Berechtigungen und technische Isolation“, „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
-Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
+Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**. Führend ist die Spezifikation
+„Multi Agent Setup“ (Version 1.2.1), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
+Abonnement“, „Berechtigungen und technische Isolation“, „Technische Nachweise und Freigabepunkte“ und „Remote
+Control, mobile Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
 
 Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), lokales Claude Code 2.1.311
 (`cli_path` ausdrücklich gesetzt, nicht die gebündelte CLI), Python 3.13, macOS (Seatbelt), Modell
-`claude-haiku-5-5` mit Effort `low`, Anmeldeart claude.ai (Max-Abonnement).
+`claude-haiku-5-5` (angefordert: `haiku`), Effort `low`, Anmeldeart claude.ai (Max-Abonnement).
+
+## Überblick der Fähigkeiten
+
+| Fähigkeit | nachgewiesen | nicht nachgewiesen | blockiert |
+| --- | --- | --- | --- |
+| Start mit lokalem Binary und eigener Anmeldung | Echte Sitzung über `python -m claude_sdk_runner` und `ClaudeSDKClient`, `cli_path` = lokales Binary, `apiKeySource: none`, Anmeldeart claude.ai (Beleg `live-roundtrip.jsonl`) | andere CLI-Versionen, auch die im SDK gebündelte 2.1.321 | – |
+| Ereignisstrom | `session_started`, `activity`, `tool_event` (started, finished, failed), genau ein `result` (Belege) | Teilnachrichten-Streaming (`include_partial_messages`) – M04 | – |
+| Wirksame Konfiguration | Modell, Berechtigungsmodus, CLI-Pfad und -Version, Anmeldeart kommen aus dem Init-Frame der CLI beziehungsweise der Vorprüfung | **Wirksames Effort:** der Init-Frame enthält kein Effort-Feld, der Runner meldet nur den übergebenen Wert | – |
+| Interrupt/Stop | Interrupt über das Protokoll während eines laufenden Bash-Prozesses: Prozess beendet, genau ein terminales `result` mit `cancelled` (Beleg `live-interrupt.jsonl`) | Stop als eigener Sitzungsabschluss (der Runner behandelt `stop` wie `interrupt`); Prozessbaum bei Schlaf/Absturz | – |
+| Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
+| Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
+| Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen | **Autonomer Modus:** nicht verfügbar (Profil `autonomous` wird abgelehnt) |
+| Diagnosen ohne Konto | Abschnitt 6 (Tests ohne Konto-Zugriff) | Abo-Limit gegen die echte CLI (nur mit Fake-Client belegt) | – |
+| Remote Control | nur Dokumentation und `--help` gelesen (Abschnitt 7) | SDK-Sitzungen in Remote Control | – |
+| Bedingungen für SDK mit Max-Anmeldung | Abschnitt 1 | eindeutige Erlaubnis in den Bedingungen | – |
+
+## Der Runner in diesem Stand
+
+Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/`): `__main__.py` (Prozess-Einstieg),
+`entrypoint.py` (JSON-Lines-Protokoll), `runtime.py` (Vorprüfung und SDK-Sitzung), `environment.py` (Umgebung),
+`policy.py` (Policy-Profile), `diagnostics.py` (Fehlerarten, Schwärzung). Tests: `runners/claude_sdk/tests/`
+(`test_runtime_smoke.py`, `test_runtime_units.py`, Hilfen in `support.py`).
+
+- **Eingang:** `python -m claude_sdk_runner`. stdin liefert `start` (`RunSpec`), danach `answer`, `interrupt`, `stop`;
+  jede Zeile wird mit `claude_sdk_runner.contracts` gegen `to-runner` geprüft (höchstens 1 MiB je Zeile). Ein
+  ungültiger Start liefert nichts auf stdout und Exit-Code 2.
+- **Ausgang:** nur gültige Ereignisse auf stdout (jede Zeile wird vor dem Schreiben gegen `from-runner` geprüft),
+  redigierte und begrenzte Logs auf stderr; Prompts werden nie protokolliert. Exit-Code 0 nach einem terminalen
+  Ergebnis (auch terminalem `error`), 1 bei Ende ohne Ergebnis (Absturz, entscheidet Go).
+- **Genau ein terminales Ergebnis:** `ProtocolSink` verweigert ein zweites terminales Ergebnis und jedes Ereignis
+  danach.
+- **Vorprüfung** vor jedem Start (kein Modellaufruf): Umgebung, Policy, Binary (absolut, ausführbar, nicht die
+  gebündelte CLI), SDK-Pin, `claude -v` (Mindestversion 2.1.311), `claude auth status` (nur `loggedIn`, `authMethod`,
+  `apiProvider` werden gelesen). Im Init-Frame prüft der Runner `apiKeySource == none`, die Fähigkeit
+  `interrupt_receipt_v1` und die CLI-Version.
+- **Policy-Profile** (`RunSpec.policy_profile`): `readonly`, `scoped_write` (Abschnitt 5), `autonomous` wird mit
+  `isolation_not_proven` abgelehnt, alles andere mit `unknown_policy_profile`. `setting_sources` ist immer leer, damit
+  Benutzer- und Projekteinstellungen (zum Beispiel `remoteControlAtStartup`, Hooks, MCP) nicht in Läufe gelangen.
+- **Wirksame Konfiguration:** `session_started` trägt die optionalen Felder `permission_mode`, `claude_binary`,
+  `auth_source` (Vertragserweiterung in CC-17, siehe `contracts.md`).
+- **Grenzen:** `max_runtime_seconds` wird im Runner erzwungen (Interrupt, dann terminaler `error`
+  `max_runtime_exceeded`). `skill_ids` werden noch nicht angewendet (nicht terminaler `error` `skills_not_applied`).
+
+Prüfbefehle:
+
+```bash
+cd runners/claude_sdk
+uv run --frozen pytest tests/test_runtime_smoke.py -q                                      # ohne Konto, ohne Netzwerk
+CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q           # echte Läufe (Abo-Kontingent)
+CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=<Ziel> uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # mit Belegen
+```
+
+Die Live-Tests laufen nie in CI und nie in `make py-test`.
 
 ## 1. Bedingungen für das SDK mit der eigenen claude.ai-Anmeldung
 
@@ -51,36 +102,44 @@ nach den oben zitierten Stellen **ausgeschlossen**. Ein stiller Wechsel auf API-
 
 ## 3. Kompatibilität SDK 0.2.180 und CLI 2.1.311
 
-**Nachgewiesen** (reale Läufe, siehe Abschnitt 4): Start über `cli_path` auf `/opt/homebrew/bin/claude`, Init-Frame mit
-`claude_code_version` 2.1.311, Werkzeugereignisse, `ResultMessage`, Interrupt-Fähigkeit im Init
-(`capabilities` enthält `interrupt_receipt_v1`). Das SDK prüft die CLI-Version nur auf `>= 2.0.0` und warnt nur.
-Eine eigene Mindestversion muss der Runner selbst erzwingen (Vorschlag: genau die nachgewiesene Version als
-Untergrenze, neuere Versionen als Warnung „ungetestet“).
+**Nachgewiesen:** Die Kombination funktioniert in echten Läufen (Abschnitt 4): Start über `cli_path`, Init-Frame mit
+`claude_code_version` 2.1.311 und den Fähigkeiten (unter anderem `interrupt_receipt_v1`), Werkzeugereignisse,
+`ResultMessage`, Interrupt. Das SDK selbst prüft die CLI-Version nur auf `>= 2.0.0` und warnt nur; der Runner erzwingt
+deshalb die Untergrenze 2.1.311 (ältere CLI → `sdk_cli_incompatible`) und die gepinnte SDK-Version. Eine neuere CLI
+wird zugelassen, aber mit der Warnung `cli_version_untested` gemeldet.
 
-**Nicht nachgewiesen:** funktionale Verträglichkeit mit anderen CLI-Versionen, insbesondere der im SDK gebündelten
-2.1.321. Es gibt keine offizielle Kompatibilitätsmatrix.
+**Nicht nachgewiesen:** andere CLI-Versionen, insbesondere die im SDK gebündelte 2.1.321. Es gibt keine offizielle
+Kompatibilitätsmatrix.
 
-## 4. Echte SDK-Läufe (Vorversuche, kleine Läufe)
+## 4. Echte SDK-Läufe und Belege
 
-Alle Läufe: temporäres Fixture unter `$TMPDIR`, `max_turns` 3 bis 16, kein Fan-out. Bisher **7 Läufe**.
+Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-out. Insgesamt **11 echte Läufe**:
+7 Vorversuche mit Wegwerf-Skripten (Basislauf und Isolationsvergleich, Abschnitt 5) und 4 Läufe über den Runner
+(Roundtrip, Interrupt ×2, Scope-Probe). Der erste Interrupt-Lauf war ungültig, weil die CLI ein einzelnes `sleep 57`
+sofort blockiert („Blocked: standalone sleep“); der Test wurde auf einen echten Kindprozess mit Positivkontrolle
+umgestellt und wiederholt.
 
-| Lauf | Ergebnis |
+Redigierte Belege (JSONL, Kopfzeile mit Datum, SDK-, CLI-Version und Modell; Pfade des Fixtures geschwärzt, keine
+Konto-, E-Mail- oder Organisationsdaten; die Session-ID steht bewusst darin) unter `docs/architecture/evidence/`:
+
+| Beleg | Inhalt |
 | --- | --- |
-| Basislauf (Write-Werkzeug, `dontAsk`) | Sitzung gestartet (Session-ID, Modell `claude-haiku-5-5`, `apiKeySource: none`), `Write`-Werkzeugereignis, Datei im Fixture angelegt, genau ein `ResultMessage` (`success`, `terminal_reason: completed`). Die gemeldeten Kosten sind lokal zum Listenpreis berechnet, es wurde nichts über API abgerechnet. |
-| Isolationsläufe | siehe Abschnitt 5 |
+| `live-roundtrip.jsonl` | `python -m claude_sdk_runner` als Unterprozess: `session_started` (Session-ID, wirksames Modell `claude-haiku-5-5`, `auth_source: claude_ai`, `permission_mode: dontAsk`, gewähltes Binary), `Write`-Werkzeugereignis (started, finished), genau ein `result` (`succeeded`) |
+| `live-interrupt.jsonl` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Positivkontrolle „Prozess läuft“, Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled` nach 0,7 s, Kindprozess danach beendet |
+| `live-scope-probe.jsonl` | Scope-Probe über den Runner (Abschnitt 5): 10 Werkzeugaufrufe, 2 erlaubt, 8 verweigert |
 
-Auch ein `RateLimitEvent` (Status `allowed`, Fenster `five_hour`, Überziehung `rejected`, Grund `org_level_disabled`)
-wurde beobachtet. Der Event liefert damit die Grundlage für die Diagnose „Abo-Wartezustand“ (Status `rejected`) und
-zeigt, dass keine Überziehungsabrechnung aktiv ist.
+Beobachtung zu Limits: Ein `RateLimitEvent` (Status `allowed`, Fenster `five_hour`, Überziehung `rejected`, Grund
+`org_level_disabled`) zeigt, dass keine Überziehungsabrechnung aktiv ist. Die gemeldeten Kosten werden lokal zum
+Listenpreis berechnet; abgerechnet wurde nichts über eine API.
 
-**Nicht nachgewiesen:** Das wirksame Effort-Niveau. Der Init-Frame enthält kein Effort-Feld. Der Runner kann nur den
-übergebenen Wert melden; „wirksam“ ist für Effort nicht prüfbar. Modell (wirksam) und Berechtigungsmodus stehen im
-Init-Frame.
+**Nicht nachgewiesen:** Das wirksame Effort-Niveau. Der Init-Frame enthält kein Effort-Feld. Der Runner meldet den
+übergebenen Wert (`session_started.effort`); „wirksam“ ist für Effort per CLI nicht prüfbar. Modell (wirksam) und
+Berechtigungsmodus stehen im Init-Frame.
 
 ## 5. Scope und Isolation: Befund
 
 Aufbau: Fixture (erlaubt), Nachbarverzeichnis, Secret-Attrappe, Kontrollpfad-Attrappe (`control/contracts/`), alles in
-einem temporären Baum, keine echten Secrets, keine Repo-Pfade. Zehn Schritte je Lauf (je ein Werkzeugaufruf):
+einem temporären Baum, keine echten Secrets, keine Repo-Pfade. Neun (frühe Vorversuche) beziehungsweise zehn Schritte je Lauf, je Schritt ein Werkzeugaufruf:
 Schreiben im Fixture mit `Write` und `Bash`, Schreiben im Nachbarn mit `Write`, `Bash` und `python3 -c`, Lesen der
 Secret-Attrappe mit `Read` und `Bash`, Schreiben im Kontrollpfad mit `Write` und `Bash`, Auflisten des Nachbarn.
 Maßgeblich ist der Dateistand nach dem Lauf, nicht die Auskunft des Modells.
@@ -93,13 +152,19 @@ Maßgeblich ist der Dateistand nach dem Lauf, nicht die Auskunft des Modells.
 | Sandbox plus Permission-Regeln (Deny je Pfad) | ja | alle neun Versuche verweigert | verweigert | Beide Ebenen zusammen halten für die getesteten Pfade. |
 | Sandbox plus Standard-Verweigerung (`denyRead` auf den Elternpfad, `allowRead` und `allowWrite` nur Fixture, `permissions.blockReadsOutsideWorkingDirectories`, `dontAsk`, nur auf das Fixture begrenzte Allow-Regeln) | ja | alle verweigert, ohne dass die Pfade einzeln aufgezählt sind | verweigert, auch das Auflisten des Nachbarn | Beste Variante: verweigert alles, was nicht erlaubt ist. |
 | Wie zuvor, zusätzlich `denyRead` auf das Home-Verzeichnis | ja | alle verweigert | verweigert | Das Bash-Werkzeug funktioniert weiterhin. |
+| **Runner-Profil `scoped_write`** (Live-Test `test_scope_probe`, Beleg `live-scope-probe.jsonl`; erzeugt aus `policy.py` mit dem Fixture als Arbeitsverzeichnis, Standard-Verweigerung wie zuvor) | ja (beide Wege) | alle 8 verbotenen Zugriffe verweigert, Dateistand unverändert | verweigert, das Secret taucht in keinem Ereignis auf | Die Grenze gilt auch über den produktiven Runner-Pfad. |
 
 Verwendete Mittel in der besten Variante: `permission_mode: dontAsk`, `allowed_tools` mit auf das Fixture begrenzten
 `Write(//…/**)`, `Edit(…)`, `Read(…)` und `Bash`, `setting_sources: []`, Sandbox mit `enabled`, `failIfUnavailable`,
 `allowUnsandboxedCommands: false`, `autoAllowBashIfSandboxed`, `filesystem.allowWrite`, `filesystem.denyRead`,
 `filesystem.allowRead`. Pfade müssen als `realpath` angegeben werden (`/var/…` ist `/private/var/…`).
 
-### Isolationsurteil (vorläufig)
+### Isolationsurteil
+
+**Kurzurteil:** Die Dateisystemgrenze ist für die getesteten Fälle **technisch nachgewiesen** (Mittel: OS-Sandbox der CLI
+für Shell-Prozesse plus Permission-Regeln mit `dontAsk` für die Dateiwerkzeuge, beides aus dem Profil `scoped_write`).
+Ein vollständiger Isolationsnachweis liegt **nicht** vor; **autonome Ausführung ist nicht verfügbar**
+(`policy.autonomous_execution_status()` meldet `available: false` mit Gründen, das Profil `autonomous` wird abgelehnt).
 
 - **Technisch nachgewiesen (nur für die getesteten Fälle):** Auf macOS mit CLI 2.1.311 bilden die Kombination aus
   OS-Sandbox für Shell-Prozesse und Permission-Regeln für Dateiwerkzeuge eine technische Dateisystemgrenze. Schreiben im
@@ -115,19 +180,36 @@ Verwendete Mittel in der besten Variante: `permission_mode: dontAsk`, `allowed_t
   4. Weitere Wege außerhalb der Sandbox: Hooks, MCP-Server, `excludedCommands`, Unterprozess-Start von `claude`,
      Zählung ungezählter Agentenprozesse.
   5. Verhalten bei Versionswechsel der CLI und auf anderen Plattformen als macOS.
-- **Lösungsvorschlag für M04:** Sandbox-Konfiguration und Permission-Regeln aus einem Policy-Profil erzeugen (Standard
-  verweigern, Fixture erlauben, `failIfUnavailable`, kein `dangerouslyDisableSandbox`). Zusätzlich eine
+- **Lösungsvorschlag für M04:** Die Profil-Erzeugung (Standard verweigern, Fixture erlauben, `failIfUnavailable`, kein
+  `dangerouslyDisableSandbox`) steht in `policy.py` und wird in M04 mit dem Katalog aus Go verbunden. Zusätzlich eine
   Betriebssystemgrenze außerhalb des SDK prüfen: dedizierter macOS-Benutzer oder Seatbelt-Profil (`sandbox-exec`) für den
   gesamten Runner-Prozess, um auch Hooks und MCP abzudecken. Git-Schreibaktionen über den Go-Dienst.
 
-## 6. Diagnosen ohne Konto-Zugriff (geplant, Tests offen)
+## 6. Diagnosen ohne Konto-Zugriff
 
-Fehlerarten, die der Runner als eigene Codes ausgeben soll (Vertrag: `error`, Klassen `runtime` oder
-`subscription_limit`): kein Konto/Login (`not_logged_in`), Anmeldung ist nicht claude.ai
-(`not_subscription_login`), API-Schlüssel oder Provider-Variable in der Umgebung
-(`api_credentials_in_environment`, nur Variablennamen, nie Werte), SDK/CLI-Inkompatibilität
-(`sdk_cli_incompatible`), Abo-Wartezustand (nicht terminaler `error` mit `kind: subscription_limit`). Es gibt keinen
-API-Fallback und keine Token-Vermittlung.
+Jede Diagnose ist ein eigener Code im terminalen `error` (Art `runtime`), mit Test ohne Konto-Zugriff
+(`tests/test_runtime_smoke.py` und `tests/test_runtime_units.py`; Doubles nur dort: Stub-Binary für `-v` und
+`auth status`, Fake-Client mit echten SDK-Nachrichtentypen).
+
+| Code | Auslöser | Test |
+| --- | --- | --- |
+| `not_logged_in` | `claude auth status` meldet `loggedIn: false`; auch Antwort `authentication_failed` in der Sitzung | `test_no_api_fallback_when_not_logged_in`, zusätzlich mit dem echten Binary und leerem `CLAUDE_CONFIG_DIR` (kein Netzwerk, kein Konto) |
+| `not_subscription_login` | Anmeldung ist nicht claude.ai/firstParty | `test_no_api_fallback_when_login_is_not_claude_ai` |
+| `api_credentials_in_environment` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_*` u. ä.; nur der Name wird gemeldet, das Binary wird nicht einmal gestartet | `test_no_api_fallback_when_credentials_in_environment` |
+| `api_billing_detected` | `apiKeySource` im Init-Frame ist nicht `none`: sofortiger Interrupt, kein Werkzeug läuft | `test_api_key_source_in_init_aborts_immediately` |
+| `sdk_cli_incompatible` | CLI älter als 2.1.311, Version nicht lesbar, SDK-Pin weicht ab, Fähigkeit `interrupt_receipt_v1` fehlt | `test_old_or_unreadable_cli_version_is_incompatible`, `test_missing_interrupt_capability_is_incompatibility`, `test_sdk_pin_is_consistent` |
+| `cli_unavailable` | Binary fehlt, nicht ausführbar, relativ oder die im SDK gebündelte CLI | `test_missing_binary_is_cli_unavailable`, `test_bundled_sdk_cli_is_rejected` |
+| `billing_error` | Antwort `billing_error` in der Sitzung | – (Zuordnung im Code, kein eigener Test) |
+| `subscription_limit` (Art `subscription_limit`, **nicht terminal**) | `RateLimitEvent` mit Status `rejected`, `rate_limit` oder HTTP 429; danach terminales `result` `controlled_failure` | `test_subscription_limit_is_non_terminal_error_then_controlled_failure` |
+
+Es gibt keinen API-Fallback und keine Token-Vermittlung. Der Abo-Limit-Pfad ist nur mit einem Fake-Client belegt; ein
+echter Limit-Lauf wurde bewusst nicht herbeigeführt.
+
+**Umgebung:** Credential- und Provider-Variablen sind ein Fehler (nur Namen). Alle übrigen `ANTHROPIC_*`-,
+`CLAUDE_CODE_*`- und `CLAUDE_AGENT_SDK_*`-Variablen sowie `CLAUDECODE` werden vor dem Start aus `os.environ`
+entfernt, weil das SDK Variablen nur überschreiben, nicht löschen kann (sonst gelangten zum Beispiel
+`CLAUDE_CODE_SESSION_ID` und `CLAUDE_CODE_MESSAGING_*` einer übergeordneten Claude-Sitzung in die Kindsitzung).
+`CLAUDE_CONFIG_DIR` bleibt erhalten.
 
 ## 7. Remote Control: Vorprüfung (nur gelesen, nichts aktiviert)
 
@@ -157,31 +239,15 @@ der Spezifikation vorgesehen): zusätzliche native Claude-Sitzung im Servermodus
 CCMAS-Steuerungs-Skill, der nur über die CCMAS-CLI liest und antwortet. M10 muss `claude remote-control` real mit dem
 Konto erproben und dabei die Kombination mit dem Isolationsprofil prüfen.
 
-## Weiter geht es hier (Übergabe, Stand 2026-11-10)
+## Offene Punkte für M04 (CC-40) und folgende
 
-Erledigt: Recherche der Bedingungen (Abschnitt 1), Kompatibilität des Zusammenspiels SDK 0.2.180 mit CLI 2.1.311 im
-realen Lauf, Isolationsvorversuche (Abschnitt 5), Remote-Vorprüfung (Abschnitt 7). **Im Repository wurde kein Code
-und kein Test geändert.** Die Vorversuche liefen mit Wegwerf-Skripten außerhalb des Repositorys.
-
-Offen, in dieser Reihenfolge:
-1. **Rot-Phase:** `runners/claude_sdk/tests/test_runtime_smoke.py` mit `test_live_sdk_roundtrip` (Marker `live`),
-   `test_scope_probe` (live, plus nicht-live Prüfung der Policy-Optionen) und `test_no_api_fallback`, dazu Tests je
-   Diagnose (Stub-Binary im Test, kein Konto). Marker `live` in `pyproject.toml` registrieren und standardmäßig
-   überspringen (`CCMAS_LIVE_TESTS=1` schaltet ein).
-2. **Code** im Paket `claude_sdk_runner`: `entrypoint.py` (JSON-Lines von stdin, Validierung mit `contracts`, nur
-   Protokoll auf stdout, genau ein terminales Ergebnis), `runtime.py` (SDK-Sitzung über `ClaudeSDKClient`, Umgebung
-   bereinigen, Vorprüfung mit `claude -v` und `claude auth status`, `apiKeySource` prüfen, Policy-Profile `readonly`
-   und `scoped_write` nach Abschnitt 5, `autonomous` ablehnen), `__main__.py`. Zuordnung der SDK-Nachrichten: Init zu
-   `session_started`, Text und Thinking zu `activity`, `ToolUseBlock`/`ToolResultBlock` zu `tool_event`, `ResultMessage`
-   zu `result`, `RateLimitEvent` mit Status `rejected` zu `error` mit `kind: subscription_limit` (nicht terminal).
-   Interrupt über `ClaudeSDKClient.interrupt()`; `terminal_reason` `aborted_*` ergibt `cancelled`.
-3. **Vertragslücke (Go und Schema, minimal):** `session_started` hat keine Felder für wirksamen Berechtigungsmodus und
-   gewählte CLI. Vorschlag: optionale Felder `permission_mode`, `claude_binary` und `auth_source` in
-   `contracts/runner-v1.schema.json`, Go-Typ `SessionStarted`, Fixtures auf beiden Seiten, `contracts.md`.
-4. **Live-Läufe** (je einer, klein): Roundtrip, Interrupt mit genau einem terminalen Ergebnis, Scope-Probe über den
-   Runner. Redigierte Belege als JSONL unter `docs/architecture/evidence/` mit Datum, SDK-, CLI-Version und Modell.
-5. Dieses Dokument vervollständigen (Abschnitte 4 bis 6 mit den echten Läufen), in `ccmas-design.md` nur einen
-   Verweis ergänzen, dann `make check`, `gofmt -l .`, `go mod tidy -diff`, `uv lock --check`, frischer Klon.
-
-Die Vorversuchs-Skripte lagen unter `$TMPDIR/ccmas17-scratch/` (nicht versioniert, gehen eventuell verloren). Ihr
-Inhalt steht in Abschnitt 5 so weit beschrieben, dass er nachgebaut werden kann.
+- **Abo-Wartezustand in Go:** Der Runner sendet einen nicht terminalen `error` (`kind: subscription_limit`) und danach
+  ein terminales `result` `controlled_failure`. Wie Go das als Wartezustand ohne Crash-Zählung behandelt, ist offen.
+- **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und
+  Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04.
+- **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
+- **Isolation:** Git-Schreibaktionen, Werkzeugkette in der Sandbox, Netzwerkgrenze, Hooks/MCP und eine OS-Grenze um
+  den ganzen Runner (Abschnitt 5, Lösungsvorschlag) vor der Freigabe des autonomen Modus.
+- **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
+- **Skills** (`skill_ids`) werden noch nicht angewendet.
+- **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt offen und wird vom Projektinhaber getragen.
