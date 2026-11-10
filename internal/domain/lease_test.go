@@ -132,7 +132,7 @@ func TestExecutionLeaseJSON(t *testing.T) {
 }
 
 // TestLeaseAuditKindsAreWellFormed: die Ereignisarten der Reservierung haben die Form gegenstand.ereignis, sind
-// eindeutig und kollidieren nicht mit den Arten der übrigen Ebenen.
+// eindeutig, kommen in AuditKinds genau einmal vor und kollidieren nicht mit den Arten der übrigen Ebenen.
 func TestLeaseAuditKindsAreWellFormed(t *testing.T) {
 	kinds := LeaseAuditKinds()
 	if len(kinds) == 0 {
@@ -144,8 +144,8 @@ func TestLeaseAuditKindsAreWellFormed(t *testing.T) {
 			t.Errorf("Ereignisart %q ungültig oder doppelt", k)
 		}
 		seen[k] = true
-		if slices.Contains(AuditKinds(), k) {
-			t.Errorf("Ereignisart %q steht schon in AuditKinds", k)
+		if n := slices.Index(AuditKinds(), k); n < 0 || slices.Index(AuditKinds()[n+1:], k) >= 0 {
+			t.Errorf("Ereignisart %q fehlt in AuditKinds oder steht dort mehrfach", k)
 		}
 	}
 }

@@ -61,6 +61,8 @@ const (
 	AuditWorkOrderConceptSet   = "work_order.concept_set"
 	AuditWorkOrderPRSet        = "work_order.pull_request_set"
 	AuditWorkOrderDependency   = "work_order.dependency_added"
+	AuditWorkOrderCancelled    = "work_order.cancelled" // Abbruch durch einen Akteur, mit Grund (CC-42)
+	AuditWorkOrderResumed      = "work_order.resumed"   // Wiederaufnahme eines blockierten Auftrags, mit Grund (CC-42)
 	AuditTaskSynced            = "task.synced"
 	AuditAgentCreated          = "agent.created"
 	AuditAgentAvailability     = "agent.availability_changed"
@@ -80,7 +82,7 @@ const (
 
 // AuditKinds liefert alle Ereignisarten dieser Version.
 func AuditKinds() []string {
-	return []string{
+	kinds := []string{
 		AuditProjectCreated, AuditProjectConfigUpdated, AuditProfileRecorded, AuditSkillSnapshotRecorded,
 		AuditGoalCreated, AuditGoalEvidenceSet, AuditWorkOrderCreated, AuditWorkOrderStateChanged,
 		AuditWorkOrderHeadSet, AuditWorkOrderResultSet, AuditWorkOrderRepairRounds, AuditWorkOrderConceptSet,
@@ -88,8 +90,9 @@ func AuditKinds() []string {
 		AuditAgentAvailability, AuditExecutionCreated, AuditAttemptStarted, AuditExecutionStateChanged,
 		AuditAttemptFinished, AuditSessionSet, AuditProcessObserved, AuditQuestionCreated,
 		AuditQuestionAnswered, AuditQuestionDelivered, AuditQuestionStateChanged, AuditPlanRecorded,
-		AuditReviewRecorded,
+		AuditReviewRecorded, AuditWorkOrderCancelled, AuditWorkOrderResumed,
 	}
+	return append(kinds, LeaseAuditKinds()...)
 }
 
 // Grenzen der Details: klein und typisiert, damit weder Prompts noch große Nutzdaten im Auditverlauf landen.
