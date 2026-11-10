@@ -90,12 +90,14 @@ Schemavertrag geprüft; Spalten für Zugangsdaten gibt es nicht (`TestNoSecretCo
 | `questions`, `answers` | Fragen mit Zustand und Zustellbestätigung; Antworten (unveränderlich). `questions.answer_id` ist ein Fremdschlüssel `(project_id, answer_id, question_id)` auf `answers`: die Antwort muss zur selben Frage und zum selben Projekt gehören (bei `answer_id IS NULL` ohne Wirkung; Reihenfolge Frage, Antwort, Aktualisierung der Frage) |
 | `review_reports` | Review-Berichte (Urteil, Commit, Konzeptversion) |
 | `events` | Auditverlauf, nur anhängbar (Trigger sperren Ändern und Löschen) |
-| `leases` | Reservierungen (Tabelle und Einschränkungen vorhanden, **Logik folgt in CC-42**); Zustandstyp `domain.LeaseState` |
+| `leases` | Reservierungen eines Auftrags für einen Agenten (CC-42, Migration `002`): Generation je Auftrag, Zustand `domain.LeaseState`, optionaler Worktree, Herkunft (`batch_id`, `decision_id`); Logik in `Tx.CreateLease`, `BindLeaseAttempt`, `TransitionLease` (`repo_lease.go`), Ablauf im Orchestrator ([orchestrator.md](orchestrator.md)) |
 | `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Tabellen vorhanden, **Logik folgt in CC-45**); Zustandstypen `domain.DeliveryState` und `domain.OutboxState` |
 
 Die Zustandslisten für Reservierung, Zustellung und Outbox (`domain.LeaseState` in `lease.go`, `domain.DeliveryState` in
-`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Übergangstabellen gibt es
-noch keine**; sie kommen mit CC-42 (Reservierung) bzw. CC-45 (Zustellung, Outbox). In `persistence/enums.go` stehen nur noch
+`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Die Übergangstabelle für
+`LeaseState` gibt es seit CC-42**: `active` geht nach `released`, `expired` oder `revoked`; ein Endzustand ist endgültig, eine
+neue Reservierung ist eine neue Lease mit höherer Generation (`CanTransition`, `IsTerminal`). Die Tabellen für Zustellung und
+Outbox kommen mit CC-45. In `persistence/enums.go` stehen nur noch
 interne Hilfslisten, die Typen aus `supervisor` und `skills` spiegeln.
 
 ## Zustandsrevision und Zeilenrevision
@@ -111,7 +113,7 @@ Einteilung der Änderungen:
 
 | Planungszustand (erhöht die Revision) | Journal und Beobachtung (erhöhen sie nicht) |
 | --- | --- |
-| Projektkonfiguration, Agenten, Ziele, Aufträge samt Konzeptstand, PR, Abhängigkeiten und Ergebnissen, Ausführungen und ihr Ausführungszustand, Fragen und Antworten, Review-Berichte (also alles, was der `ProjectSnapshot` zeigt) | Pläne und Entscheidungen (ein Plan gilt für genau die Revision, auf der er beruht), Profilversionen und Skill-Snapshots (unveränderliche Verweisziele), das Asana-Abbild `tasks`, Session-ID, Prozessbeobachtung |
+| Projektkonfiguration, Agenten, Ziele, Aufträge samt Konzeptstand, PR, Abhängigkeiten und Ergebnissen, Ausführungen und ihr Ausführungszustand, Fragen und Antworten, Review-Berichte (also alles, was der `ProjectSnapshot` zeigt), **Leases** (anlegen, an einen Versuch binden, freigeben, ablaufen lassen, widerrufen: sie ändern, was startbar ist und wie viele Plätze belegt sind) | Pläne und Entscheidungen (ein Plan gilt für genau die Revision, auf der er beruht), Profilversionen und Skill-Snapshots (unveränderliche Verweisziele), das Asana-Abbild `tasks`, Session-ID, Prozessbeobachtung |
 
 Die Journal-Einträge tragen im Ereignis die unveränderte aktuelle Revision; das Ereignis einer Änderung des Planungszustands
 trägt die Revision **nach** der Änderung. Der Grund: Würde jede Aufzeichnung die Revision erhöhen, ließe sie den Plan veralten,
@@ -123,6 +125,10 @@ Jede fachliche Änderung schreibt ihr Audit-Ereignis (`events`, `domain.AuditEve
 bestehen aus typisierten Feldern (höchstens 4 KiB; keine Prompts, Umgebungsvariablen oder Zugangsdaten). Ein Rollback nimmt
 Änderung, Ereignis und Revision zurück. Eine Änderung ohne Wirkung (gleicher Wert) schreibt nichts. Scheitert ein Aufruf,
 ist die Transaktion verbraucht und wird nicht festgeschrieben, auch wenn der Callback den Fehler ignoriert.
+
+**Aktion mit Grund (CC-42):** Ein Zustandsübergang kennt keinen Grund. `Tx.RecordWorkOrderAction` hält ihn als Journal-Eintrag fest
+(`work_order.cancelled`, `work_order.resumed`; Detail `reason`, höchstens 512 Bytes, Pflicht; Akteur ist der Akteur der
+Transaktion). Der zugehörige Übergang (`TransitionWorkOrder`) erhöht die Revision; die Aktion allein nicht.
 
 ## Getrennte Zustandsebenen
 
@@ -150,8 +156,10 @@ eindeutige GID je Projekt, optional der eine Auftrag). Damit gibt es keine Doppe
 
 ## Abbildung des `ProjectSnapshot`
 
-Der Snapshot-Bauer (CC-42) füllt den Snapshot aus der Datenbank. Die Leseschicht liefert alles in **einer** Lesetransaktion
-(`Store.View`), also zu einer einzigen Revision.
+Der Snapshot-Bauer ist umgesetzt (CC-42): `orchestrator.BuildSnapshot` füllt den Snapshot aus der Datenbank, in
+`Store.View` oder in der Schreibtransaktion einer Reservierung (die Leseschicht liefert alles in **einer** Transaktion, also zu
+einer einzigen Revision); `orchestrator.StoreSnapshotSource` erfüllt `supervisor.SnapshotSource`. Einzelheiten, auch die
+Präzisierungen zur Konzeptweitergabe: [orchestrator.md](orchestrator.md).
 
 | Feld des Snapshots | Quelle | Lesemethode |
 | --- | --- | --- |
@@ -174,7 +182,7 @@ Der Snapshot-Bauer (CC-42) füllt den Snapshot aus der Datenbank. Die Leseschich
 | `roles[]`, `skills[]` | **nicht aus SQLite**: aus `agents.yaml`, `models.yaml` und dem Skill-Katalog | `supervisor.BuildRoleOffers`, `BuildSkillOffers` |
 
 Die Konzeptfreigabe abhängiger Aufträge (Übertragung des freigegebenen Konzeptstands) und die Befüllung des Snapshots gehören
-dem Snapshot-Bauer (CC-42); dieses Paket liefert die gespeicherten Werte unverändert.
+dem Snapshot-Bauer (`internal/orchestrator`); dieses Paket liefert die gespeicherten Werte unverändert.
 
 ## Fehlercodes des Pakets
 
@@ -273,7 +281,7 @@ ein Hinweis), 1 (mindestens ein Befund), 2 (Bedienfehler, auch ein nicht bestimm
 
 ## Migrationsnummern und Schemagrenzen für die Folgetickets
 
-Die Migrationsnummern der parallelen Folgetickets sind vergeben, damit sie nicht kollidieren: **CC-42 → `002`**, **CC-45 → `003`**,
+Die Migrationsnummern der parallelen Folgetickets sind vergeben, damit sie nicht kollidieren: **CC-42 → `002` (Name `reservation`, vergeben und angewandt)**, **CC-45 → `003`**,
 **CC-51 → `004`** (falls nötig). Eine bereits angewandte Migration wird nie geändert (Prüfsumme, `migration_checksum_mismatch`);
 Änderungen kommen als neue Migration. Nur `001` durfte noch geändert werden, solange es keine produktive Datenbank gibt.
 
@@ -284,8 +292,11 @@ aufgeschoben; verletzte Bezüge brechen das Festschreiben ab.
 
 **Was das Schema nicht erzwingt und CC-42/CC-45 deshalb in Go prüfen müssen:**
 
-- **Lease und Versuch:** `leases.(project_id, execution_id, attempt)` verweist auf einen Versuch **desselben Projekts**, nicht
-  auf einen Versuch desselben **Auftrags**. Dass die Ausführung zum Auftrag der Lease gehört, prüft die Reservierungslogik.
+- **Lease und Versuch** (seit CC-42 Go **plus** Trigger): `leases.(project_id, execution_id, attempt)` verweist per Fremdschlüssel
+  auf einen Versuch **desselben Projekts**, nicht desselben **Auftrags**. Dass die Ausführung zum Auftrag der Lease gehört,
+  prüft `Tx.CreateLease`/`BindLeaseAttempt` in Go und, als zweite Absicherung, ein Trigger der Migration `002`. Dasselbe gilt für
+  Endzustand (eine beendete Lease ändert sich nie), Identität (Auftrag, Agent, Generation, Herkunft) und die einmalige Bindung
+  an einen Versuch.
 - **Outbox:** `outbox.operation_key` ist **global** eindeutig (`UNIQUE`), nicht je Projekt. Der Schlüssel muss das Projekt
   enthalten, sonst kollidieren gleiche Operationen verschiedener Projekte als `conflict`.
 
@@ -299,7 +310,7 @@ nicht gemessen.
 
 | Ticket | Inhalt |
 | --- | --- |
-| **CC-42** | Reservierung und Leases (Logik auf `leases`, Übergangstabelle für `LeaseState`), Snapshot-Bauer (`ProjectSnapshot` aus der Datenbank), Orchestrator-Aufruf des Validators |
+| **CC-42** | **umgesetzt** (W42.1/W42.2): Leases (Logik auf `leases`, Übergangstabelle für `LeaseState`), Snapshot-Bauer, Reservierung mit erneutem Validator-Aufruf in der Transaktion, Ereignisse der Runner mit Fencing, Abbruch und Wiederaufnahme: [orchestrator.md](orchestrator.md) |
 | **CC-45** | Nachrichten, Zustellung, Outbox (Logik auf `messages`, `message_deliveries`, `outbox`); die Übergangstabellen (`CanTransition`) für `DeliveryState` und `OutboxState` |
 | **CC-51** | Dienst (Schreiber der Datenbank, Steuer-Socket unter `<Ausführungsbereich>/run/`), Idempotenz von Kommandos, die weiteren Exit-Codes von `status` (4, 5, 6; vom Projektinhaber festgelegt) |
 

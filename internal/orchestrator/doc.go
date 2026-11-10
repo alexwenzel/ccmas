@@ -1,6 +1,11 @@
 // Package orchestrator ist die Schicht des Go-Dienstes, die Planung und Zustand verbindet: Sie baut den ProjectSnapshot aus
-// SQLite und (ab W42.2) reserviert Arbeit und führt Zustandsübergänge sicher aus. Sie entscheidet nichts inhaltlich: Was
-// zulässig ist, sagt der Validator (internal/supervisor); was gespeichert wird und wie, regelt internal/persistence.
+// SQLite, reserviert Arbeit und führt Zustandsübergänge sicher aus. Sie entscheidet nichts inhaltlich: Was zulässig ist, sagt der
+// Validator (internal/supervisor); was gespeichert wird und wie, regelt internal/persistence.
+//
+// Tasks (NewTasks) bündelt die Operationen: ReserveBatch und ReserveTask reservieren einen angenommenen Batch in einer
+// Transaktion, mit erneutem Validator-Aufruf; ApplyEvent und ApplyProcessExit wenden Ereignisse der Runner an, abgesichert durch
+// Lease-Generation (Fencing); CancelTask und ResumeTask brechen ab und nehmen blockierte Aufträge wieder auf. Die Auftragsübergänge
+// je Rolle stehen als Tabelle in transitions.go. Regeln, Fehlerklassen und offene Punkte: docs/architecture/orchestrator.md.
 //
 // # Snapshot aus SQLite
 //
@@ -48,7 +53,8 @@
 //
 // # Bezeichner
 //
-// Dieses Paket teilen mehrere Tickets. Die Bezeichner der Snapshot-Seite beginnen deshalb mit Snapshot oder BuildSnapshot,
-// die der Reservierung (Tasks, ReserveTask, ReserveBatch, ApplyEvent, CancelTask, ResumeTask) folgen in W42.2; allgemeine
-// Namen wie Service, New, Option oder Clock sind absichtlich nicht belegt.
+// Dieses Paket teilen mehrere Tickets. Die Bezeichner der Snapshot-Seite beginnen mit Snapshot oder BuildSnapshot, die der
+// Reservierung und der Ereignisse mit Tasks (Tasks, TasksPolicy, TasksGoalFunc, TaskError, TaskClass, ReserveTask, ReserveBatch,
+// ApplyEvent, ApplyProcessExit, CancelTask, ResumeTask), die Tabelle der Auftragsübergänge mit order, interne Hilfen mit task.
+// Allgemeine Namen wie Service, New, Option, Config oder Clock sind absichtlich nicht belegt.
 package orchestrator

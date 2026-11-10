@@ -51,8 +51,8 @@ internal/workers/     Adapter zum Python-Runner: runner/ (CC-46)        vorhande
 internal/supervisor/  ProjectSnapshot, Validator, Policy, Planer (CC-14) vorhanden
 internal/persistence/ SQLite-Zustand, Migrationen, Audit, nur lesende
                       Prüfung (CC-27); persistencetest/ für Tests       vorhanden
-internal/orchestrator/ git/ integrations/
-         monitoring/ api/ tui/                                          geplant
+internal/orchestrator/ Snapshot-Bauer, Reservierung, Fencing (CC-42)       vorhanden
+git/ integrations/ monitoring/ api/ tui/                                geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
 config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
