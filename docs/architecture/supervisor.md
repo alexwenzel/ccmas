@@ -7,8 +7,8 @@ Arbeitsauftrag“, „Zustandsmodell“, „Tickets und Mehrfachauswahl“, „P
 Entscheidungen“, „Beziehungen und Abschluss“, „Unabhängiges Review vor dem Push“ und „Parameter und Profile“. Diese Datei hält
 fest, was das Repository umsetzt, und ist keine Kopie der Spezifikation.
 
-**Grenzen dieses Stands:** Der Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Der Orchestrator (M03) existiert nicht, ebenso wenig
-die Befüllung des `ProjectSnapshot` aus dem führenden Zustand. Alles unten beschreibt Bausteine, die getestet sind, nicht einen
+**Grenzen dieses Stands:** Der Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Orchestrator und Snapshot-Bauer gibt es seit CC-42
+([`orchestrator.md`](orchestrator.md)), aber noch keinen Dienst, der den Planer aufruft (folgt mit CC-51). Alles unten beschreibt Bausteine, die getestet sind, nicht einen
 laufenden Planungszyklus. Die Planung ist mit dem echten Supervisor an acht synthetischen Zuständen belegt (Abschnitt „Nachweis M02“), nicht an echten Projektzuständen und
 ohne dass die geplante Arbeit ausgeführt wurde.
 

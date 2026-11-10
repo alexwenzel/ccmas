@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/alexwenzel/ccmas/internal/domain"
@@ -184,6 +185,66 @@ func TestEventFencedByLease(t *testing.T) {
 				tasksWantClass(t, err, TaskStale)
 			}
 		})
+	}
+}
+
+// TestRevokedLeaseNotNewestIsStale: Die Ausnahme für den Versuch einer widerrufenen Lease (Versuch in stopping, terminales
+// Ergebnis schließt nur den Versuch ab) gilt nur, solange diese Lease die jüngste Generation des Auftrags ist. Existiert eine
+// jüngere Generation, ist das Ereignis stale und ändert nichts.
+//
+// Im normalen Ablauf entsteht der Fall nicht: Der Auftrag ist nach CancelTask cancelled, und ReserveBatch reserviert nur, was
+// der Validator in der Transaktion annimmt; einen abgebrochenen Auftrag lehnt er ab. Der Test legt die jüngere Lease deshalb
+// direkt über die Persistenz an (die Trigger aus 002 erlauben das, weil die alte Lease nicht mehr aktiv ist, und eine Lease ohne
+// Herkunft ist zulässig). Die Prüfung in taskFence ist eine zusätzliche Absicherung für den Fall, dass eine andere Stelle diese
+// Lücke je öffnet.
+func TestRevokedLeaseNotNewestIsStale(t *testing.T) {
+	w := newTasksWorld(t)
+	l1 := w.reserve("batch-1", "wo-1")
+	w.apply(tasksSession(l1.ExecutionID))
+	if err := w.tasks.CancelTask(tasksCtx(t), tasksProject, "wo-1", "alice", "Umfang entfällt"); err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+	if a := w.attempt(l1.ExecutionID, 1); a.State != domain.ExecStopping {
+		t.Fatalf("Versuch = %s, erwartet stopping", a.State)
+	}
+
+	// Jüngere Generation desselben Auftrags, an dieser Stelle der Persistenz vorbei am Orchestrator.
+	var l2 domain.ExecutionLease
+	tasksUpdate(t, w.store, func(tx *persistence.Tx) error {
+		var err error
+		l2, err = tx.CreateLease(domain.ExecutionLease{LeaseID: "lease-newer", ProjectID: tasksProject, WorkOrderID: "wo-1",
+			AgentID: "agent-1", State: domain.LeaseActive, ExpiresAt: w.clock.Now().Add(time.Hour)}, nil)
+		return err
+	})
+	if l2.Generation != 2 {
+		t.Fatalf("jüngere Lease = %+v, erwartet Generation 2", l2)
+	}
+
+	for name, run := range map[string]func() error{
+		"result cancelled": func() error {
+			return w.tasks.ApplyEvent(tasksCtx(t), tasksResult(l1.ExecutionID, 1, domain.OutcomeCancelled))
+		},
+		"result succeeded": func() error {
+			return w.tasks.ApplyEvent(tasksCtx(t), tasksResult(l1.ExecutionID, 1, domain.OutcomeSucceeded))
+		},
+		"terminaler Fehler": func() error {
+			return w.tasks.ApplyEvent(tasksCtx(t), tasksEvent(l1.ExecutionID, 1, domain.MsgError, domain.ErrorPayload{Code: "x", Message: "m", Kind: domain.ErrorKind("runtime"), Terminal: true}))
+		},
+		"Prozessende": func() error { return w.tasks.ApplyProcessExit(tasksCtx(t), tasksProject, l1.ExecutionID, 1, 143) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := w.unchanged(run)
+			if err == nil {
+				t.Fatal("kein Fehler: das Ereignis einer nicht jüngsten Lease wurde angenommen")
+			}
+			tasksWantClass(t, err, TaskStale)
+		})
+	}
+	if a := w.attempt(l1.ExecutionID, 1); a.State != domain.ExecStopping {
+		t.Errorf("Versuch = %s, bleibt stopping", a.State)
+	}
+	if ls := w.leases("wo-1"); len(ls) != 2 || ls[0].State != domain.LeaseRevoked || ls[1].State != domain.LeaseActive {
+		t.Errorf("Leases = %+v", ls)
 	}
 }
 

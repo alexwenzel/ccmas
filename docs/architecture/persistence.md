@@ -93,11 +93,9 @@ Schemavertrag geprüft; Spalten für Zugangsdaten gibt es nicht (`TestNoSecretCo
 | `leases` | Reservierungen eines Auftrags für einen Agenten (CC-42, Migration `002`): Generation je Auftrag, Zustand `domain.LeaseState`, optionaler Worktree, Herkunft (`batch_id`, `decision_id`); Logik in `Tx.CreateLease`, `BindLeaseAttempt`, `TransitionLease` (`repo_lease.go`), Ablauf im Orchestrator ([orchestrator.md](orchestrator.md)) |
 | `messages`, `message_deliveries`, `outbox` | Nachrichten, Zustellung, externe Aktionen (Tabellen vorhanden, **Logik folgt in CC-45**); Zustandstypen `domain.DeliveryState` und `domain.OutboxState` |
 
-Die Zustandslisten für Reservierung, Zustellung und Outbox (`domain.LeaseState` in `lease.go`, `domain.DeliveryState` in
-`message.go`, `domain.OutboxState` in `outbox.go`) liegen in `internal/domain`, mit `Valid()`. **Die Übergangstabelle für
-`LeaseState` gibt es seit CC-42**: `active` geht nach `released`, `expired` oder `revoked`; ein Endzustand ist endgültig, eine
-neue Reservierung ist eine neue Lease mit höherer Generation (`CanTransition`, `IsTerminal`). Die Tabellen für Zustellung und
-Outbox kommen mit CC-45. In `persistence/enums.go` stehen nur noch
+Die Zustandsliste für die Reservierung (`domain.LeaseState` in `lease.go`) liegt in `internal/domain`, mit `Valid()`. **Die
+Übergangstabelle für `LeaseState` gibt es seit CC-42**: `active` geht nach `released`, `expired` oder `revoked`; ein Endzustand ist
+endgültig, eine neue Reservierung ist eine neue Lease mit höherer Generation (`CanTransition`, `IsTerminal`). In `persistence/enums.go` stehen nur noch
 interne Hilfslisten, die Typen aus `supervisor` und `skills` spiegeln.
 
 ## Zustandsrevision und Zeilenrevision

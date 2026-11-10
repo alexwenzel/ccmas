@@ -208,7 +208,10 @@ Aufrufer protokolliert den Fehler; die Datenbank schreibt dafür keinen Eintrag.
 **Ausnahme:** Ist die Lease durch `CancelTask` **widerrufen** und der Versuch in `stopping`, schließt genau sein **terminales**
 Ergebnis (`result`, terminaler `error`, Prozessende) den **Versuch** ab. Auftrag und neue Versuche bleiben unberührt (der Auftrag
 bleibt `cancelled`, auch bei `result succeeded`), die Lease bleibt `revoked`, der Agent wird `available`. Jedes andere Ereignis
-einer widerrufenen Lease ist `stale`.
+einer widerrufenen Lease ist `stale`. Die Ausnahme gilt nur, solange die widerrufene Lease die **jüngste** Generation des Auftrags
+ist. Gibt es eine jüngere, ist auch das terminale Ergebnis des alten Versuchs `stale` und ändert nichts. Der Fall entsteht im
+normalen Ablauf nicht (ein abgebrochener Auftrag ist nicht startbar, der Validator lehnt ihn ab); die Prüfung ist eine bewusste
+zusätzliche Absicherung, belegt durch `TestRevokedLeaseNotNewestIsStale`, das die jüngere Lease direkt über die Persistenz anlegt.
 
 Eine **abgelaufene** Lease (`expired`) lässt auch ein spätes Ergebnis nicht mehr zu; wie der Zustand wiederhergestellt wird, regelt
 M09.
@@ -317,12 +320,24 @@ Schnittstelle und ändern sich nicht ohne Versionswechsel.
 - **Agenten-Grundausstattung:** Wer legt die Agenten in der Datenbank an (`CreateAgent`)? Ohne Agenten scheitert jede Reservierung mit
   `unavailable`. Zu klären ist auch, wie Agenten aus `agents.yaml` und Agenten in der Datenbank zusammenhängen.
 - Den Fehler eines Ereignisses protokollieren (`stale`/`sequence` schreiben nichts in die Datenbank).
+- **Umfang des Snapshots.** Der Snapshot-Bauer nimmt nur Aufträge des Ziels (`goal_id`) plus deren Abhängigkeiten, keine Aufträge
+  untergeordneter Ziele (`parent_goal_id`). Für die Planung eines Meilensteins oder Features ist das bewusst zu klären.
+
+**Nach dem Merge mit CC-45 (Nachrichten, Outbox):**
+
+- Abbruch- und Wiederaufnahmegründe (`reason`) sowie Runner-Zusammenfassungen (`taskSummary`) durch die Maskierung
+  `domain.RedactSecrets` aus CC-45 leiten.
+- Die Audit-Arten von Nachrichten und Outbox in `AuditKinds()` aufnehmen.
 
 **M04 (Laufzeit):** Stoppsignal nach `CancelTask` (Versuch in `stopping`); Aufruf von `ApplyEvent` und `ApplyProcessExit`; Sendung der
 Antwort (`StepOnAnswerSent`); `RecordProcess`; Zeitüberschreitung eines Versuchs über die Lease-Gültigkeit.
 
 **M09 (Wiederherstellung):** Crash-Serie und ihre Grenze; Zurücksetzen der Crash-Serie bei `ResumeTask`; Behandlung abgelaufener Leases
 und verwaister `stopping`-Versuche; Rückführung von Aufträgen nach Absturz.
+
+- **Zehn-Absturz-Grenze je Auftrag und Rolle.** Jede Reservierung legt eine neue Ausführung mit Versuch 1 an. Die Grenze muss deshalb
+  je **Auftrag und Rolle** zählen (über Ausführungen hinweg), nicht je Ausführung. Sonst ließe sie sich über neue Ausführungs-IDs
+  umgehen; das verbietet die Spezifikation.
 
 ## Prüfbefehle
 

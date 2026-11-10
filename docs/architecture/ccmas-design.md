@@ -70,8 +70,8 @@ Go-Modul: `github.com/alexwenzel/ccmas`, Go-Direktive `1.27.3`. Die CLI nutzt
 
 Die Auswerter der Rollenregeln (`PushAllowed`, `ConceptApprover`, `RepairStep`, `FeatureComplete`, `IntegrationModeAllowed`,
 `NextSteps`, …) sind **Bausteine des Orchestrators** ([`workflow-rules.md`](workflow-rules.md)). Seit CC-14 ruft sie für
-Planungsergebnisse des Supervisors der Validator in `internal/supervisor` auf ([`supervisor.md`](supervisor.md)); den Validator
-ruft erst der Orchestrator (M03, geplant) vor jeder Ausführung auf. `internal/supervisor` enthält nur Zulässigkeitsregeln, keine
+Planungsergebnisse des Supervisors der Validator in `internal/supervisor` auf ([`supervisor.md`](supervisor.md)); seit CC-42 ruft
+`ReserveBatch` den Validator in der Reservierungstransaktion erneut auf ([`orchestrator.md`](orchestrator.md)). `internal/supervisor` enthält nur Zulässigkeitsregeln, keine
 Planung; die Planung macht der Claude-Supervisor: Der Planer (`internal/supervisor/planner.go`, W14.2) ruft ihn mit Systemprompt (`prompts/supervisor.md`), Skills
 und strukturierter Ausgabe auf; die Live-Szenarien folgen in W14.3. Die Systemprompts der Rollen liegen unter `prompts/` (Go-Paket `prompts`, eingebettet),
 bleiben kurz (Rolle, Grenzen, Ausgabepflicht) und enthalten keine Fachlogik: die steht in den Skills.
