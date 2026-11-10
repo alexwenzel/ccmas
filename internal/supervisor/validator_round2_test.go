@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/alexwenzel/ccmas/internal/domain"
+	"github.com/alexwenzel/ccmas/internal/skills"
 	"github.com/alexwenzel/ccmas/prompts"
 )
 
@@ -255,5 +256,41 @@ func TestTheMarkerIsNamedWhereTheModelAndTheReviewerReadIt(t *testing.T) {
 		if !strings.Contains(texts[name], "expected_outcome") || !strings.Contains(texts[name], "estimate") {
 			t.Errorf("%s nennt die Pflichtangaben expected_outcome und estimate nicht", name)
 		}
+	}
+}
+
+// ---- Integration mit vorhandenem, aber nicht freigegebenem Konzeptstand -----------------------------------------------
+
+// TestIntegrationRequiresAValidConceptApprovalWhenTheOrderCarriesAConceptState: Ein Konzeptstand am Auftrag ist Konzeptbezug.
+// Ohne gültige Freigabe wird auch nicht integriert (wie bei implementation und review), selbst wenn Review und Bericht zur Version
+// passen.
+func TestIntegrationRequiresAValidConceptApprovalWhenTheOrderCarriesAConceptState(t *testing.T) {
+	e := newEnv(t)
+	e.mustAccept(batch(integrationDecision("dec-1", "wo-ready")), baseSnapshot()) // Grundfall: freigegeben, zulässig
+
+	cases := []struct {
+		name     string
+		mutate   func(c *ConceptState)
+		contains []string
+	}{
+		{"Freigabe fehlt", func(c *ConceptState) { c.Approval = nil }, []string{"1.0", "nicht freigegeben"}},
+		{"Freigabe für eine andere Version", func(c *ConceptState) { c.Approval.Version = "0.9" }, []string{"Konzeptfreigabe", "gilt nicht"}},
+		{"strategisches Konzept, vom Konzeptprüfer freigegeben", func(c *ConceptState) {
+			c.Class, c.Criteria = skills.ConceptStrategic, []string{"scope_change"}
+		}, []string{"Konzeptfreigabe", "gilt nicht", "Nutzer"}},
+		{"Einstufung fehlt, vom Konzeptprüfer freigegeben", func(c *ConceptState) { c.Class, c.Criteria = "", []string{} }, []string{"Konzeptfreigabe", "gilt nicht"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := baseSnapshot()
+			o := s.order(t, "wo-ready")
+			c.mutate(o.Concept)
+			// Bericht und Prüfziel bleiben an die (unveränderte) Version gebunden: Review und Version passen, nur die Freigabe fehlt.
+			vb, err := e.check(batch(integrationDecision("dec-1", "wo-ready")), s)
+			wantRejection(t, err, CodePreconditionUnmet, "dec-1", c.contains...)
+			if vb.Decisions != nil {
+				t.Fatal("ohne gültige Konzeptfreigabe wird nichts integriert")
+			}
+		})
 	}
 }

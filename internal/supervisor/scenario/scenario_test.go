@@ -23,6 +23,8 @@ const (
 	skImpl    = "ccmas-feature-parallel"
 	skReview  = "ccmas-code-review"
 	skConcept = "ccmas-concept-ticket"
+
+	skConceptReview = "ccmas-concept-review"
 )
 
 type env struct {
@@ -98,6 +100,22 @@ func conceptWork(id, order string) domain.Decision {
 	return withProfile(dec(id, domain.ActionConceptWork, order), domain.RoleConcept, mBig, domain.EffortHigh, skConcept, domain.SizeM)
 }
 
+// conceptReview ist die Prüfung einer Konzeptversion durch den concept_reviewer.
+func conceptReview(id, order string) domain.Decision {
+	d := withProfile(dec(id, domain.ActionReview, order), domain.RoleConceptReviewer, mBig, domain.EffortHigh, skConceptReview, domain.SizeS)
+	d.ReviewTarget = &domain.ReviewTarget{WorkOrderID: order, ConceptVersion: "0.1", Commit: scenario.Commit}
+	return d
+}
+
+// conceptReady meldet das Konzeptergebnis concept_ready der Rolle concept: erst dann deckt der Validator die Konzeptprüfung.
+func conceptReady(s *supervisor.ProjectSnapshot) {
+	for i := range s.Orders {
+		if s.Orders[i].Kind == supervisor.OrderConcept {
+			s.Orders[i].LastResult = &supervisor.LastResult{Role: domain.RoleConcept, Result: "concept_ready"}
+		}
+	}
+}
+
 func review(id, order string) domain.Decision {
 	d := withProfile(dec(id, domain.ActionReview, order), domain.RoleReviewer, mBig, domain.EffortHigh, skReview, domain.SizeS)
 	d.Preconditions = []domain.Precondition{{Kind: domain.PrecWorkOrderCompleted}}
@@ -133,6 +151,8 @@ type fixture struct {
 	wantViolation string
 	// valid: Der Validator nimmt den Batch an (unabhängig vom Urteil der Prädikate).
 	valid bool
+	// mutate verändert eine Kopie des Snapshots für dieses Beispiel (zum Beispiel ein gemeldetes Konzeptergebnis).
+	mutate func(*supervisor.ProjectSnapshot)
 }
 
 func TestScenarioPlanContract(t *testing.T) {
@@ -141,39 +161,52 @@ func TestScenarioPlanContract(t *testing.T) {
 
 	cases := map[scenario.ID][]fixture{
 		scenario.S1: {
-			{"gut: A und B parallel, C wartet", batch(implement("dec-1", scenario.S1A), implement("dec-2", scenario.S1B), wait("dec-3", scenario.S1C, waitA)), "", true},
-			{"gut: nur die Reihenfolge ist anders", batch(wait("dec-1", scenario.S1C, waitA), implement("dec-2", scenario.S1B), implement("dec-3", scenario.S1A)), "", true},
-			{"schlecht: C wird implementiert", batch(implement("dec-1", scenario.S1A), implement("dec-2", scenario.S1B), implement("dec-3", scenario.S1C)), "sc1-c", false},
-			{"schlecht: B fehlt", batch(implement("dec-1", scenario.S1A), wait("dec-2", scenario.S1C, waitA)), "sc1-b", true},
-			{"schlecht: nur warten", batch(wait("dec-1", scenario.S1C, waitA)), "sc1-a", true},
+			{name: "gut: A und B parallel, C wartet", batch: batch(implement("dec-1", scenario.S1A), implement("dec-2", scenario.S1B), wait("dec-3", scenario.S1C, waitA)), valid: true},
+			{name: "gut: nur die Reihenfolge ist anders", batch: batch(wait("dec-1", scenario.S1C, waitA), implement("dec-2", scenario.S1B), implement("dec-3", scenario.S1A)), valid: true},
+			{name: "schlecht: C wird implementiert", batch: batch(implement("dec-1", scenario.S1A), implement("dec-2", scenario.S1B), implement("dec-3", scenario.S1C)), wantViolation: "sc1-c", valid: false},
+			{name: "schlecht: B fehlt", batch: batch(implement("dec-1", scenario.S1A), wait("dec-2", scenario.S1C, waitA)), wantViolation: "sc1-b", valid: true},
+			{name: "schlecht: nur warten", batch: batch(wait("dec-1", scenario.S1C, waitA)), wantViolation: "sc1-a", valid: true},
 		},
-		scenario.S2: {
-			{"gut: Konzeptarbeit für Routine, Frage für Strategisches", batch(conceptWork("dec-1", scenario.S2ConRoutine), question("dec-2", scenario.S2ConStrat)), "", true},
-			{"gut: nur Konzeptarbeit an beiden", batch(conceptWork("dec-1", scenario.S2ConRoutine), conceptWork("dec-2", scenario.S2ConStrat)), "", true},
-			{"gut: nur eine Frage", batch(question("dec-1", scenario.S2ConStrat)), "", true},
-			{"schlecht: Implementierung trotz unreifem Konzept", batch(implement("dec-1", scenario.S2ImplRoutine), conceptWork("dec-2", scenario.S2ConRoutine)), "Implementierung beauftragt", false},
-			{"schlecht: nur warten", batch(wait("dec-1", scenario.S2ImplRoutine)), "weder Konzeptarbeit noch", true},
+		scenario.S2Routine: {
+			{name: "gut: Konzeptarbeit am Konzeptauftrag", batch: batch(conceptWork("dec-1", scenario.S2ConRoutine), wait("dec-2", scenario.S2ImplRoutine)), valid: true},
+			{name: "gut: nur eine Frage an den Nutzer", batch: batch(question("dec-1", scenario.S2ConRoutine)), valid: true},
+			{name: "gut: Konzeptreview durch den concept_reviewer (nach gemeldetem Konzeptergebnis)", batch: batch(conceptReview("dec-1", scenario.S2ConRoutine)), valid: true, mutate: conceptReady},
+			{name: "Konzeptreview ohne gemeldetes Konzeptergebnis: fachlich zulässig, aber vom Validator nicht gedeckt", batch: batch(conceptReview("dec-1", scenario.S2ConRoutine)), valid: false},
+			{name: "schlecht: Implementierung trotz fehlender Konzeptfreigabe", batch: batch(implement("dec-1", scenario.S2ImplRoutine), conceptWork("dec-2", scenario.S2ConRoutine)), wantViolation: "Implementierung beauftragt", valid: false},
+			{name: "schlecht: nur Implementierung", batch: batch(implement("dec-1", scenario.S2ImplRoutine)), wantViolation: "Implementierung beauftragt", valid: false},
+			{name: "schlecht: nur warten", batch: batch(wait("dec-1", scenario.S2ImplRoutine)), wantViolation: "weder Konzeptarbeit", valid: true},
+			{name: "schlecht: Review durch den reviewer statt concept_reviewer", batch: batch(review("dec-1", scenario.S2ConRoutine)), wantViolation: "concept_reviewer", valid: false},
+			{name: "schlecht: Abschluss", batch: batch(completion("dec-1")), wantViolation: "ohne freigegebenes Konzept", valid: false},
+		},
+		scenario.S2Strategic: {
+			{name: "gut: Frage an den Nutzer", batch: batch(question("dec-1", scenario.S2ConStrat)), valid: true},
+			{name: "gut: klärende Konzeptarbeit", batch: batch(conceptWork("dec-1", scenario.S2ConStrat)), valid: true},
+			{name: "gut: Konzeptarbeit und Frage", batch: batch(conceptWork("dec-1", scenario.S2ConStrat), question("dec-2", scenario.S2ConStrat)), valid: true},
+			{name: "schlecht: Freigabe über den concept_reviewer", batch: batch(conceptReview("dec-1", scenario.S2ConStrat)), wantViolation: "Nutzer", valid: false, mutate: conceptReady},
+			{name: "schlecht: Freigabe über den concept_reviewer, daneben eine Frage", batch: batch(conceptReview("dec-1", scenario.S2ConStrat), question("dec-2", scenario.S2ConStrat)), wantViolation: "Freigabe", valid: false, mutate: conceptReady},
+			{name: "schlecht: Implementierung", batch: batch(implement("dec-1", scenario.S2ImplStrat), question("dec-2", scenario.S2ConStrat)), wantViolation: "Implementierung beauftragt", valid: false},
+			{name: "schlecht: nur warten", batch: batch(wait("dec-1", scenario.S2ImplStrat)), wantViolation: "weder klärende Konzeptarbeit", valid: true},
 		},
 		scenario.S3: {
-			{"gut: Review vor neuer Arbeit, Kapazität eingehalten", batch(review("dec-1", scenario.S3Fin), wait("dec-2", scenario.S3New, domain.Precondition{Kind: domain.PrecCapacityAvailable})), "", true},
-			{"gut: nur das Review", batch(review("dec-1", scenario.S3Fin)), "", true},
-			{"schlecht: nur neue Implementierung", batch(implement("dec-1", scenario.S3New)), "kein Review", true},
-			{"schlecht: Implementierung vor dem Review (und zu viele Beauftragungen)", batch(implement("dec-1", scenario.S3New), review("dec-2", scenario.S3Fin)), "vor dem Review", false},
-			{"schlecht: zu viele Beauftragungen", batch(review("dec-1", scenario.S3Fin), implement("dec-2", scenario.S3New)), "freien Plätzen", false},
+			{name: "gut: Review vor neuer Arbeit, Kapazität eingehalten", batch: batch(review("dec-1", scenario.S3Fin), wait("dec-2", scenario.S3New, domain.Precondition{Kind: domain.PrecCapacityAvailable})), valid: true},
+			{name: "gut: nur das Review", batch: batch(review("dec-1", scenario.S3Fin)), valid: true},
+			{name: "schlecht: nur neue Implementierung", batch: batch(implement("dec-1", scenario.S3New)), wantViolation: "kein Review", valid: true},
+			{name: "schlecht: Implementierung vor dem Review (und zu viele Beauftragungen)", batch: batch(implement("dec-1", scenario.S3New), review("dec-2", scenario.S3Fin)), wantViolation: "vor dem Review", valid: false},
+			{name: "schlecht: zu viele Beauftragungen", batch: batch(review("dec-1", scenario.S3Fin), implement("dec-2", scenario.S3New)), wantViolation: "freien Plätzen", valid: false},
 		},
 		scenario.S4: {
-			{"gut: Reparatur für denselben Auftrag", batch(implement("dec-1", scenario.S4A)), "", true},
-			{"schlecht: Integration trotz Befunden", batch(implement("dec-1", scenario.S4A), integration("dec-2", scenario.S4A)), "trotz offener Befunde", false},
-			{"schlecht: keine Reparatur", batch(wait("dec-1", scenario.S4A)), "keine Reparatur", true},
-			{"schlecht: Zielabschluss", batch(completion("dec-1")), "trotz offener Befunde", false},
+			{name: "gut: Reparatur für denselben Auftrag", batch: batch(implement("dec-1", scenario.S4A)), valid: true},
+			{name: "schlecht: Integration trotz Befunden", batch: batch(implement("dec-1", scenario.S4A), integration("dec-2", scenario.S4A)), wantViolation: "trotz offener Befunde", valid: false},
+			{name: "schlecht: keine Reparatur", batch: batch(wait("dec-1", scenario.S4A)), wantViolation: "keine Reparatur", valid: true},
+			{name: "schlecht: Zielabschluss", batch: batch(completion("dec-1")), wantViolation: "trotz offener Befunde", valid: false},
 		},
 		scenario.S5: {
-			{"gut: warten bis zum Merge", batch(wait("dec-1", scenario.S5A)), "", true},
-			{"gut: warten, mit Bedingung", batch(wait("dec-1", scenario.S5A, domain.Precondition{Kind: domain.PrecWorkOrderCompleted, Ref: scenario.S5A})), "", true},
-			{"schlecht: Zielabschluss bei offenem PR", batch(completion("dec-1")), "Zielabschluss", false},
-			{"schlecht: erneute Integration", batch(integration("dec-1", scenario.S5A)), "Integrationsanforderung", false},
-			{"schlecht: neuer Auftrag im Modus auto", batch(planAuto("dec-1"), wait("dec-2", scenario.S5A)), "Modus auto", false},
-			{"schlecht: kein wait", batch(planPR("dec-1")), "kein wait", true},
+			{name: "gut: warten bis zum Merge", batch: batch(wait("dec-1", scenario.S5A)), valid: true},
+			{name: "gut: warten, mit Bedingung", batch: batch(wait("dec-1", scenario.S5A, domain.Precondition{Kind: domain.PrecWorkOrderCompleted, Ref: scenario.S5A})), valid: true},
+			{name: "schlecht: Zielabschluss bei offenem PR", batch: batch(completion("dec-1")), wantViolation: "Zielabschluss", valid: false},
+			{name: "schlecht: erneute Integration", batch: batch(integration("dec-1", scenario.S5A)), wantViolation: "Integrationsanforderung", valid: false},
+			{name: "schlecht: neuer Auftrag im Modus auto", batch: batch(planAuto("dec-1"), wait("dec-2", scenario.S5A)), wantViolation: "Modus auto", valid: false},
+			{name: "schlecht: kein wait", batch: batch(planPR("dec-1")), wantViolation: "kein wait", valid: true},
 		},
 	}
 
@@ -185,6 +218,11 @@ func TestScenarioPlanContract(t *testing.T) {
 			}
 			for _, c := range cases[id] {
 				t.Run(c.name, func(t *testing.T) {
+					snap := snap
+					if c.mutate != nil {
+						snap.Orders = slices.Clone(snap.Orders)
+						c.mutate(&snap)
+					}
 					violations := scenario.Evaluate(id, c.batch, snap)
 					if c.wantViolation == "" && len(violations) != 0 {
 						t.Errorf("gutes Beispiel verletzt Prädikate: %v", violations)

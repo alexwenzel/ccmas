@@ -588,11 +588,11 @@ func (r *run) integration(i int, d domain.Decision, o *Order) {
 		}
 	}
 
-	// Konzeptbezug nur über eine Abhängigkeit, ohne Konzeptstand am Auftrag: wie bei implementation und review nicht zulässig.
-	if o.Concept == nil && r.conceptRelated(o) {
-		if msg := r.conceptProblem(o); msg != "" {
-			r.reject(i, CodePreconditionUnmet, "%s", msg)
-		}
+	// Konzeptbezug (Konzeptstand am Auftrag oder Abhängigkeit auf einen Konzeptauftrag): wie bei implementation und review nur mit
+	// gültiger Konzeptfreigabe; ein Konzeptstand ohne gültige Freigabe, ein strategisches Konzept ohne Nutzerentscheid und ein
+	// Konzeptbezug nur über die Abhängigkeit werden abgelehnt. Ohne Konzeptbezug gibt es nichts freizugeben.
+	if msg := r.conceptProblem(o); msg != "" {
+		r.reject(i, CodePreconditionUnmet, "%s", msg)
 	}
 
 	// Review vor dem Push: derselbe Auswerter wie im Orchestrator, mit Rolle und Ausführungen aus dem Snapshot. Der Bericht trägt

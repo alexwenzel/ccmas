@@ -24,15 +24,16 @@ import (
 type ID string
 
 const (
-	S1 ID = "S1" // zwei unabhängige startbare Aufträge, ein dritter hängt am ersten
-	S2 ID = "S2" // unreife Konzepte, einmal Routine, einmal strategisch
-	S3 ID = "S3" // knappe Kapazität, eine fertige Implementierung ohne Review
-	S4 ID = "S4" // Review mit BEFUNDE innerhalb des Reparaturbudgets
-	S5 ID = "S5" // PR-Modus, Review FREIGEGEBEN, PR offen
+	S1          ID = "S1"             // zwei unabhängige startbare Aufträge, ein dritter hängt am ersten
+	S2Routine   ID = "S2-routine"     // unreifes Routinekonzept (Version ohne Freigabe)
+	S2Strategic ID = "S2-strategisch" // unreifes strategisches Konzept (Version ohne Freigabe)
+	S3          ID = "S3"             // knappe Kapazität, eine fertige Implementierung ohne Review
+	S4          ID = "S4"             // Review mit BEFUNDE innerhalb des Reparaturbudgets
+	S5          ID = "S5"             // PR-Modus, Review FREIGEGEBEN, PR offen
 )
 
 // IDs liefert die Szenarien in fester Reihenfolge.
-func IDs() []ID { return []ID{S1, S2, S3, S4, S5} }
+func IDs() []ID { return []ID{S1, S2Routine, S2Strategic, S3, S4, S5} }
 
 // Aufträge der Szenarien (erfundene IDs).
 const (
@@ -101,16 +102,14 @@ func Snapshot(id ID, env Env) (supervisor.ProjectSnapshot, error) {
 	switch id {
 	case S1:
 		s.Orders = []supervisor.Order{impl(S1A, domain.WOWaiting), impl(S1B, domain.WOWaiting), impl(S1C, domain.WOWaiting, S1A)}
-	case S2:
-		routine := order(S2ConRoutine, supervisor.OrderConcept, domain.WOWaiting)
-		routine.Concept = &supervisor.ConceptState{Version: "0.1", Class: skills.ConceptRoutine, Criteria: []string{}}
-		strat := order(S2ConStrat, supervisor.OrderConcept, domain.WOWaiting)
-		strat.Concept = &supervisor.ConceptState{Version: "0.1", Class: skills.ConceptStrategic, Criteria: []string{"scope_change"}}
-		s.Orders = []supervisor.Order{
-			routine, strat,
-			order(S2ImplRoutine, supervisor.OrderImplementation, domain.WOWaiting, S2ConRoutine),
-			order(S2ImplStrat, supervisor.OrderImplementation, domain.WOWaiting, S2ConStrat),
-		}
+	case S2Routine:
+		con := order(S2ConRoutine, supervisor.OrderConcept, domain.WOWaiting)
+		con.Concept = &supervisor.ConceptState{Version: "0.1", Class: skills.ConceptRoutine, Criteria: []string{}}
+		s.Orders = []supervisor.Order{con, order(S2ImplRoutine, supervisor.OrderImplementation, domain.WOWaiting, S2ConRoutine)}
+	case S2Strategic:
+		con := order(S2ConStrat, supervisor.OrderConcept, domain.WOWaiting)
+		con.Concept = &supervisor.ConceptState{Version: "0.1", Class: skills.ConceptStrategic, Criteria: []string{"scope_change"}}
+		s.Orders = []supervisor.Order{con, order(S2ImplStrat, supervisor.OrderImplementation, domain.WOWaiting, S2ConStrat)}
 	case S3:
 		s.Capacity.MaxWorkers = 2
 		run := impl(S3Run, domain.WOInProgress)
@@ -240,8 +239,10 @@ func Check(id ID, b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []str
 	switch id {
 	case S1:
 		return checkS1(b)
-	case S2:
-		return checkS2(b)
+	case S2Routine:
+		return checkS2Routine(b)
+	case S2Strategic:
+		return checkS2Strategic(b)
 	case S3:
 		return checkS3(b, snap)
 	case S4:
@@ -280,19 +281,59 @@ func checkS1(b domain.DecisionBatch) []string {
 	return out
 }
 
-// S2: keine Implementierung (die Konzepte sind unreif); Konzeptarbeit beziehungsweise Frage.
-func checkS2(b domain.DecisionBatch) []string {
+// S2 (beide Fälle): Der Konzeptstand 0.1 ist nicht freigegeben, die Umsetzung hängt am Konzeptauftrag. Nie Implementierung, nie
+// Integration oder Abschluss.
+func checkS2Common(id ID, b domain.DecisionBatch) []string {
 	var out []string
 	if has(b, domain.ActionImplementation) {
-		out = append(out, "S2: Implementierung beauftragt, obwohl die Konzepte unreif sind")
-	}
-	if !has(b, domain.ActionConceptWork) && !has(b, domain.ActionAskQuestion) {
-		out = append(out, "S2: weder Konzeptarbeit noch eine Frage an den Nutzer")
+		out = append(out, string(id)+": Implementierung beauftragt, obwohl das Konzept nicht freigegeben ist")
 	}
 	for _, d := range b.Decisions {
 		if d.Action == domain.ActionRequestIntegration || d.Action == domain.ActionRequestCompletion {
-			out = append(out, fmt.Sprintf("S2: %s ohne reifes Konzept", d.Action))
+			out = append(out, fmt.Sprintf("%s: %s ohne freigegebenes Konzept", id, d.Action))
 		}
+	}
+	return out
+}
+
+// S2 routine: Zulässig sind Konzeptarbeit am Konzeptauftrag, eine Frage an den Nutzer oder ein Konzeptreview durch den
+// concept_reviewer (er gibt Routinekonzepte frei). Eines davon ist nötig; Implementierung nie.
+func checkS2Routine(b domain.DecisionBatch) []string {
+	out := checkS2Common(S2Routine, b)
+	ok := false
+	for _, d := range b.Decisions {
+		switch {
+		case d.Action == domain.ActionConceptWork && d.Target.ID == S2ConRoutine, d.Action == domain.ActionAskQuestion:
+			ok = true
+		case d.Action == domain.ActionReview:
+			if d.Target.ID == S2ConRoutine && d.Selection != nil && d.Selection.Role == domain.RoleConceptReviewer {
+				ok = true
+			} else {
+				out = append(out, fmt.Sprintf("%s: ein Review gehört bei einem Konzeptstand der Rolle concept_reviewer und dem Konzeptauftrag %s", S2Routine, S2ConRoutine))
+			}
+		}
+	}
+	if !ok {
+		out = append(out, string(S2Routine)+": weder Konzeptarbeit am Konzeptauftrag noch Konzeptreview durch den concept_reviewer noch eine Frage an den Nutzer")
+	}
+	return out
+}
+
+// S2 strategisch: Strategisches entscheidet der Nutzer. Zulässig sind eine Frage an den Nutzer oder klärende Konzeptarbeit; nie
+// eine Freigabe über den concept_reviewer (jedes Review ist hier ein Verstoß), nie Implementierung.
+func checkS2Strategic(b domain.DecisionBatch) []string {
+	out := checkS2Common(S2Strategic, b)
+	ok := false
+	for _, d := range b.Decisions {
+		switch {
+		case d.Action == domain.ActionConceptWork && d.Target.ID == S2ConStrat, d.Action == domain.ActionAskQuestion:
+			ok = true
+		case d.Action == domain.ActionReview:
+			out = append(out, fmt.Sprintf("%s: Review (Freigabe) über den concept_reviewer bei einem strategischen Konzept; es entscheidet der Nutzer", S2Strategic))
+		}
+	}
+	if !ok {
+		out = append(out, string(S2Strategic)+": weder klärende Konzeptarbeit am Konzeptauftrag noch eine Frage an den Nutzer")
 	}
 	return out
 }

@@ -203,23 +203,23 @@ skills:
       derived: "2026-11-10"
       changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängige Konzeptprüfung nach der Spezifikation (Rollen und Ergebnisse, Konzeptprüfer). Version 2: Bericht bezieht sich auf die Konzeptversion, commit ist nur Bezugsstand und keine Code-Freigabe; Konzeptschleife mit demselben Reparaturbudget wie die Code-Schleife."
   - id: ccmas-code-review
-    version: 2
+    version: 3
     status: approved
     category: review
     roles: [reviewer]
     default_for: [reviewer]
     external_writes: []
-    tree_sha256: 5084e2d980fcbb60428b6289cd72ebf92beba572593f20b70792cef762f1af0d
+    tree_sha256: 1fcf6a8dbaa6eb40358bbc91ee93073e55f331669dd2ede436158f3dc6b00f32
     files:
       - path: SKILL.md
-        sha256: a400732861ea7293910e3aa1d9f5217de25a87ba3906735c07c7129d89d5418e
+        sha256: 59147583df4c936fe8c022f80b58c88a0cc04a61ebc4e1d0c70c26d30ec0097c
       - path: contract.yaml
         sha256: 919fde47e40e1551512de257fcceb6a71c5c7a72f23c14d3e67d018ff1fe6ead
     source:
       package: none
       package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       derived: "2026-11-10"
-      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push). CC-14 Befundrunde 2: Konzeptversion ohne Konzeptbezug ist die feste Kennung kein-konzept und steht unverändert im Bericht (SKILL.md, contract.yaml-Beschreibung); sonst unverändert."
+      changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push). CC-14 Befundrunde 2: Konzeptversion ohne Konzeptbezug ist die feste Kennung kein-konzept und steht unverändert im Bericht (SKILL.md, contract.yaml-Beschreibung); sonst unverändert. CC-14 W14.3: Wortlaut der Kennung kein-konzept (gilt für Implementierungs- und Fehleraufträge ohne Konzeptbezug, nicht für Organisationsaufträge); sonst unverändert."
   - id: ccmas-supervisor
     version: 2
     status: approved

@@ -18,9 +18,10 @@ import (
 // SnapshotSchemaVersion ist die Version des ProjectSnapshot.
 const SnapshotSchemaVersion = 1
 
-// NoConceptVersion ist die feste Kennung der Konzeptversion für Aufträge ohne Konzeptbezug (zum Beispiel Fehler- und
-// Organisationsaufträge): Prüfziel (review_target.concept_version, Pflichtfeld des Schemas) und Review-Bericht tragen sie
-// statt einer Version. Sie ist reserviert; ein echter Konzeptstand darf sie nicht als Version führen.
+// NoConceptVersion ist die feste Kennung der Konzeptversion für Implementierungs- und Fehleraufträge ohne Konzeptbezug (kein
+// Konzeptstand, keine Abhängigkeit auf einen Konzeptauftrag), nicht für Organisationsaufträge (sie werden weder geprüft noch
+// integriert): Prüfziel (review_target.concept_version, Pflichtfeld des Schemas) und Review-Bericht tragen sie statt einer Version.
+// Sie ist reserviert; ein echter Konzeptstand darf sie nicht als Version führen.
 const NoConceptVersion = "kein-konzept"
 
 // OrderKind ist die Art eines Auftrags (Typ des Tickets).
