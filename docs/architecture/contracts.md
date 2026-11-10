@@ -1,7 +1,7 @@
 # CCMAS – Daten- und Nachrichtenverträge (v1)
 
 Stand: Ticket CC-24 (Meilenstein M01), ergänzt um CC-14 (W14.1: Planungsergebnis, Aufwand, Dokumentationsarbeit; W14.2: Systemprompt und strukturierte Ausgabe im Runner-Protokoll). **Führend ist die Spezifikation** „Multi Agent Setup“
-(Version 1.2.0), Abschnitte „Verbindliche Ausführungsverträge“, „Intelligente Arbeitsverteilung“,
+(Version 1.7.0), Abschnitte „Verbindliche Ausführungsverträge“, „Intelligente Arbeitsverteilung“,
 „Prozessübersicht“, „Unabhängiges Review vor dem Push“ und „Kommunikation und Persistenz“. Diese
 Datei hält fest, wie das Repository diese Verträge umsetzt, und ist keine Kopie der Spezifikation.
 
@@ -240,6 +240,23 @@ dieselben Namen und Prüfmethoden (`Check`):
 - `AgentSnapshot` – Übersicht eines Agenten mit **getrennten Feldern** für Verfügbarkeit,
   Ausführungszustand, Auftragszustand und den Prozess; `Check` weist widersprüchliche Kombinationen ab
   (zum Beispiel aktiver Agent ohne laufende Ausführung).
+- `Execution` – die logische Ausführung (seit CC-27, Datei `execution.go`): `execution_id`, `project_id`, optional Auftrag
+  und Agent, `role`, `created_at`. Der Datensatz, den der Dienst führend in SQLite speichert; **nicht** `runner.Execution`
+  (der Wert mit allen Ereignissen des Runners).
+- `ExecutionAttempt` – ein technischer Versuch (`execution_id` + `attempt`; ein Resume ist ein neuer Versuch derselben
+  Ausführung): wirksames Profil (`profile_id`, `profile_version`) und Skill-Snapshot, Session-ID, Ausführungszustand
+  (`ExecutionState`), Prozessidentität (PID und Startzeit, beide oder keins), beobachteter Prozesszustand mit Beobachtungszeit,
+  Worktree, Branch, Start und Ende, **höchstens ein terminales Ergebnis** (Quelle `result`, `error` oder `process_exit`;
+  `Check` verlangt den dazu passenden Endzustand), kurze redigierte Zusammenfassung (höchstens 2 KiB) und der prompt-freie
+  `RunSpec` (nur Länge und SHA-256 des Prompts, höchstens 64 KiB). Die Ebenen bleiben getrennte Felder; nichts wird aus einer
+  anderen Ebene abgeleitet.
+- `Agent` – persistenter Agent eines Projekts: Rolle, Verfügbarkeit (`AgentAvailability`, eigene Ebene), Zeilenrevision
+  (ab 1, für Compare-and-Set), Änderungszeit.
+- `AuditEvent` – Eintrag des Auditverlaufs (`events`, nur anhängbar): Zeit, Akteur, Art (`AuditKinds`), Entität, Ebene
+  (`AuditLevel`: Konfiguration, Ziel, Auftrag, Ausführung, Prozess, Agent, Frage, Entscheidung, Review, Task, Lease, Nachricht,
+  Outbox), Zustand vor und nach der Änderung, Zustandsrevision des Projekts nach der Änderung und kurze, typisierte
+  Details (höchstens 4 KiB, keine Prompts oder Zugangsdaten). Entsteht nur in der Persistenzschicht, in derselben Transaktion
+  wie die Änderung ([`persistence.md`](persistence.md)).
 
 ## Skill-Snapshot (`skill-snapshot-v1`, seit CC-35)
 
@@ -334,8 +351,8 @@ freier Worker kann andere Arbeit übernehmen, während ein früherer Auftrag auf
 
 Auftragszustände in der Spezifikation: wartet auf Voraussetzungen/Kapazität (`waiting`), in Bearbeitung,
 Validierung, Review, wartet auf Integration, abgeschlossen, blockiert, abgebrochen. „Abgeschlossen“ ist nur
-aus „wartet auf Integration“ erreichbar. Die Zehn-Absturz-Sperre (`blocked`) und die Persistenz der Zustände
-gehören zu M03/M09; hier liegen nur Zustände und Übergänge.
+aus „wartet auf Integration“ erreichbar. Die Zehn-Absturz-Sperre (`blocked`) gehört zu M09; die Persistenz der Zustände
+liegt seit CC-27 in `internal/persistence` ([`persistence.md`](persistence.md)), hier liegen nur Zustände und Übergänge.
 
 ## Fehlerkategorien
 
@@ -444,8 +461,11 @@ abgelegt, sondern in beiden Sprachen im Test erzeugt (`TestMessageSizeLimit`, `t
   mit den neuen Aufträgen (Ref, Art, Titel, Ziel, Akzeptanzkriterien, Abhängigkeiten, optional Modus). Die Art
   (`partial`, `correction`, `repair`) ist eine Festlegung dieses Repositorys: Neue Milestones oder fachlich andere Vorhaben
   sind in einer Plan-Ergänzung damit nicht ausdrückbar („Milestones starten“).
-- **`Execution`** (Versuch-ID, Session, Worktree, Prozessidentität, Start/Ende) ist ein Persistenzobjekt des
-  Dienstes (M03). Hier definiert sind Zustand, Nachrichtenfolge (`ExecutionTracker`) und Prozessidentität.
+- **`Execution`/`ExecutionAttempt`** (Versuch-ID, Session, Worktree, Prozessidentität, Start/Ende) sind seit CC-27 als
+  `domain.Execution` und `domain.ExecutionAttempt` definiert und werden vom Dienst in SQLite gespeichert
+  ([`persistence.md`](persistence.md)). Der Datensatz des Runner-Adapters (`runner.Execution` mit allen Ereignissen) ist ein
+  anderer Wert; seine Anbindung folgt mit M04. Hier definiert sind außerdem Zustand, Nachrichtenfolge
+  (`ExecutionTracker`) und Prozessidentität.
 - **`interrupt` und `stop`** führen beide in „wird beendet“; sie unterscheiden sich im Runner (Runde beenden
   gegenüber Sitzung beenden).
 - **Abo-Wartezustände** sind ein `error` mit `kind: subscription_limit` (nicht terminal) und lösen keine

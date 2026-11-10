@@ -9,15 +9,15 @@ import (
 
 // plannedGroups sind die Gruppen aus „Vollständige CLI-Steuerung“ der Spezifikation, die
 // noch nicht implementiert sind. skills ist seit CC-35 verfügbar (siehe skills_test.go),
-// profile und agent seit CC-46 (siehe profile_test.go).
+// profile und agent seit CC-46 (siehe profile_test.go), status seit CC-27 (siehe status_test.go).
 var plannedGroups = []string{
-	"init", "status", "start", "stop", "ui", "project", "rules",
+	"init", "start", "stop", "ui", "project", "rules",
 	"task", "feature", "milestone", "question", "review",
 	"merge", "processes", "events", "remote",
 }
 
 // availableGroups sind die implementierten Befehle auf der obersten Ebene.
-var availableGroups = []string{"version", "skills", "profile", "agent"}
+var availableGroups = []string{"version", "skills", "profile", "agent", "status"}
 
 // run führt die CLI mit den Argumenten aus und liefert Exit-Code, stdout und stderr.
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -51,7 +51,7 @@ func TestRootHelpMarksPlannedGroups(t *testing.T) {
 	if !strings.Contains(out, "noch nicht verfügbar") {
 		t.Errorf("Hilfe kennzeichnet geplante Gruppen nicht:\n%s", out)
 	}
-	// version, skills, profile und agent sind implementiert und dürfen nicht als geplant gelten:
+	// version, skills, profile, agent und status sind implementiert und dürfen nicht als geplant gelten:
 	// sie stehen vor dem Abschnitt der geplanten Gruppen.
 	planned := strings.Index(out, "Geplante Befehlsgruppen")
 	if planned < 0 {
@@ -171,7 +171,7 @@ func TestPlannedGroupsAreNotAvailable(t *testing.T) {
 }
 
 func TestPlannedGroupHelpWorks(t *testing.T) {
-	code, out, _ := run(t, "status", "--help")
+	code, out, _ := run(t, "start", "--help")
 	if code != ExitOK || !strings.Contains(out, "noch nicht verfügbar") {
 		t.Errorf("Exit-Code = %d, stdout = %q", code, out)
 	}

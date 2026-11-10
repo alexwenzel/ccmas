@@ -81,7 +81,7 @@ den Kopf-Commit des PR (`pr.head_commit`); ohne ihn lehnt der Validator bei eine
 Einstufung, Freigabe) auf Aufträge, die von einem Konzeptauftrag abhängen; ohne diesen Konzeptstand am Auftrag bleiben sie fail-safe blockiert
 (Implementierung, Review und Integration abgelehnt, `review_concept_version` leer). Der Validator
 verlässt sich nur auf den Snapshot, nie auf Angaben des Modells. Die Echtheit der Kennungen und Nachweise im Snapshot
-verantwortet der Orchestrator.
+verantwortet der Orchestrator. Welches Feld aus welcher Tabelle und Lesemethode kommt, steht seit CC-27 in [`persistence.md`](persistence.md), Abschnitt „Abbildung des `ProjectSnapshot`“.
 
 ## Policy und Profile
 

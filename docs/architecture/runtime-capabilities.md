@@ -1,7 +1,7 @@
 # CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35, CC-46, CC-14)
 
 Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46, Abschnitt 11 (Systemprompt und strukturierte Ausgabe im Runner) mit CC-14, Teil W14.2, und Abschnitt 12 (Supervisor-Szenarien mit dem Supervisorprofil) mit CC-14, Teil W14.3. Führend ist die Spezifikation
-„Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
+„Multi Agent Setup“ (Version 1.7.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
 (Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
 Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
@@ -597,7 +597,9 @@ und tragen die Startprofile (Modell-IDs der Beispielkonfiguration, Läufe ohne u
   festgehalten und ändern den Zustand nicht. stderr wird auf die letzten 16 KiB begrenzt mitgeschnitten; der Prompt wird nie protokolliert.
 - **Datensatz** (`Execution`): Ausführungs-ID, Versuch, unveränderliche Kopie des `AgentProfile`, `RunSpec` ohne Prompt-Text (nur Länge und
   SHA-256), Skill-Snapshot-ID, `session_started`, Ereignisse, terminales Ergebnis, Exit-Code und „Absturz“ bei Prozessende ohne
-  terminales Ergebnis, auch mit Exit-Code 0. Persistenz in SQLite folgt in M03; bis dahin ist der Wert als JSON schreibbar.
+  terminales Ergebnis, auch mit Exit-Code 0. Speicherbar in SQLite ist der Datensatz seit CC-27 als `domain.Execution` und
+  `domain.ExecutionAttempt` ([`persistence.md`](persistence.md)); das ist ein anderer, schlankerer Wert (ohne Ereignisse, prompt-freier Spec). Die
+  Anbindung des Runner-Datensatzes an den Dienst folgt mit M04; bis dahin ist der Wert als JSON schreibbar.
 - **Abbruch:** Ende des Kontexts oder `Stop` sendet `stop`; nach der Gnadenfrist (Standard 10 s) folgt SIGTERM an die Prozessgruppe, nach
   3 s SIGKILL. Nach Abbruch oder Prozessende ohne Ergebnis wird die Gruppe vollständig beendet. Belegt mit einem Stub-Prozess, der `stop`
   und SIGTERM ignoriert und einen Kindprozess in der Gruppe hält (kein Prozess bleibt übrig).

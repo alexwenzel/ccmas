@@ -137,7 +137,9 @@ Skill-Fehler tragen die Codes des Pakets `skills` (siehe oben).
 
 ## Speicher
 
-Bis zur Persistenz in SQLite (M03) sind die beiden Dateien der Speicher (`profiles.Store`).
+Die Konfiguration bleibt in den beiden Dateien (`profiles.Store`); SQLite ersetzt sie nicht. Seit CC-27 speichert SQLite die
+**aufgelösten Profilversionen je Ausführung** (`profile_versions`, unveränderlich; ein Versuch verweist mit `profile_id` und `profile_version` darauf,
+[`persistence.md`](persistence.md)).
 
 - **Revision.** Jede Datei trägt `revision` (ab 1). Jedes Speichern erhöht sie um 1.
 - **Atomar.** Schreiben in eine Temp-Datei im selben Verzeichnis (Modus 0600), `fsync`, dann `rename`.
