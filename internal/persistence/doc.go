@@ -69,6 +69,20 @@
 //
 // Zusätzlich trägt jeder Auftrag eine Zeilenrevision (revision, ab 1) für Compare-and-Set (RequireWorkOrderRevision).
 //
+// # Nachrichten und Zustellung (CC-45)
+//
+// Nachrichten (messages) und ihre Zustellungen (message_deliveries, je Empfänger eine Zeile mit eigenem Zustand) sind
+// Journal und kein Planungszustand: Sie stehen nicht im ProjectSnapshot und erhöhen state_revision nicht; Fragen und
+// Antworten bleiben in ihren eigenen Tabellen und sind Planungszustand. Jede Änderung schreibt trotzdem ihr Ereignis
+// (Ebene message, nie mit den Nutzdaten) in derselben Transaktion. Tx.CreateMessage legt Nachricht und Zustellungen an
+// (gleiche ID mit gleichem Inhalt ist ein No-op ohne Ereignis, mit anderem Inhalt conflict) und prüft in Go, dass die
+// Ausführung eines Versuchs zum Auftrag der Nachricht gehört; die Datenbank bindet nur das Projekt. Tx.TransitionDelivery
+// führt die Zustellung nach der Übergangstabelle von domain.DeliveryState (erwarteter Ist-Zustand sonst conflict, erlaubter
+// Übergang sonst state; die Wiederholung delivered -> delivered zählt einen weiteren Versuch). Gelesen werden Nachricht,
+// Zustellungen und die noch nicht bestätigten Zustellungen eines Empfängers in fester Reihenfolge (PendingDeliveries).
+// Migration 003 sichert dies in der Datenbank: Trigger auf messages.type (domain.MessageKinds), auf die Übergänge der
+// Zustellung und auf die Form von outbox.kind (<system>.<aktion>, domain.CheckOutboxKind); Nachrichten sind unveränderlich.
+//
 // # Typen und Zeit
 //
 // Das Paket verwendet die Typen aus internal/domain und internal/supervisor; Dokumente mit Schemavertrag werden vor dem

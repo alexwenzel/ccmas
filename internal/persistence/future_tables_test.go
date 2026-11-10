@@ -89,7 +89,7 @@ func TestMessageAndOutboxTables(t *testing.T) {
 	}
 	insertOutbox := func(id, key, state string) error {
 		return execSQL(t, s, `INSERT INTO outbox (action_id, project_id, operation_key, kind, payload_json, state, created_at, updated_at)
-			VALUES (?, 'ccmas', ?, 'asana_comment', '{}', ?, ?, ?)`, id, key, state, ts, ts)
+			VALUES (?, 'ccmas', ?, 'asana.comment', '{}', ?, ?, ?)`, id, key, state, ts, ts)
 	}
 	must(t, insertOutbox("a1", "asana:comment:wo-1:1", "pending"))
 	wantCode(t, mapErr(insertOutbox("a2", "asana:comment:wo-1:1", "pending")), CodeConflict) // operation_key ist eindeutig

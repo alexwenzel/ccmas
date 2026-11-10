@@ -390,7 +390,7 @@ func TestStatusHealthyDB(t *testing.T) {
 	if db.Data.Events != int64(seeded.Events) || db.Data.LastEventAt == nil {
 		t.Errorf("Ereignisse %d (erwartet %d), letztes %v", db.Data.Events, seeded.Events, db.Data.LastEventAt)
 	}
-	if db.Schema.UserVersion != 1 || len(db.Schema.Pending) != 0 || db.Integrity.QuickCheck != "ok" {
+	if db.Schema.UserVersion != persistence.Migrations()[len(persistence.Migrations())-1].Version || len(db.Schema.Pending) != 0 || db.Integrity.QuickCheck != "ok" {
 		t.Errorf("Schema %+v, Integrität %+v", db.Schema, db.Integrity)
 	}
 	if doc.State.Level != "functional_read" || doc.State.LevelScope == "" {

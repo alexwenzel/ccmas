@@ -206,8 +206,9 @@ func TestInspectClosedDB(t *testing.T) {
 		t.Fatalf("Dateien vorher %v, nachher %v", before, after)
 	}
 	checkWorldReport(t, rep, w)
-	if rep.Schema.UserVersion != 1 || rep.Schema.HighestApplied != 1 || rep.Schema.HighestKnown != Migrations()[len(Migrations())-1].Version ||
-		len(rep.Schema.Applied) != 1 || rep.Schema.Applied[0].Name != "initial" || rep.Schema.Applied[0].AppliedAt == nil || len(rep.Schema.Pending) != 0 {
+	latest := Migrations()[len(Migrations())-1].Version
+	if rep.Schema.UserVersion != latest || rep.Schema.HighestApplied != latest || rep.Schema.HighestKnown != latest ||
+		len(rep.Schema.Applied) != len(Migrations()) || rep.Schema.Applied[0].Name != "initial" || rep.Schema.Applied[0].AppliedAt == nil || len(rep.Schema.Pending) != 0 {
 		t.Errorf("Schema: %+v", rep.Schema)
 	}
 	if rep.SizeBytes <= 0 || !rep.Permissions.Database.Exists || rep.Permissions.WAL.Exists || rep.Permissions.SHM.Exists {
@@ -266,7 +267,7 @@ func TestInspectOutboxCounts(t *testing.T) {
 	seedBase(t, s)
 	for i, st := range []string{"pending", "pending", "needs_attention", "succeeded"} {
 		must(t, execSQL(t, s, `INSERT INTO outbox (action_id, project_id, operation_key, kind, payload_json, state, created_at, updated_at)
-			VALUES (?, 'ccmas', ?, 'asana_comment', '{}', ?, ?, ?)`, "a"+string(rune('0'+i)), "k"+string(rune('0'+i)), st, ts, ts))
+			VALUES (?, 'ccmas', ?, 'asana.comment', '{}', ?, ?, ?)`, "a"+string(rune('0'+i)), "k"+string(rune('0'+i)), st, ts, ts))
 	}
 	must(t, s.Close())
 	rep := inspect(t, s.Path())
