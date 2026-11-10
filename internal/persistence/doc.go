@@ -69,6 +69,27 @@
 //
 // Zusätzlich trägt jeder Auftrag eine Zeilenrevision (revision, ab 1) für Compare-and-Set (RequireWorkOrderRevision).
 //
+// # Reservierungen (Leases)
+//
+// Eine Lease (domain.ExecutionLease, Tabelle leases) ordnet einen Arbeitsauftrag exklusiv einem Agenten zu. CreateLease
+// vergibt die Generation in derselben Transaktion (höchste des Auftrags plus eins, lückenlos), BindLeaseAttempt bindet sie
+// einmal an einen Versuch, TransitionLease führt sie von aktiv in genau einen Endzustand (freigegeben, abgelaufen,
+// widerrufen) mit erwartetem Ist-Zustand (sonst conflict) und der Übergangstabelle von domain.LeaseState (sonst state).
+// Höchstens eine aktive Lease je Auftrag, je Agent und je Worktree: Go meldet conflict, bevor es schreibt, und eindeutige
+// Indizes sichern dasselbe in der Datenbank ab. Der Versuch einer Lease gehört zu einer Ausführung desselben Auftrags (nicht
+// nur desselben Projekts): Go weist anderes mit invalid ab, ein Trigger sichert es ein zweites Mal. Mit LeaseOrigin stammt
+// eine Lease aus einer angenommenen Entscheidung eines angenommenen Batches; dieselbe Entscheidung reserviert nie zweimal
+// (eindeutig über batch_id und decision_id, auch nach Freigabe). Eine beendete Lease und ihre Identität ändern sich nie, und
+// Leases werden nicht gelöscht (Trigger). Schema 002 macht dafür worktree_path optional (eine Reservierung entsteht vor dem
+// Worktree) und ergänzt Herkunft und Trigger.
+//
+// Lease-Änderungen sind Planungszustand und erhöhen die Zustandsrevision (ein Ereignis der Ebene lease trägt die neue
+// Revision). Der Grund: Eine Lease ändert, was startbar ist (ein reservierter Auftrag ist es nicht mehr) und wie viele
+// Plätze belegt sind (capacity.active), also genau das, wogegen ein Plan geprüft wurde. Ein Plan oder Snapshot, der vor der
+// Reservierung entstand, ist danach veraltet (stale_revision) und kann nicht ein zweites Mal reservieren. Wer reservieren
+// darf (angenommener Batch, Validator, Kapazität), entscheidet der Orchestrator in derselben Transaktion; dieses Paket
+// führt nur die Zustandsübergänge sicher aus.
+//
 // # Typen und Zeit
 //
 // Das Paket verwendet die Typen aus internal/domain und internal/supervisor; Dokumente mit Schemavertrag werden vor dem
