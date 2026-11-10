@@ -209,7 +209,7 @@ Die CLI-Anbindung folgt mit CC-51.
 **Offener Punkt für CC-51:** `retry` führt direkt nach `pending` und verantwortet der Mensch („das externe Objekt existiert nicht“).
 Robuster wäre ein Weg `needs_attention` → `reconciling`: Vor dem erneuten Versuch gleicht der Dienst mit dem externen System ab
 (Marker-Suche) und gelangt erst bei belegtem „nicht vorhanden“ nach `pending`. Das verlangt eine zusätzliche Kante in
-`OutboxState.CanTransition`, in den Triggern der Migration 003 (neue Migration, 003 ist ausgeliefert) und in `Resolve`; es ist
+`OutboxState.CanTransition`, in den Triggern (Migration 003, oder eine Folgemigration, sobald 003 ausgeliefert ist) und in `Resolve`; es ist
 hier bewusst nicht umgesetzt.
 
 ### Teilbatches
