@@ -223,6 +223,7 @@ class FakeClient:
         self.prompt: str | None = None
         self.interrupted = asyncio.Event()
         self.interrupt_calls = 0
+        self.calls: list[str] = []
         FakeClient.created.append(self)
 
     async def __aenter__(self) -> "FakeClient":
@@ -232,10 +233,13 @@ class FakeClient:
         return False
 
     async def query(self, prompt: str) -> None:
+        await asyncio.sleep(0)  # gibt der Ereignisschleife Gelegenheit, früh eingetroffene Kommandos zu verarbeiten
         self.prompt = prompt
+        self.calls.append("query")
 
     async def interrupt(self) -> None:
         self.interrupt_calls += 1
+        self.calls.append("interrupt")
         self.interrupted.set()
 
     async def receive_response(self):

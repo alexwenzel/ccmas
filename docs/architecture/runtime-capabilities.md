@@ -1,7 +1,7 @@
 # CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17)
 
 Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**. Führend ist die Spezifikation
-„Multi Agent Setup“ (Version 1.2.1), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
+„Multi Agent Setup“ (Version 1.3.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“, „Berechtigungen und technische Isolation“, „Technische Nachweise und Freigabepunkte“ und „Remote
 Control, mobile Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
 
@@ -119,14 +119,22 @@ Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-
 sofort blockiert („Blocked: standalone sleep“); der Test wurde auf einen echten Kindprozess mit Positivkontrolle
 umgestellt und wiederholt.
 
+**Was der Beleg enthält und was nur der Test prüft:** Die JSONL-Dateien enthalten ausschließlich die Protokollereignisse.
+Weitere Prüfungen führt der Live-Test selbst aus, sie stehen **nicht** in den Belegen und sind nicht aus ihnen
+nachprüfbar: Dateistand im Fixture und Unverändertheit von Nachbar-, Secret- und Kontrollpfad-Attrappen
+(`test_scope_probe`), Positivkontrolle „Kindprozess läuft vor dem Interrupt“ und „Kindprozess danach beendet“
+(`test_live_interrupt`, per `pgrep`), Inhalt der angelegten Datei (`test_live_sdk_roundtrip`). Sie gelten für den
+Testlauf am 2026-11-10; wer sie belegen will, muss den Live-Test wiederholen. Es wurden keine Felder nachträglich in
+die Belegkopfzeilen geschrieben.
+
 Redigierte Belege (JSONL, Kopfzeile mit Datum, SDK-, CLI-Version und Modell; Pfade des Fixtures geschwärzt, keine
 Konto-, E-Mail- oder Organisationsdaten; die Session-ID steht bewusst darin) unter `docs/architecture/evidence/`:
 
 | Beleg | Inhalt |
 | --- | --- |
 | `live-roundtrip.jsonl` | `python -m claude_sdk_runner` als Unterprozess: `session_started` (Session-ID, wirksames Modell `claude-haiku-5-5`, `auth_source: claude_ai`, `permission_mode: dontAsk`, gewähltes Binary), `Write`-Werkzeugereignis (started, finished), genau ein `result` (`succeeded`) |
-| `live-interrupt.jsonl` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Positivkontrolle „Prozess läuft“, Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled` nach 0,7 s, Kindprozess danach beendet |
-| `live-scope-probe.jsonl` | Scope-Probe über den Runner (Abschnitt 5): 10 Werkzeugaufrufe, 2 erlaubt, 8 verweigert |
+| `live-interrupt.jsonl` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled`, Dauer bis zum Ergebnis 0,7 s (Kopfzeile). Positivkontrolle und „Kindprozess beendet“ sind nur vom Test geprüft |
+| `live-scope-probe.jsonl` | Scope-Probe über den Runner (Abschnitt 5): 10 Werkzeugaufrufe, 2 erlaubt, 8 als `failed` gemeldet. Der Dateistand ist nur vom Test geprüft |
 
 Beobachtung zu Limits: Ein `RateLimitEvent` (Status `allowed`, Fenster `five_hour`, Überziehung `rejected`, Grund
 `org_level_disabled`) zeigt, dass keine Überziehungsabrechnung aktiv ist. Die gemeldeten Kosten werden lokal zum
@@ -180,10 +188,40 @@ Ein vollständiger Isolationsnachweis liegt **nicht** vor; **autonome Ausführun
   4. Weitere Wege außerhalb der Sandbox: Hooks, MCP-Server, `excludedCommands`, Unterprozess-Start von `claude`,
      Zählung ungezählter Agentenprozesse.
   5. Verhalten bei Versionswechsel der CLI und auf anderen Plattformen als macOS.
+  6. Der Beleg gilt nur für ein Fixture unter `$TMPDIR`. Der Fall `denyRead` auf das Home-Verzeichnis mit einem
+     Arbeitsverzeichnis **unterhalb** des Home-Verzeichnisses (echter Worktree) ist nicht belegt. Im Vorversuch lag das
+     Fixture außerhalb von Home.
+  7. Das Profil `readonly` hat keinen eigenen Live-Beleg; es ist nur als Policy-Aufbau getestet.
+  8. Die übrige Umgebung (`os.environ`, zum Beispiel `GH_TOKEN` oder andere Tokens) wird bisher an das Binary und die
+     Bash-Kindprozesse weitergereicht; nur `ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*` und `CLAUDECODE` werden
+     entfernt oder abgewiesen. Eine kontrollierte Umgebung per Allowlist ist für M04 nötig.
 - **Lösungsvorschlag für M04:** Die Profil-Erzeugung (Standard verweigern, Fixture erlauben, `failIfUnavailable`, kein
   `dangerouslyDisableSandbox`) steht in `policy.py` und wird in M04 mit dem Katalog aus Go verbunden. Zusätzlich eine
   Betriebssystemgrenze außerhalb des SDK prüfen: dedizierter macOS-Benutzer oder Seatbelt-Profil (`sandbox-exec`) für den
   gesamten Runner-Prozess, um auch Hooks und MCP abzudecken. Git-Schreibaktionen über den Go-Dienst.
+
+**Abnahmeexperimente je Lücke (M04, kurz, jeweils mit Kontrolllauf ohne Grenze und echtem Worktree unter dem
+Home-Verzeichnis):**
+
+| Lücke | Experiment | Bestanden, wenn |
+| --- | --- | --- |
+| Git im Worktree | `git commit` und `git status` im Worktree mit Profil `scoped_write`; danach Prüfung, ob `.git` des Hauptrepositorys außerhalb schreibbar wäre | Commit gelingt nur über den vorgesehenen Weg (Go-Dienst oder eng freigegebener Pfad), fremde Refs und Objekte bleiben unverändert |
+| Werkzeugkette | `make test`, `go test ./...`, `uv run --frozen pytest` im Worktree innerhalb der Sandbox | Läufe gelingen mit explizit freigegebenen Lesepfaden (Toolchain, Caches), Schreiben nur im Worktree und `$TMPDIR` |
+| Home-Lesegrenze | Wie Abschnitt 5, aber Arbeitsverzeichnis unter Home, `denyRead` auf Home, `allowRead` nur Worktree und Toolchain | Zugriff auf eine Attrappe unter Home, außerhalb des Worktrees, scheitert; Bash-Werkzeug funktioniert |
+| Netzwerk | `curl` und `git fetch` aus der Sandbox gegen einen lokalen Testserver | Verbindung scheitert, solange nicht ausdrücklich erlaubt |
+| Hooks/MCP/ausgenommene Befehle | Lauf mit Hook beziehungsweise MCP-Server, der außerhalb schreibt | Entweder verweigert durch die OS-Grenze um den Runner, oder diese Konfiguration wird vom Runner abgelehnt |
+| Prozesse | Kindprozessbaum eines Laufs zählen und nach Interrupt, `stop` und SIGTERM prüfen | Kein Prozess bleibt übrig, Start weiterer `claude`-Prozesse scheitert oder wird gezählt |
+| Umgebung | Lauf mit gesetztem Dummy-`GH_TOKEN` | Der Wert ist im Bash-Kindprozess nicht sichtbar (Allowlist) |
+
+**Entscheidungskriterien dedizierter Benutzer gegenüber `sandbox-exec`-Profil:** Ein dedizierter macOS-Benutzer
+(eigenes Home, eigene Dateirechte) trennt Dateien, Schlüsselbund und Prozesse dauerhaft und deckt Hooks und MCP ab; er
+verlangt aber eine eigene claude.ai-Anmeldung in diesem Benutzer (nur durch den Nutzer selbst per `/login`,
+keine Übertragung von Zugangsdaten), Rechtevergabe für Worktrees und Einrichtungsaufwand. Ein `sandbox-exec`-Profil um
+den Runner ist ohne zweites Konto einsetzbar und nutzt die vorhandene Anmeldung, ist aber ein von Apple als veraltet
+geführtes Werkzeug, schwerer zu pflegen und liefert keine Trennung des Schlüsselbunds. Empfehlung: zuerst das
+`sandbox-exec`-Profil mit den Abnahmeexperimenten erproben; der dedizierte Benutzer wird gewählt, wenn die
+Anmeldung im zweiten Konto zumutbar ist **oder** das Profil eine der Zeilen oben nicht besteht (insbesondere Hooks/MCP,
+Umgebung oder Home-Lesegrenze).
 
 ## 6. Diagnosen ohne Konto-Zugriff
 
@@ -196,7 +234,7 @@ Jede Diagnose ist ein eigener Code im terminalen `error` (Art `runtime`), mit Te
 | `not_logged_in` | `claude auth status` meldet `loggedIn: false`; auch Antwort `authentication_failed` in der Sitzung | `test_no_api_fallback_when_not_logged_in`, zusätzlich mit dem echten Binary und leerem `CLAUDE_CONFIG_DIR` (kein Netzwerk, kein Konto) |
 | `not_subscription_login` | Anmeldung ist nicht claude.ai/firstParty | `test_no_api_fallback_when_login_is_not_claude_ai` |
 | `api_credentials_in_environment` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_*` u. ä.; nur der Name wird gemeldet, das Binary wird nicht einmal gestartet | `test_no_api_fallback_when_credentials_in_environment` |
-| `api_billing_detected` | `apiKeySource` im Init-Frame ist nicht `none`: sofortiger Interrupt, kein Werkzeug läuft | `test_api_key_source_in_init_aborts_immediately` |
+| `api_billing_detected` | `apiKeySource` im Init-Frame ist nicht `none`: Abbruch im Init-Frame, **nach** dem Senden der Anfrage: garantiert ist, dass der Runner danach nichts mehr verarbeitet und unterbricht, nicht dass in der CLI kein Werkzeug anläuft | `test_api_key_source_in_init_aborts_immediately` |
 | `sdk_cli_incompatible` | CLI älter als 2.1.311, Version nicht lesbar, SDK-Pin weicht ab, Fähigkeit `interrupt_receipt_v1` fehlt | `test_old_or_unreadable_cli_version_is_incompatible`, `test_missing_interrupt_capability_is_incompatibility`, `test_sdk_pin_is_consistent` |
 | `cli_unavailable` | Binary fehlt, nicht ausführbar, relativ oder die im SDK gebündelte CLI | `test_missing_binary_is_cli_unavailable`, `test_bundled_sdk_cli_is_rejected` |
 | `billing_error` | Antwort `billing_error` in der Sitzung | – (Zuordnung im Code, kein eigener Test) |
@@ -210,6 +248,12 @@ echter Limit-Lauf wurde bewusst nicht herbeigeführt.
 entfernt, weil das SDK Variablen nur überschreiben, nicht löschen kann (sonst gelangten zum Beispiel
 `CLAUDE_CODE_SESSION_ID` und `CLAUDE_CODE_MESSAGING_*` einer übergeordneten Claude-Sitzung in die Kindsitzung).
 `CLAUDE_CONFIG_DIR` bleibt erhalten.
+
+**Bewusste Abweichung von der Spezifikation:** Die Spezifikation sagt, der Runner „entfernt“ Variablen, die den Login
+übersteuern würden. Der Code bricht bei diesen Credential- und Provider-Variablen stattdessen mit einem Fehler ab
+(`api_credentials_in_environment`), um keinen stillen Weiterlauf bei fehlerhafter Konfiguration zuzulassen. Das ist
+strenger, nicht schwächer. **Offen für M04:** Entweder entfernt Go diese Variablen vor dem Start des Runners (dann
+läuft der Runner normal weiter), oder die Spezifikation wird auf „Fehler“ angepasst.
 
 ## 7. Remote Control: Vorprüfung (nur gelesen, nichts aktiviert)
 
@@ -241,6 +285,9 @@ Konto erproben und dabei die Kombination mit dem Isolationsprofil prüfen.
 
 ## Offene Punkte für M04 (CC-40) und folgende
 
+- **Interrupt-Race:** Ein Interrupt/Stop, der vor dem Senden der Anfrage eintrifft, wird vorgemerkt und direkt nach
+  `client.query` angewendet (Test mit Fake-Client). Nicht live belegt: ob die CLI einen Interrupt unmittelbar nach dem
+  Senden der Anfrage immer vor dem ersten Modellaufruf wirksam abbricht.
 - **Abo-Wartezustand in Go:** Der Runner sendet einen nicht terminalen `error` (`kind: subscription_limit`) und danach
   ein terminales `result` `controlled_failure`. Wie Go das als Wartezustand ohne Crash-Zählung behandelt, ist offen.
 - **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und

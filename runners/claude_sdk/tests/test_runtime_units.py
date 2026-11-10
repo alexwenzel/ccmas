@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 import claude_agent_sdk
 
-from claude_sdk_runner import environment, policy, runtime
+from claude_sdk_runner import contracts, environment, policy, runtime
+from claude_sdk_runner.entrypoint import ProtocolSink
 from claude_sdk_runner.diagnostics import RuntimeDiagnostic
 
 from support import (
@@ -352,7 +353,7 @@ def test_interrupt_and_stop_end_with_exactly_one_cancelled_result(tmp_path: Path
     validate_all(out)
     (t,) = terminals(events)
     assert t["type"] == "result" and t["payload"]["outcome"] == "cancelled"
-    assert events[-1] is not None and res["code"] == 0
+    assert events[-1] is t and res["code"] == 0
     assert FakeClient.created[0].interrupt_calls == 1
 
 
@@ -381,3 +382,125 @@ def test_skill_ids_produce_a_warning_not_silent_ignore(tmp_path: Path, fx: Path)
                                  client_factory=fake_factory([init_message(), result_message()]))
     assert any(e["type"] == "error" and e["payload"]["code"] == "skills_not_applied" and not e["payload"]["terminal"]
                for e in events)
+
+
+# --- Genau ein terminales Ergebnis -------------------------------------------------------------------------------------
+
+
+def _sink() -> tuple[ProtocolSink, Collector]:
+    out = Collector()
+    ctx = {"project_id": "proj-1", "execution_id": "exec-1", "attempt": 1, "correlation_id": "corr-1"}
+    return ProtocolSink(out, ctx), out
+
+
+RESULT = ("result", {"outcome": "succeeded", "summary": "fertig"})
+TERMINAL_ERROR = ("error", {"code": "session_failed", "message": "x", "kind": "runtime", "terminal": True})
+WARNING = ("error", {"code": "w", "message": "x", "kind": "runtime", "terminal": False})
+ACTIVITY = ("activity", {"kind": "idle", "summary": "x"})
+
+
+@pytest.mark.parametrize("first,second", [(RESULT, RESULT), (RESULT, TERMINAL_ERROR), (TERMINAL_ERROR, RESULT),
+                                          (TERMINAL_ERROR, TERMINAL_ERROR)])
+def test_sink_refuses_a_second_terminal_result(first, second):
+    sink, out = _sink()
+    sink.send(*first)
+    assert sink.terminal_sent
+    with pytest.raises(RuntimeError):
+        sink.send(*second)
+    assert len(out.lines) == 1  # das zweite Ergebnis hat stdout nie erreicht
+
+
+@pytest.mark.parametrize("late", [WARNING, ACTIVITY])
+def test_sink_refuses_any_event_after_the_terminal_result(late):
+    sink, out = _sink()
+    sink.send(*RESULT)
+    with pytest.raises(RuntimeError):
+        sink.send(*late)
+    assert len(out.lines) == 1
+
+
+def test_sink_allows_non_terminal_events_before_the_terminal_result():
+    sink, out = _sink()
+    sink.send(*WARNING)
+    sink.send(*ACTIVITY)
+    assert not sink.terminal_sent
+    sink.send(*RESULT)
+    validate_all(out)
+    assert [e["type"] for e in out.events()] == ["error", "activity", "result"]
+
+
+@pytest.mark.parametrize("bad", [
+    ("activity", {"kind": "bogus", "summary": "x"}),
+    ("result", {"outcome": "unbekannt", "summary": "x"}),
+    ("start", {"x": 1}),  # falsche Richtung
+    ("activity", {"kind": "idle", "summary": "x" * 600}),
+])
+def test_sink_rejects_invalid_outgoing_lines_without_writing(bad):
+    sink, out = _sink()
+    with pytest.raises(contracts.ContractError):
+        sink.send(*bad)
+    assert out.lines == [] and not sink.terminal_sent
+
+
+def test_exception_after_the_result_does_not_produce_a_second_terminal(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path)
+
+    class FailsOnExit(FakeClient):
+        async def __aexit__(self, *exc):
+            raise RuntimeError("Fehler beim Schließen der Sitzung")
+
+    script = [init_message(), result_message()]
+    code, events, err, out = run_runner([start_line(str(fx), binary)], dict(BASE_ENV),
+                                        client_factory=lambda o: FailsOnExit(o, script))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded"
+    assert code == 0  # der Fehler nach dem Ergebnis macht den Versuch nicht zum Absturz
+    assert "verworfen" in err
+
+
+def test_billing_error_in_session_is_terminal_error_without_fallback(tmp_path: Path, fx: Path):
+    from claude_agent_sdk import AssistantMessage
+    binary, _ = make_stub_cli(tmp_path)
+    script = [init_message(), AssistantMessage(content=[], model="m", error="billing_error"),
+              result_message(is_error=True, result="billing")]
+    _, events, _, _ = run_runner([start_line(str(fx), binary)], dict(BASE_ENV), client_factory=fake_factory(script))
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "billing_error" and t["payload"]["kind"] == "runtime"
+    assert "API" in t["payload"]["message"]
+
+
+def test_cli_version_in_init_must_match_the_checked_one(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path, version="2.1.311 (Claude Code)")
+    script = [init_message(version="2.1.312"), tool_use("toolu_01", "Write", file_path="x"), result_message()]
+    _, events, _, _ = run_runner([start_line(str(fx), binary)], dict(BASE_ENV), client_factory=fake_factory(script))
+    (t,) = terminals(events)
+    assert t["payload"]["code"] == "sdk_cli_incompatible"
+    assert not any(e["type"] in ("session_started", "tool_event") for e in events)
+    assert FakeClient.created[0].interrupt_calls == 1
+
+
+def test_newer_but_consistent_cli_runs_with_untested_warning(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path, version="2.1.312 (Claude Code)")
+    _, events, _, _ = run_runner([start_line(str(fx), binary)], dict(BASE_ENV),
+                                 client_factory=fake_factory([init_message(version="2.1.312"), result_message()]))
+    warns = [e["payload"]["code"] for e in events if e["type"] == "error"]
+    assert warns == ["cli_version_untested"]
+    assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
+
+
+# --- Interrupt vor der bereiten Sitzung ----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["interrupt", "stop"])
+def test_early_interrupt_is_applied_once_the_session_is_ready(tmp_path: Path, fx: Path, kind: str):
+    """Das Kommando trifft zusammen mit dem Start ein, also vor client.query. Es darf nicht wirkungslos bleiben."""
+    binary, _ = make_stub_cli(tmp_path)
+    script = [init_message(), Wait(), result_message(subtype="error_during_execution", is_error=True,
+                                                     terminal_reason="aborted_streaming", result=None)]
+    _, events, _, _ = run_runner([start_line(str(fx), binary), command_line(kind)], dict(BASE_ENV),
+                                 client_factory=fake_factory(script))
+    (t,) = terminals(events)
+    assert t["type"] == "result" and t["payload"]["outcome"] == "cancelled"
+    client = FakeClient.created[0]
+    assert client.calls == ["query", "interrupt"]  # nie vor der Anfrage

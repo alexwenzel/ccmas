@@ -173,7 +173,8 @@ class Session:
     # --- Steuerung ---------------------------------------------------------------------------------------
 
     def request_interrupt(self, reason: str) -> None:
-        """Beendet die laufende Runde kontrolliert (auch für `stop`)."""
+        """Beendet die laufende Runde kontrolliert (auch für `stop`). Trifft das Kommando vor dem Senden der
+        Anfrage ein, wird es vorgemerkt und angewendet, sobald die Sitzung bereit ist."""
         self._interrupt_requested = True
         self.log(f"interrupt angefordert ({reason})")
         self._pending.append(asyncio.ensure_future(self._send_interrupt()))
@@ -216,8 +217,9 @@ class Session:
                 self._warn("skills_not_applied", "skill_ids werden in diesem Stand nicht angewendet (Skill-Zuordnung folgt in M02/M04).")
             async with self._factory(self._options()) as client:
                 self._client = client
-                self._ready.set()
                 await client.query(self.spec["prompt"])
+                # Ein Interrupt/Stop, der früher eintraf, wartet hier und wird jetzt angewendet (nicht wirkungslos).
+                self._ready.set()
                 try:
                     async with asyncio.timeout(self.spec["max_runtime_seconds"]) as tm:
                         async for msg in client.receive_response():

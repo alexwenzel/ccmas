@@ -77,7 +77,11 @@ def test_no_api_fallback_when_credentials_in_environment(tmp_path: Path, var: st
 
 @pytest.mark.skipif(not os.access(REAL_CLAUDE, os.X_OK), reason="lokales claude-Binary nicht vorhanden")
 def test_no_api_fallback_with_real_cli_and_empty_config_dir(tmp_path: Path):
-    """Echtes Binary, leeres Konfigurationsverzeichnis: kein Login, kein Netzwerk, kein Konto-Zugriff."""
+    """Echtes Binary, leeres Konfigurationsverzeichnis: kein Login, kein Netzwerk, kein Konto-Zugriff.
+
+    Der Test startet das lokale Binary (nur `-v` und `auth status`), aber nie eine Sitzung und nie eine Verbindung zu
+    Anthropic. Er läuft nur, wenn das Binary unter ``REAL_CLAUDE`` existiert (sonst übersprungen, zum Beispiel in CI).
+    """
     fx = tmp_path / "w" / "fx"; fx.mkdir(parents=True)
     cfg = tmp_path / "cfg"; cfg.mkdir()
     env = dict(BASE_ENV, CLAUDE_CONFIG_DIR=str(cfg))
