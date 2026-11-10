@@ -351,6 +351,7 @@ CREATE TABLE questions (
     recommendation        TEXT NOT NULL DEFAULT '',
     state                 TEXT NOT NULL CHECK (state IN ('open','answered','delivered','superseded','cancelled')),
     created_at            TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z'),
+    -- Die Antwort gehört zu dieser Frage und diesem Projekt (Fremdschlüssel unten); NULL = noch keine Antwort.
     answer_id             TEXT,
     -- Zustellbestätigung an der Frage (erst nach bestätigter Zustellung gesetzt).
     delivery_confirmed_at TEXT CHECK (delivery_confirmed_at IS NULL OR delivery_confirmed_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z'),
@@ -359,7 +360,10 @@ CREATE TABLE questions (
     CHECK (state NOT IN ('answered','delivered') OR answer_id IS NOT NULL),
     CHECK (state <> 'open' OR answer_id IS NULL),
     FOREIGN KEY (project_id, work_order_id) REFERENCES work_orders (project_id, work_order_id),
-    FOREIGN KEY (project_id, execution_id, attempt) REFERENCES execution_attempts (project_id, execution_id, attempt)
+    FOREIGN KEY (project_id, execution_id, attempt) REFERENCES execution_attempts (project_id, execution_id, attempt),
+    -- Zyklus mit answers: Frage anlegen (answer_id NULL, der Schlüssel wird dann nicht geprüft), Antwort anlegen, Frage
+    -- aktualisieren. Eine Antwort einer anderen Frage, eines anderen Projekts oder eine unbekannte Antwort wird abgewiesen.
+    FOREIGN KEY (project_id, answer_id, question_id) REFERENCES answers (project_id, answer_id, question_id)
 ) STRICT;
 CREATE INDEX questions_by_state ON questions (project_id, state);
 
@@ -370,6 +374,7 @@ CREATE TABLE answers (
     text        TEXT NOT NULL,
     created_at  TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z'),
     actor       TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),
+    UNIQUE (project_id, answer_id, question_id), -- Ziel des Fremdschlüssels questions.(project_id, answer_id, question_id)
     FOREIGN KEY (project_id, question_id) REFERENCES questions (project_id, question_id)
 ) STRICT;
 
