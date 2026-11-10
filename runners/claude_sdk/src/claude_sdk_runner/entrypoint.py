@@ -53,9 +53,7 @@ class ProtocolSink:
 
     def send(self, type_: str, payload: dict[str, Any]) -> None:
         terminal = type_ == "result" or (type_ == "error" and payload.get("terminal") is True)
-        if terminal and self.terminal_sent:
-            raise RuntimeError("zweites terminales Ergebnis verhindert")
-        if self.terminal_sent:
+        if self.terminal_sent:  # gilt für ein zweites terminales Ergebnis ebenso wie für jedes spätere Ereignis
             raise RuntimeError("Ereignis nach dem terminalen Ergebnis verhindert")
         envelope = {
             "protocol_version": "1",
