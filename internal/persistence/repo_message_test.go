@@ -158,9 +158,11 @@ func TestCreateMessage(t *testing.T) {
 		}
 		return err
 	})
-	// Nachrichten ohne Auftrag und Ausführung sind möglich.
-	free := domain.Message{MessageID: "m-free", ProjectID: projectID, Sender: "cli", Recipients: []string{"supervisor"}, Kind: domain.MessageAgentMessage}
-	msgCreate(t, s, free)
+	// Ohne Auftrag und Ausführung sind nur die Arten möglich, die keine Pflichtbezüge haben (siehe RequiredLinks).
+	msgCreate(t, s, domain.Message{MessageID: "m-free", ProjectID: projectID, Sender: "cli", Recipients: []string{"supervisor"}, Kind: domain.MessageAgentMessage})
+	msgCreate(t, s, domain.Message{MessageID: "m-decision", ProjectID: projectID, Sender: "supervisor", Recipients: []string{"orchestrator"}, Kind: domain.MessageSupervisorDecision})
+	// Eine Frage nennt den Auftrag; die Ausführung nur, wo es sie gibt.
+	msgCreate(t, s, domain.Message{MessageID: "m-question", ProjectID: projectID, WorkOrderID: "wo-1", Sender: "orchestrator", Recipients: []string{"cli"}, Kind: domain.MessageQuestion})
 }
 
 func TestCreateMessageSameIDIsNoopOrConflict(t *testing.T) {
@@ -195,8 +197,10 @@ func TestCreateMessageSameIDIsNoopOrConflict(t *testing.T) {
 		"Empfänger":     func(x *domain.Message) { x.Recipients = []string{"orchestrator"} },
 		"Empfänger neu": func(x *domain.Message) { x.Recipients = []string{"orchestrator", "cli"} },
 		"Korrelation":   func(x *domain.Message) { x.CorrelationID = "anders" },
-		"Auftrag":       func(x *domain.Message) { x.WorkOrderID, x.ExecutionID, x.Attempt = "wo-2", "exec-2", 1 },
-		"Versuch":       func(x *domain.Message) { x.ExecutionID, x.Attempt, x.WorkOrderID = "", 0, "" },
+		"Auftrag": func(x *domain.Message) {
+			x.Sender, x.WorkOrderID, x.ExecutionID, x.Attempt = domain.ExecutionAddress("exec-2"), "wo-2", "exec-2", 1
+		},
+		"Versuch": func(x *domain.Message) { x.Attempt = 2 },
 	}
 	for name, mut := range mutations {
 		other := m
@@ -246,16 +250,24 @@ func TestCreateMessageCorrelationIsEnforced(t *testing.T) {
 	}{
 		"Versuch eines anderen Auftrags": {wrongOrder, CodeInvalid},
 		"unbekannter Versuch":            {func() domain.Message { m := msgFixture("m-a"); m.Attempt = 2; return m }(), CodeNotFound},
-		"unbekannte Ausführung":          {func() domain.Message { m := msgFixture("m-b"); m.ExecutionID = "exec-9"; return m }(), CodeNotFound},
-		"unbekannter Auftrag": {func() domain.Message {
-			m := msgFixture("m-c")
-			m.WorkOrderID, m.ExecutionID, m.Attempt = "wo-9", "", 0
+		"unbekannte Ausführung": {func() domain.Message {
+			m := msgFixture("m-b")
+			m.ExecutionID, m.Sender = "exec-9", "execution:exec-9"
 			return m
 		}(), CodeNotFound},
-		"Ausführung eines anderen Projekts": {func() domain.Message { m := msgFixture("m-d"); m.ExecutionID = "exec-o"; return m }(), CodeNotFound},
+		"unbekannter Auftrag": {func() domain.Message {
+			m := msgFixture("m-c")
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageReviewRequest, domain.AddressOrchestrator, "wo-9", "", 0
+			return m
+		}(), CodeNotFound},
+		"Ausführung eines anderen Projekts": {func() domain.Message {
+			m := msgFixture("m-d")
+			m.ExecutionID, m.Sender = "exec-o", "execution:exec-o"
+			return m
+		}(), CodeNotFound},
 		"Auftrag eines anderen Projekts": {func() domain.Message {
 			m := msgFixture("m-e")
-			m.WorkOrderID, m.ExecutionID, m.Attempt = "wo-o", "", 0
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageReviewRequest, domain.AddressOrchestrator, "wo-o", "", 0
 			return m
 		}(), CodeNotFound},
 		"unbekanntes Projekt": {func() domain.Message { m := msgFixture("m-f"); m.ProjectID = "gibt-es-nicht"; return m }(), CodeNotFound},
@@ -282,7 +294,7 @@ func TestCreateMessageCorrelationIsEnforced(t *testing.T) {
 
 	// Gegenprobe: stimmt der Bezug, wird die Nachricht angenommen.
 	ok := msgFixture("m-ok")
-	ok.WorkOrderID, ok.ExecutionID = "wo-2", "exec-2"
+	ok.WorkOrderID, ok.ExecutionID, ok.Sender = "wo-2", "exec-2", domain.ExecutionAddress("exec-2")
 	msgCreate(t, s, ok)
 }
 
@@ -302,7 +314,37 @@ func TestCreateMessageInvalidInputWritesNothing(t *testing.T) {
 			m.Payload = json.RawMessage(`{"x":"` + strings.Repeat("a", domain.MaxMessagePayloadBytes) + `"}`)
 		},
 		"Ausführung ohne Versuch": func(m *domain.Message) { m.Attempt = 0 },
-		"ungültige ID":            func(m *domain.Message) { m.MessageID = "m 1" },
+		// Pflichtbezüge je Art (domain.MessageKind.RequiredLinks): fehlt einer, wird nichts geschrieben.
+		"Fortschritt ohne Bezüge": func(m *domain.Message) { m.WorkOrderID, m.ExecutionID, m.Attempt, m.Sender = "", "", 0, "cli" },
+		"Ergebnis ohne Ausführung": func(m *domain.Message) {
+			m.Kind, m.Sender, m.ExecutionID, m.Attempt = domain.MessageTaskResult, "cli", "", 0
+		},
+		"Start ohne Auftrag": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageTaskStart, "orchestrator", "", "", 0
+		},
+		"Delegation ohne Ausführung": func(m *domain.Message) {
+			m.Kind, m.Sender, m.ExecutionID, m.Attempt = domain.MessageDelegationRequest, "agent:agent-1", "", 0
+			m.Recipients = []string{domain.AddressOrchestrator}
+		},
+		"Frage ohne Auftrag": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageQuestion, "orchestrator", "", "", 0
+		},
+		"Review-Anforderung ohne Auftrag": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageReviewRequest, "orchestrator", "", "", 0
+		},
+		"Abhängigkeitswunsch ohne Auftrag": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageDependencyRequest, "orchestrator", "", "", 0
+		},
+		"Antwort ohne Auftrag": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageAnswer, "cli", "", "", 0
+		},
+		"Agentennachricht eines Agenten ohne Ausführung": func(m *domain.Message) {
+			m.Kind, m.Sender, m.WorkOrderID, m.ExecutionID, m.Attempt = domain.MessageAgentMessage, "agent:agent-1", "", "", 0
+		},
+		"Absender execution:exec-1 mit fremder Ausführung": func(m *domain.Message) {
+			m.WorkOrderID, m.ExecutionID = "wo-2", "exec-2" // gültiger Versuch, aber nicht der des Absenders
+		},
+		"ungültige ID": func(m *domain.Message) { m.MessageID = "m 1" },
 		"Delegation an Agent": func(m *domain.Message) {
 			m.Kind, m.Recipients = domain.MessageDelegationRequest, []string{"agent:agent-1"}
 		},
@@ -784,3 +826,47 @@ func TestMigration003IsIdempotent(t *testing.T) {
 var errTest = &Error{Code: CodeInternal, Message: "Testfehler"}
 
 func errorsAs(err error, target any) bool { return errors.As(err, target) }
+
+// TestCreateMessageEveryKindWithItsRequiredLinks: Jede Art wird mit ihren Pflichtbezügen angenommen; ohne sie bleibt die
+// Datenbank unverändert (die Prüfung steht in domain.Message.Check, hier belegt am Weg durch die Persistenz).
+func TestCreateMessageEveryKindWithItsRequiredLinks(t *testing.T) {
+	s := msgStore(t)
+	senders := map[domain.MessageKind]string{
+		domain.MessageTaskStart: domain.AddressOrchestrator, domain.MessageTaskProgress: domain.ExecutionAddress("exec-1"),
+		domain.MessageTaskResult: domain.ExecutionAddress("exec-1"), domain.MessageDelegationRequest: domain.AgentAddress("agent-1"),
+		domain.MessageReviewRequest: domain.AddressOrchestrator, domain.MessageDependencyRequest: domain.ExecutionAddress("exec-1"),
+		domain.MessageSupervisorDecision: domain.AddressSupervisor, domain.MessageAgentMessage: domain.AddressCLI,
+		domain.MessageQuestion: domain.AddressOrchestrator, domain.MessageAnswer: domain.AddressCLI,
+	}
+	for _, kind := range domain.MessageKinds() {
+		sender, ok := senders[kind]
+		if !ok {
+			t.Fatalf("Art %q ohne Fall", kind)
+		}
+		m := msgFixture("m-" + string(kind))
+		m.Kind, m.Sender = kind, sender
+		if kind == domain.MessageDelegationRequest {
+			m.Recipients = []string{domain.AddressOrchestrator}
+		}
+		msgCreate(t, s, m)
+
+		before := msgCount(t, s, "messages")
+		links := m.RequiredLinks()
+		for label, strip := range map[string]func(*domain.Message){
+			"Auftrag":    func(x *domain.Message) { x.WorkOrderID, x.ExecutionID, x.Attempt = "", "", 0 },
+			"Ausführung": func(x *domain.Message) { x.ExecutionID, x.Attempt = "", 0 },
+		} {
+			if (label == "Auftrag" && !links.WorkOrder) || (label == "Ausführung" && !links.Execution) {
+				continue
+			}
+			bad := m
+			bad.MessageID = "m-bad-" + string(kind)
+			strip(&bad)
+			_, err := s.Update(ctxT(t), "tester", func(tx *Tx) error { return tx.CreateMessage(bad) })
+			wantCode(t, err, CodeInvalid)
+		}
+		if msgCount(t, s, "messages") != before {
+			t.Errorf("%s: eine Nachricht ohne Pflichtbezug wurde geschrieben", kind)
+		}
+	}
+}

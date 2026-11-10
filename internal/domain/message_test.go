@@ -104,7 +104,8 @@ func TestMessageCheck(t *testing.T) {
 	if err := validMessage().Check(); err != nil {
 		t.Fatalf("gültige Nachricht: %v", err)
 	}
-	// Ohne Zeit, Korrelation, Auftrag, Ausführung und Nutzdaten ist die Nachricht gültig (Zeit setzt die Persistenz).
+	// Ohne Zeit, Korrelation und Nutzdaten ist die Nachricht gültig (Zeit setzt die Persistenz); ohne Auftrag und
+	// Ausführung nur, wo die Art das erlaubt (Agentennachricht der CLI).
 	minimal := Message{MessageID: "m-2", ProjectID: "ccmas", Sender: "cli", Recipients: []string{"supervisor"}, Kind: MessageAgentMessage}
 	if err := minimal.Check(); err != nil {
 		t.Fatalf("minimale Nachricht: %v", err)
@@ -179,6 +180,140 @@ func TestMessageCheck(t *testing.T) {
 		if err := d.Check(); err != nil {
 			t.Errorf("Delegation von %q: %v", sender, err)
 		}
+	}
+}
+
+// kindLinkCase ist ein gültiger Fall je Nachrichtenart samt den Pflichtbezügen, die fehlen dürfen oder nicht.
+type kindLinkCase struct {
+	kind      MessageKind
+	sender    string
+	recipient string
+	needOrder bool // Auftrag Pflicht
+	needExec  bool // Ausführung und Versuch Pflicht
+}
+
+func kindLinkCases() []kindLinkCase {
+	return []kindLinkCase{
+		{MessageTaskStart, AddressOrchestrator, "execution:exec-1", true, true},
+		{MessageTaskProgress, "execution:exec-1", AddressOrchestrator, true, true},
+		{MessageTaskResult, "execution:exec-1", AddressOrchestrator, true, true},
+		{MessageDelegationRequest, "execution:exec-1", AddressOrchestrator, true, true},
+		{MessageDelegationRequest, "agent:a1", AddressOrchestrator, true, true},
+		{MessageReviewRequest, AddressOrchestrator, "agent:a1", true, false},
+		{MessageDependencyRequest, "execution:exec-1", AddressOrchestrator, true, true}, // Ausführung wegen des Absenders
+		{MessageQuestion, AddressOrchestrator, AddressCLI, true, false},
+		{MessageAnswer, AddressCLI, AddressOrchestrator, true, false},
+		{MessageSupervisorDecision, AddressSupervisor, AddressOrchestrator, false, false},
+		{MessageAgentMessage, AddressCLI, AddressSupervisor, false, false},
+		{MessageAgentMessage, "agent:a1", AddressSupervisor, true, true},
+		{MessageAgentMessage, "execution:exec-1", AddressSupervisor, true, true},
+	}
+}
+
+func (c kindLinkCase) message(withOrder, withExec bool) Message {
+	m := Message{MessageID: "m-k", ProjectID: "ccmas", Sender: c.sender, Recipients: []string{c.recipient}, Kind: c.kind}
+	if withOrder {
+		m.WorkOrderID = "wo-1"
+	}
+	if withExec {
+		m.WorkOrderID, m.ExecutionID, m.Attempt = "wo-1", "exec-1", 1
+	}
+	return m
+}
+
+// Je Art ein gültiger Fall mit allen Bezügen und je Pflichtbezug ein fehlender Fall (Spezifikation „Nachrichten“:
+// Mindestinhalt ist Auftrag/Task und Ausführung).
+func TestMessageRequiredLinksPerKind(t *testing.T) {
+	covered := map[MessageKind]bool{}
+	for _, c := range kindLinkCases() {
+		covered[c.kind] = true
+		name := string(c.kind) + " von " + c.sender
+		if err := c.message(true, true).Check(); err != nil {
+			t.Errorf("%s mit allen Bezügen: %v", name, err)
+		}
+		// Ohne Bezüge, nur mit Auftrag und ohne Auftrag mit Ausführung: ungültig genau dann, wenn Pflicht fehlt.
+		for _, probe := range []struct {
+			label             string
+			withOrder, withEx bool
+		}{{"ohne Bezüge", false, false}, {"nur Auftrag", true, false}} {
+			err := c.message(probe.withOrder, probe.withEx).Check()
+			mustFail := (c.needOrder && !probe.withOrder) || (c.needExec && !probe.withEx)
+			var ce *ContractError
+			switch {
+			case mustFail && !errors.As(err, &ce):
+				t.Errorf("%s %s: angenommen (%v)", name, probe.label, err)
+			case mustFail && ce.Category() != CatField:
+				t.Errorf("%s %s: Klasse %q, erwartet %q", name, probe.label, ce.Category(), CatField)
+			case !mustFail && err != nil:
+				t.Errorf("%s %s: %v", name, probe.label, err)
+			}
+		}
+		// Ein fehlender Auftrag bei vorhandener Ausführung ist immer ungültig; ein fehlender Versuch auch.
+		m := c.message(true, true)
+		m.WorkOrderID = ""
+		if err := m.Check(); err == nil {
+			t.Errorf("%s ohne Auftrag, mit Ausführung: angenommen", name)
+		}
+		m = c.message(true, true)
+		m.Attempt = 0
+		if err := m.Check(); err == nil {
+			t.Errorf("%s ohne Versuch: angenommen", name)
+		}
+	}
+	for _, k := range MessageKinds() {
+		if !covered[k] {
+			t.Errorf("Art %q fehlt in den Fällen", k)
+		}
+	}
+	// Die Pflichttabelle selbst.
+	want := map[MessageKind]MessageLinks{
+		MessageTaskStart: {true, true}, MessageTaskProgress: {true, true}, MessageTaskResult: {true, true},
+		MessageDelegationRequest: {true, true}, MessageReviewRequest: {true, false}, MessageDependencyRequest: {true, false},
+		MessageQuestion: {true, false}, MessageAnswer: {true, false}, MessageSupervisorDecision: {}, MessageAgentMessage: {},
+	}
+	for _, k := range MessageKinds() {
+		if got, ok := want[k]; !ok || k.RequiredLinks() != got {
+			t.Errorf("RequiredLinks(%q) = %+v, erwartet %+v", k, k.RequiredLinks(), got)
+		}
+	}
+}
+
+// Ist der Absender execution:<id>, nennt die Nachricht genau diese Ausführung.
+func TestMessageExecutionSenderMustMatchExecution(t *testing.T) {
+	for _, kind := range MessageKinds() {
+		if kind == MessageDelegationRequest {
+			continue
+		}
+		recipient := AddressOrchestrator
+		ok := validMessage()
+		ok.Kind, ok.Recipients = kind, []string{recipient}
+		if err := ok.Check(); err != nil {
+			t.Errorf("%s mit eigener Ausführung: %v", kind, err)
+		}
+		foreign := ok
+		foreign.ExecutionID = "exec-2"
+		err := foreign.Check()
+		var ce *ContractError
+		if !errors.As(err, &ce) || ce.Category() != CatValue || ce.Location != "/execution_id" {
+			t.Errorf("%s mit fremder Ausführung: %v", kind, err)
+		}
+		none := ok
+		none.ExecutionID, none.Attempt = "", 0
+		if err := none.Check(); err == nil {
+			t.Errorf("%s von einer Ausführung ohne Ausführung: angenommen", kind)
+		}
+	}
+	// Auch bei einem Absender, der nur sendet: die Delegation.
+	d := validMessage()
+	d.Kind, d.Recipients, d.ExecutionID = MessageDelegationRequest, []string{AddressOrchestrator}, "exec-9"
+	if err := d.Check(); err == nil {
+		t.Error("Delegation mit fremder Ausführung angenommen")
+	}
+	// Ein Agent als Absender darf für die Ausführung stehen, die er trägt (die Zuordnung prüft die Persistenz).
+	a := validMessage()
+	a.Sender = "agent:a1"
+	if err := a.Check(); err != nil {
+		t.Errorf("Agent mit Ausführung: %v", err)
 	}
 }
 

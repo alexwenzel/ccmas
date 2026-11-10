@@ -113,6 +113,35 @@ func MessageKinds() []MessageKind {
 // Valid meldet, ob k eine bekannte Art ist.
 func (k MessageKind) Valid() bool { return contains(MessageKinds(), k) }
 
+// MessageLinks nennt die Bezüge, die eine Nachricht einer Art tragen muss (Spezifikation „Nachrichten“: Mindestinhalt ist
+// Auftrag/Task und Ausführung).
+type MessageLinks struct {
+	// WorkOrder: Der Auftrag ist Pflicht.
+	WorkOrder bool
+	// Execution: Ausführung und Versuch sind Pflicht.
+	Execution bool
+}
+
+// RequiredLinks liefert die Pflichtbezüge der Art. Die Tabelle ist die in docs/architecture/messaging.md:
+//
+//	task_start, task_progress, task_result, delegation_request   Auftrag und Ausführung
+//	review_request, dependency_request, question, answer         Auftrag; die Ausführung, wo es sie gibt
+//	supervisor_decision                                          keiner: eine Entscheidung kann ein Ziel oder einen Batch betreffen
+//	agent_message                                                keiner, sofern der Absender kein Agent und keine Ausführung ist
+//
+// Zusätzlich verlangt Message.Check (unabhängig von der Art): Ist der Absender eine Ausführung, nennt die Nachricht genau
+// diese Ausführung. Und: Schickt ein Agent oder eine Ausführung eine Nachricht, ist die sendende Ausführung Pflicht
+// (Message.RequiredLinks).
+func (k MessageKind) RequiredLinks() MessageLinks {
+	switch k {
+	case MessageTaskStart, MessageTaskProgress, MessageTaskResult, MessageDelegationRequest:
+		return MessageLinks{WorkOrder: true, Execution: true}
+	case MessageReviewRequest, MessageDependencyRequest, MessageQuestion, MessageAnswer:
+		return MessageLinks{WorkOrder: true}
+	}
+	return MessageLinks{}
+}
+
 // ---- Adressen ------------------------------------------------------------------
 
 // Adressen von Absender und Empfänger: kein Freitext. Gültig sind die festen Namen orchestrator, supervisor und cli
@@ -165,7 +194,7 @@ const (
 )
 
 // Message ist die persistente Nachricht der internen Kommunikation (Spezifikation „Nachrichten“): ID, Projekt,
-// Auftrag, Ausführung und Versuch (beide oder keins), Absender, Empfänger, Art, Korrelations-ID, Zeitstempel und
+// Auftrag, Ausführung und Versuch (Pflicht je Art, siehe MessageKind.RequiredLinks), Absender, Empfänger, Art, Korrelations-ID, Zeitstempel und
 // strukturierte Nutzdaten. Jeder Empfänger hat eine eigene Zustellung (MessageDelivery). Nachrichten gehören nicht in
 // den ProjectSnapshot.
 //
@@ -175,10 +204,11 @@ const (
 type Message struct {
 	MessageID string `json:"message_id"`
 	ProjectID string `json:"project_id"`
-	// WorkOrderID ist der Auftrag, zu dem die Nachricht gehört (optional).
+	// WorkOrderID ist der Auftrag, zu dem die Nachricht gehört (Pflicht je Art, siehe RequiredLinks).
 	WorkOrderID string `json:"work_order_id,omitempty"`
-	// ExecutionID und Attempt nennen den Versuch, zu dem die Nachricht gehört (beide oder keins). Mit einer Ausführung
-	// ist der Auftrag Pflicht; die Persistenz prüft, dass die Ausführung zu diesem Auftrag gehört.
+	// ExecutionID und Attempt nennen den Versuch, zu dem die Nachricht gehört (beide oder keins; Pflicht je Art, siehe
+	// RequiredLinks). Mit einer Ausführung ist der Auftrag Pflicht; ist der Absender execution:<id>, ist ExecutionID genau
+	// diese ID. Die Persistenz prüft, dass die Ausführung zu diesem Auftrag gehört.
 	ExecutionID string `json:"execution_id,omitempty"`
 	Attempt     int    `json:"attempt,omitempty"`
 	Sender      string `json:"sender"`
@@ -190,8 +220,19 @@ type Message struct {
 	Payload       json.RawMessage `json:"payload,omitempty"`   // leer: {}
 }
 
-// Check prüft Form und Grenzen der Nachricht. Ob die Ausführung zum Auftrag gehört und ob Projekt, Auftrag und
-// Versuch existieren, prüft die Persistenz.
+// RequiredLinks liefert die Pflichtbezüge dieser Nachricht: die der Art, bei einem Absender agent:<id> oder
+// execution:<id> immer auch die sendende Ausführung (und damit den Auftrag). Die Ausnahmen (supervisor_decision und
+// agent_message von Orchestrator, Supervisor oder CLI) gelten nur, wo fachlich keine Ausführung existiert.
+func (m Message) RequiredLinks() MessageLinks {
+	l := m.Kind.RequiredLinks()
+	if strings.HasPrefix(m.Sender, agentAddressPrefix) || strings.HasPrefix(m.Sender, executionAddressPrefix) {
+		l.WorkOrder, l.Execution = true, true
+	}
+	return l
+}
+
+// Check prüft Form, Grenzen und Pflichtbezüge der Nachricht (RequiredLinks). Ob die Ausführung zum Auftrag gehört und ob
+// Projekt, Auftrag und Versuch existieren, prüft die Persistenz.
 func (m Message) Check() error {
 	for _, id := range []string{m.MessageID, m.ProjectID} {
 		if err := CheckID(id); err != nil {
@@ -236,6 +277,19 @@ func (m Message) Check() error {
 	}
 	if !m.Kind.Valid() {
 		return newError(CatMessageType, "/kind", "unbekannte Nachrichtenart %q", m.Kind)
+	}
+	if id, ok := strings.CutPrefix(m.Sender, executionAddressPrefix); ok && m.ExecutionID != id {
+		if m.ExecutionID == "" {
+			return newError(CatField, "/execution_id", "eine Nachricht von %q nennt diese Ausführung", m.Sender)
+		}
+		return newError(CatValue, "/execution_id", "der Absender %q sendet für eine fremde Ausführung %q", m.Sender, m.ExecutionID)
+	}
+	links := m.RequiredLinks()
+	if links.WorkOrder && m.WorkOrderID == "" {
+		return newError(CatField, "/work_order_id", "eine Nachricht der Art %q nennt den Auftrag", m.Kind)
+	}
+	if links.Execution && m.ExecutionID == "" {
+		return newError(CatField, "/execution_id", "eine Nachricht der Art %q von %q nennt die Ausführung und den Versuch", m.Kind, m.Sender)
 	}
 	if m.Kind == MessageDelegationRequest {
 		if !strings.HasPrefix(m.Sender, agentAddressPrefix) && !strings.HasPrefix(m.Sender, executionAddressPrefix) {

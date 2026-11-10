@@ -23,6 +23,34 @@ Absender und Empfänger sind **Adressen**, kein Freitext: `orchestrator`, `super
 Empfänger eine eigene Zustellung. Eine Delegation (`delegation_request`) geht von einem Agenten oder einer Ausführung allein an
 den Orchestrator und startet nichts: Reservierung und Start gehören dem Orchestrator (CC-42).
 
+### Pflichtbezüge je Art
+
+Die Spezifikation nennt als Mindestinhalt einer Nachricht „Auftrag/Task“ und „Ausführung“ (Ausführung mit Versuch). Das Ticket
+verlangt, diese Korrelation zu erzwingen. `Message.Check` prüft deshalb je Art (`MessageKind.RequiredLinks`), bevor die
+Persistenz etwas schreibt; ein Verstoß ist `invalid` und hinterlässt keine Zeile und kein Ereignis:
+
+| Art | Auftrag | Ausführung und Versuch | Begründung |
+| --- | --- | --- | --- |
+| `task_start`, `task_progress`, `task_result` | Pflicht | Pflicht | Sie beschreiben den Lauf eines Versuchs. |
+| `delegation_request` | Pflicht | Pflicht | Eine Delegation fordert nur eine laufende Ausführung an; ohne sie wüsste der Orchestrator nicht, für wen er reserviert. Absender `agent:`/`execution:`, Empfänger allein `orchestrator`. |
+| `review_request`, `dependency_request`, `question`, `answer` | Pflicht | wo vorhanden | Sie gehören zu einem Auftrag, müssen aber nicht aus einer Ausführung stammen (zum Beispiel eine Frage des Orchestrators an die CLI, eine Antwort der CLI). |
+| `supervisor_decision` | optional | optional | Eine Entscheidung kann ein Ziel oder einen Batch betreffen und nicht einen einzelnen Auftrag. |
+| `agent_message` | optional | optional, aber Pflicht für Absender `agent:`/`execution:` | s. u. |
+
+Zwei Regeln gelten über alle Arten:
+
+- **Sendende Ausführung:** Ist der Absender `agent:<id>` oder `execution:<id>`, sind Auftrag, Ausführung und Versuch
+  Pflicht, gleich welche Art. Eine Nachricht eines Agenten ohne die sendende Ausführung ließe sich keinem Versuch zuordnen.
+- **Eigene Ausführung:** Ist der Absender `execution:<id>`, muss `ExecutionID` genau diese ID sein (sonst `invalid` an
+  `/execution_id`). Ein Absender kann nicht für eine fremde Ausführung sprechen.
+
+Die Ausnahmen („optional“) gelten nur dort, wo fachlich keine Ausführung existiert: bei Nachrichten von Orchestrator, Supervisor
+oder CLI, die ein Ziel, einen Batch oder das Gespräch mit dem Menschen betreffen. Es gibt keine Ausnahme für Nachrichten, die
+ein Agent oder eine Ausführung sendet.
+
+Die vorhandene Konsistenz bleibt: Eine Ausführung gibt es nur mit Versuch und Auftrag, und die Persistenz prüft, dass Projekt,
+Auftrag und Versuch existieren und dass die Ausführung zum genannten Auftrag gehört (Fremdschlüssel binden nur das Projekt).
+
 Nutzdaten sind ein JSON-Objekt (höchstens 64 KiB, ohne doppelte Schlüssel, Ganzzahlen statt Kommazahlen); `Message.CanonicalPayload()`
 liefert die kanonische Form (sortierte Schlüssel, kompakt). Gleiche Nutzdaten ergeben dieselben Bytes; darauf beruht die
 Duplikaterkennung beim erneuten Anlegen.
