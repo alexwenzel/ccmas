@@ -12,7 +12,6 @@ type plannedGroup struct {
 // plannedCommandSpecs listet den vorgesehenen Befehlsraum in Spezifikationsreihenfolge.
 var plannedCommandSpecs = []plannedGroup{
 	{"init", "Lokalen Projektkontext einrichten"},
-	{"status", "Werkzeuge, Zugänge und Dienstzustand prüfen"},
 	{"start", "Dienst starten"},
 	{"stop", "Dienst stoppen"},
 	{"ui", "Terminaloberfläche öffnen"},

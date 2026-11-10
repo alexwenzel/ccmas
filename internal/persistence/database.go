@@ -63,6 +63,9 @@ type Store struct {
 
 var strictOnce sync.Once
 
+// initDriver schaltet die strenge Pragma-Prüfung des Treibers ein (einmal je Prozess).
+func initDriver() { strictOnce.Do(func() { sqlite.StrictPragmas(true) }) }
+
 // Open öffnet die Datenbank unter dem absoluten, kanonischen Pfad. Fehlt das Verzeichnis, wird es mit 0700
 // angelegt; fehlt die Datei, wird sie vor dem ersten Öffnen mit 0600 angelegt (die Dateien -wal und -shm erben
 // diese Rechte). Eine vorhandene Datei bleibt unverändert. Jede Verbindung trägt busy_timeout, foreign_keys,
@@ -91,7 +94,7 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	}
 	// Mehrere Anweisungen in einem _pragma sind nie nötig. Der Schalter gilt prozessweit; der Dienst nutzt den
 	// Treiber nur über dieses Paket.
-	strictOnce.Do(func() { sqlite.StrictPragmas(true) })
+	initDriver()
 	if err := prepareFile(path); err != nil {
 		return nil, err
 	}

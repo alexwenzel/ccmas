@@ -66,6 +66,47 @@
 // Speichern gegen ihr Schema geprüft (fail-closed). Zeitstempel sind RFC 3339 in UTC mit neun Nachkommastellen; die Uhr
 // ist über WithClock austauschbar. Spalten für Zugangsdaten gibt es nicht (Leitplanke: TestNoSecretColumns).
 //
+// # Nur lesende Prüfung
+//
+// Inspect(ctx, path) prüft eine bestehende Datenbank, ohne etwas zu schreiben (Grundlage von „ccmas status“): Sie legt
+// weder Datei noch Verzeichnis an (fehlt die Datei, steht das im Bericht, kein Fehler), setzt kein journal_mode, ändert
+// keine Rechte, migriert nicht und lässt nach der Rückkehr keine neue Datei liegen. Der Bericht (Report, stabile
+// JSON-Namen) nennt Datei, Größe, Rechte von Verzeichnis, Datei, -wal und -shm, journal_mode, Schemaversion
+// (user_version und schema_migrations, bekannte und ausstehende Migrationen), das Ergebnis von quick_check und
+// foreign_key_check, Grunddaten (Projekte mit Zustandsrevision, Aufträge je Zustand, aktive Ausführungen, offene Fragen,
+// Outbox je Zustand, Zeit des letzten Ereignisses) und Hinweise. Befunde (Finding) sind schema_too_new,
+// migration_checksum_mismatch, migration_history_mismatch (auch bei einer fremden Datenbank ohne Historie),
+// quick_check_failed, foreign_key_violations, insecure_permissions (Gruppen- oder Weltrechte), unreadable (kaputte oder
+// fremde Datei, Fehler beim Lesen) und busy. Ausstehende Migrationen und ein iCloud-Pfad („Mobile Documents“) sind
+// Hinweise, keine Befunde. Alle Abfragen laufen in einer einzigen Lesetransaktion: der Bericht zeigt einen
+// festgeschriebenen Stand, auch wenn ein Schreiber offen ist; WAL-Leser blockieren Schreiber nicht.
+//
+// Verhalten von mode=ro bei einer WAL-Datenbank (gemessen mit modernc.org/sqlite v1.61.0, SQLite 3.54.1, macOS):
+//   - Ohne vorhandene -wal und -shm legt mode=ro beide Dateien an (-wal leer, -shm 32 KiB, Rechte der Datenbank) und
+//     lässt sie nach dem Schließen liegen. Die Hauptdatei bleibt byte-identisch, aber „keine neue Datei“ gilt nicht.
+//     In einem nicht beschreibbaren Verzeichnis scheitert das Öffnen mit „attempt to write a readonly database“.
+//   - Mit vorhandenem -wal und -shm (typisch: ein Schreiber ist offen) liest mode=ro den festgeschriebenen Stand samt
+//     noch nicht zurückgeschriebener WAL-Daten und legt nichts an, auch bei nicht beschreibbarem Verzeichnis oder
+//     schreibgeschützter Datei.
+//   - Mit -wal, aber ohne -shm (Reste ohne offenen Schreiber) legt mode=ro ein -shm an und lässt es liegen; im nicht
+//     beschreibbaren Verzeichnis scheitert es mit „unable to open database file“.
+//   - immutable=1 nimmt keine Sperren und öffnet weder -wal noch -shm: es entsteht nichts, auch im nicht beschreibbaren
+//     Verzeichnis. Es ignoriert aber ein vorhandenes WAL (Daten nur im WAL fehlen, journal_mode erscheint als „delete“).
+//     Der journal_mode wird deshalb aus dem Dateikopf gelesen.
+//
+// Daraus folgt die Wahl des Lesewegs (Report.ReadMode): ohne -wal und ohne -journal immutable=1 (keine Schreiber aktiv);
+// mit -wal und -shm mode=ro auf dem Original; mit -wal ohne -shm mode=ro auf einer privaten Kopie von Datei und -wal in
+// einem 0700-Temp-Verzeichnis, das danach gelöscht wird (bis 256 MiB); mit einer -journal-Datei mode=ro. Alle Wege
+// öffnen mit query_only(1) und kurzem busy_timeout. Grenzen: (1) immutable liest ohne Sperre. Wird währenddessen ein
+// Schreiber aktiv, erkennt Inspect das am Erscheinen von -wal/-journal oder an einer Änderung von Größe oder Zeit der
+// Hauptdatei, verwirft den Versuch und wiederholt ihn (höchstens dreimal, sonst Befund busy); ein Schreiber, der
+// innerhalb des Lesefensters ohne jede Änderung der Hauptdatei beginnt und endet, ist nicht auszuschließen, ändert aber
+// auch nichts am Gelesenen. (2) Auf dem mode=ro-Weg kann sich der Inhalt von -shm (Wal-Index, Lesemarken) ändern; Hauptdatei
+// und -wal bleiben byte-identisch (Test TestInspectWhileWriterOpen). Endet der letzte Schreiber genau zwischen der Prüfung
+// der Nachbardateien und dem Öffnen, kann mode=ro leere -wal/-shm anlegen; sie sind gewöhnliche, leere WAL-Dateien. (3)
+// Gemessen ist nur macOS; Linux verhält sich nach der SQLite-Dokumentation gleich, ist hier aber nicht geprüft.
+// Rechteprüfungen entfallen unter Windows.
+//
 // # Fehler
 //
 // Alle Fehler sind *Error mit stabilem Code (CodeOf): busy, schema_outdated, schema_too_new,
