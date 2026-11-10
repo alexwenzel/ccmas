@@ -5,7 +5,8 @@
 - Genau ein terminales Ergebnis je Versuch (`result` oder `error` mit `terminal=true`). Endet der Prozess ohne
   eines, ist das ein Absturz (Exit-Code 1); die Entscheidung trifft der Go-Dienst.
 - Exit-Codes: 0 = terminales Ergebnis gesendet (auch bei terminalem `error`), 1 = Ende ohne Ergebnis,
-  2 = ungültiger Start (nichts auf stdout, weil Projekt-/Ausführungsbezug fehlt).
+  2 = ungültiger Start oder ungültige Argumente (nichts auf stdout, weil Projekt-/Ausführungsbezug fehlt
+  beziehungsweise der Prozess nicht gestartet wurde).
 - EOF auf stdin heißt: keine weiteren Kommandos. Der Lauf läuft weiter (Grenze: `max_runtime_seconds`).
 """
 

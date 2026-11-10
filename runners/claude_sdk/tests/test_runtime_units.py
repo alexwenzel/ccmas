@@ -20,6 +20,7 @@ from claude_sdk_runner import contracts, environment, policy, runtime
 from claude_sdk_runner.entrypoint import ProtocolSink
 from claude_sdk_runner.diagnostics import RuntimeDiagnostic
 
+import support
 from support import (
     FakeClient, Hang, Wait, Collector, command_line, fake_factory, init_message, make_stub_cli,
     rate_limit_rejected, result_message, run_runner, start_line, terminals, text, tool_result, tool_use,
@@ -95,6 +96,38 @@ def test_readonly_policy_has_no_write_or_shell(fx: Path):
     assert p.permission_mode == "dontAsk"
     joined = " ".join(p.allowed_tools + list(p.tools or []))
     assert "Write" not in joined and "Edit" not in joined and "Bash" not in joined
+
+
+def test_writing_profiles_are_exactly_everything_except_readonly():
+    """Fail-closed: ein neues Profil gilt als schreibend, bis es ausdrücklich als schreibgeschützt festgeschrieben ist."""
+    assert set(policy.PROFILES) - set(policy.WRITING_PROFILES) == {"readonly"}
+    assert set(policy.WRITING_PROFILES) <= set(policy.PROFILES)
+
+
+@pytest.mark.parametrize("profile", ["readonly", "scoped_write"])
+def test_policy_turns_off_claude_ai_connectors_in_both_profiles(fx: Path, profile: str):
+    p = policy.build_policy(profile, str(fx))
+    assert p.settings["disableClaudeAiConnectors"] is True
+    assert p.settings["permissions"]["blockReadsOutsideWorkingDirectories"] is True
+
+
+@pytest.mark.parametrize("profile", ["readonly", "scoped_write"])
+def test_policy_never_touches_the_synced_skill_and_plugin_settings(fx: Path, profile: str):
+    """`syncClaudeAiSkills`/`syncClaudeAiPlugins` = false verschiebt laut Settings-Doku bereits synchronisierte Einträge
+    in `.trash`; der Runner darf die Konfiguration des Benutzers nicht verändern. Die Quellen bleiben über
+    `setting_sources=[]` aus (Beleg: Init-Frame im Live-Test)."""
+    p = policy.build_policy(profile, str(fx))
+    assert not [k for k in p.settings if k.lower().startswith("sync")]
+
+
+@pytest.mark.parametrize("profile", ["readonly", "scoped_write"])
+def test_connector_setting_and_empty_sources_reach_the_sdk_options(tmp_path: Path, fx: Path, profile: str):
+    binary, _ = make_stub_cli(tmp_path)
+    run_runner([start_line(str(fx), binary, policy_profile=profile)], dict(BASE_ENV),
+               client_factory=fake_factory([init_message(), result_message()]))
+    opts = FakeClient.created[0].options
+    assert json.loads(opts.settings)["disableClaudeAiConnectors"] is True
+    assert opts.setting_sources == []
 
 
 def test_autonomous_and_unknown_profiles_are_rejected(fx: Path):
@@ -514,6 +547,102 @@ def test_verified_cli_version_allows_the_writing_profile(tmp_path: Path, fx: Pat
                                  client_factory=fake_factory([init_message(), result_message()]))
     assert [e["payload"]["code"] for e in events if e["type"] == "error"] == []
     assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
+
+
+@pytest.mark.parametrize("token", ["2.1.311-rc.1", "2.1.311.7", "2.1.311+build5", "2.1.3110"])
+def test_only_the_exact_verified_version_token_counts_as_tested(tmp_path: Path, fx: Path, token: str):
+    """Fail-closed streng: `2.1.311-rc.1` oder `2.1.311.7` sind nicht die nachgewiesene Version."""
+    binary, log = make_stub_cli(tmp_path, version=f"{token} (Claude Code)")
+    FakeClient.created.clear()
+    code, events, _, out = run_runner([start_line(str(fx), binary, policy_profile="scoped_write")], dict(BASE_ENV),
+                                      client_factory=fake_factory([init_message(version=token), result_message()]))
+    validate_all(out)
+    (t,) = terminals(events)
+    assert t["type"] == "error" and t["payload"]["code"] == "cli_version_untested" and code == 0
+    assert token in t["payload"]["message"] and "2.1.311" in t["payload"]["message"]
+    assert FakeClient.created == [] and "SESSION" not in log.read_text()
+
+
+@pytest.mark.parametrize("token", ["2.1.311-rc.1", "2.1.311.7"])
+def test_readonly_runs_with_a_warning_for_a_lookalike_version_token(tmp_path: Path, fx: Path, token: str):
+    binary, _ = make_stub_cli(tmp_path, version=f"{token} (Claude Code)")
+    _, events, _, _ = run_runner([start_line(str(fx), binary, policy_profile="readonly")], dict(BASE_ENV),
+                                 client_factory=fake_factory([init_message(version=token), result_message()]))
+    assert [e["payload"]["code"] for e in events if e["type"] == "error"] == ["cli_version_untested"]
+    assert next(e for e in events if e["type"] == "session_started")["payload"]["claude_version"] == token
+    assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
+
+
+# --- Init-Frame-Zusammenfassung (Quellen-Probe) -----------------------------------------------------------------------
+
+
+def test_init_summary_logs_counts_and_skill_names_only(tmp_path: Path, fx: Path):
+    binary, _ = make_stub_cli(tmp_path)
+    extra = {"mcp_servers": [{"name": "geheimer-connector", "status": "connected"}],
+             "plugins": [{"name": "mein-plugin", "path": "/irgendwo"}],
+             "skills": ["debug", "ccmas-probe"], "agents": ["Explore", "Plan", "general-purpose"],
+             "slash_commands": ["a", "b", "c", "d"]}
+    code, events, err, out = run_runner([start_line(str(fx), binary)], dict(BASE_ENV),
+                                        client_factory=fake_factory([init_message(extra=extra), result_message()]))
+    validate_all(out)
+    (line,) = [ln for ln in err.splitlines() if "init:" in ln]
+    assert "mcp_servers=1 plugins=1 skills=2 agents=3 slash_commands=4 plugins_in_config_dir=0" in line
+    assert "skill_names=debug,ccmas-probe" in line
+    for hidden in ("geheimer-connector", "mein-plugin", "Explore", "general-purpose"):
+        assert hidden not in err  # Namen außer denen der Skills gelangen nie ins Log
+    assert "geheimer-connector" not in " ".join(out.lines)  # und keine neuen Protokollfelder
+    assert code == 0 and terminals(events)[0]["payload"]["outcome"] == "succeeded"
+
+
+def test_init_summary_marks_missing_lists_and_bounds_the_skill_names():
+    assert runtime.init_summary({}) == "mcp_servers=? plugins=? skills=? agents=? slash_commands=? plugins_in_config_dir=? skill_names="
+    many = {"skills": [f"skill-{i:03d}" for i in range(100)]}
+    line = runtime.init_summary(many)
+    assert "skills=100" in line and "skill-000" in line and "skill-099" not in line
+    assert "…(+" in line and len(line) < 600  # gekürzt und als gekürzt erkennbar
+
+
+def test_init_summary_counts_plugins_below_the_config_dir_and_flags_unclassifiable_entries():
+    """Plugins unter dem Konfigurationsverzeichnis (installiert oder synchronisiert) sind genau die, die aus der
+    Benutzerkonfiguration stammen; deren Anzahl ist die eigentliche Messgröße der Quellen-Probe."""
+    cfg = "/home/u/.claude"
+    plugins = [{"name": "a", "path": f"{cfg}/plugins/synced/a"}, {"name": "b", "path": f"{cfg}/plugins/cache/x/b"},
+               {"name": "c", "path": "/opt/cli/bundled/c"}, {"name": "d", "path": f"{cfg}-other/d"}]
+    line = runtime.init_summary({"plugins": plugins}, config_dir=cfg)
+    assert "plugins=4" in line and "plugins_in_config_dir=2" in line
+    assert "plugins_in_config_dir=?" in runtime.init_summary({"plugins": [{"name": "ohne-pfad"}]}, config_dir=cfg)
+
+
+def test_init_summary_uses_claude_config_dir_from_the_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/cfg")
+    assert "plugins_in_config_dir=1" in runtime.init_summary({"plugins": [{"name": "a", "path": "/cfg/plugins/a"}]})
+
+
+# --- Hilfen der Tests ----------------------------------------------------------------------------------------------------
+
+
+def test_hang_helper_is_bounded_and_fails_instead_of_hanging(monkeypatch: pytest.MonkeyPatch):
+    """Regression der Laufzeitbegrenzung darf die Suite nicht hängen lassen: der Hänger läuft nach der Obergrenze ab."""
+    import asyncio
+    monkeypatch.setattr(support, "HANG_LIMIT_SECONDS", 0.05)
+    t0 = time.monotonic()
+    with pytest.raises(AssertionError, match="nicht abgebrochen"):
+        asyncio.run(support.bounded_hang("probe"))
+    assert time.monotonic() - t0 < 5
+    assert support.EXPIRED_HANGS == ["probe"]
+    support.EXPIRED_HANGS.clear()  # erwartet; sonst schlägt die Fixture in conftest.py an
+
+
+def test_unaborted_hang_in_a_runtime_phase_turns_the_test_red_not_into_a_hang(tmp_path: Path, fx: Path, monkeypatch: pytest.MonkeyPatch):
+    """Simulierte Regression: das Schließen wird nicht begrenzt. Der Hänger endet nach der Obergrenze, der Runner schluckt
+    die Ausnahme beim Schließen, aber die Fixture meldet den abgelaufenen Hänger."""
+    monkeypatch.setattr(support, "HANG_LIMIT_SECONDS", 0.2)
+    monkeypatch.setattr(runtime, "CLOSE_TIMEOUT", 3600)
+    binary, _ = make_stub_cli(tmp_path)
+    _, events, _, _ = run_runner([start_line(str(fx), binary)], dict(BASE_ENV), client_factory=_hanging(hang_exit=True))
+    assert terminals(events)[0]["payload"]["outcome"] == "succeeded"
+    assert support.EXPIRED_HANGS == ["exit_cancelled"]  # so würde conftest.py den Test rot färben
+    support.EXPIRED_HANGS.clear()
 
 
 # --- Interrupt vor der bereiten Sitzung ----------------------------------------------------------------------------------

@@ -13,19 +13,24 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import claude_agent_sdk
+import jsonschema
 import pytest
 
+from probe_sources import OUTPUT_FORMAT
 from support import (
-    REAL_CLAUDE, Collector, command_line, fake_factory, init_message, make_stub_cli, result_message, run_runner,
-    start_line, stub_calls, terminals, validate_all,
+    HOOK_MARKER_FILE, PROBE_SKILL, REAL_CLAUDE, SOURCE_MARKER, Collector, command_line, fake_factory, init_message,
+    make_stub_cli, result_message, run_runner, start_line, stub_calls, terminals, validate_all, write_source_probe_fixture,
 )
 
 BASE_ENV = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "/tmp")}
@@ -228,26 +233,99 @@ _PATH_PATTERNS = [
 ]
 
 
-def redact_evidence(text: str, replace: dict[str, str]) -> str:
+def _with_aliases(replace: dict[str, str]) -> dict[str, str]:
+    """Jeder Pfad auch in der Schreibweise mit und ohne `/private` (macOS: `/var` ist `/private/var`), längste zuerst:
+    so ersetzt der genauere Eintrag (Fixture) den allgemeineren (Temp-Wurzel), bevor das Muster greift."""
+    out: dict[str, str] = {}
     for old, new in replace.items():
+        out[old] = new
+        if old.startswith("/private/var/"):
+            out[old[len("/private"):]] = new
+        elif old.startswith("/var/"):
+            out["/private" + old] = new
+    return dict(sorted(out.items(), key=lambda kv: -len(kv[0])))
+
+
+def redact_evidence(text: str, replace: dict[str, str]) -> str:
+    for old, new in _with_aliases(replace).items():
         text = text.replace(old, new)
     for pattern, new in _PATH_PATTERNS:
         text = pattern.sub(new, text)
     return text
 
 
-def _write_evidence(name: str, events: list[dict], replace: dict[str, str], note: str) -> None:
+RUNNER_INVOCATION = "python -m claude_sdk_runner als Unterprozess, Allowlist-Umgebung"
+
+
+def _write_evidence(name: str, events: list[dict], replace: dict[str, str], note: str, *,
+                    invocation: str = RUNNER_INVOCATION, extra: dict[str, Any] | None = None) -> None:
     target = os.environ.get("CCMAS_EVIDENCE_DIR")
     if not target:
         return
     meta = {"evidence": name, "date": date.today().isoformat(), "sdk_version": claude_agent_sdk.__version__,
-            "cli_version": _cli_version(), "model_requested": LIVE_MODEL, "note": note,
-            "redaction": "Pfade des temporären Fixtures ersetzt; Konto-, E-Mail- und Organisationsdaten kommen im Protokoll nicht vor"}
+            "cli_version": _cli_version(), "model_requested": LIVE_MODEL, "invocation": invocation, "note": note,
+            "redaction": "Pfade des temporären Fixtures ersetzt; Konto-, E-Mail- und Organisationsdaten sowie Namen von Skills, "
+                         "Plugins und Connectors kommen nicht vor"}
+    meta.update(extra or {})
     lines = [json.dumps(meta, ensure_ascii=False)]
     for e in events:
         lines.append(redact_evidence(json.dumps(e, ensure_ascii=False), replace))
     Path(target).mkdir(parents=True, exist_ok=True)
     (Path(target) / f"{name}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+_INIT_LINE = re.compile(r"^\[runner\] init: mcp_servers=(\S+) plugins=(\S+) skills=(\S+) agents=(\S+) slash_commands=(\S+) "
+                        r"plugins_in_config_dir=(\S+) skill_names=(.*)$", re.MULTILINE)
+_INIT_KEYS = ("mcp_servers", "plugins", "skills", "agents", "slash_commands", "plugins_in_config_dir")
+
+
+def _init_sources(stderr: bytes) -> tuple[dict[str, int], list[str]]:
+    """Anzahlen und Skill-Namen aus der Zeile `init:` auf stderr des Runners (nur lokal ausgewertet, Namen nie eingecheckt)."""
+    m = _INIT_LINE.search(stderr.decode(errors="replace"))
+    assert m, "keine Init-Zusammenfassung auf stderr des Runners"
+    assert all(v.isdigit() for v in m.groups()[:6]), m.groups()[:6]
+    names = [n for n in m.group(7).split(",") if n]
+    assert not any("…(+" in n for n in names), "Skill-Namen gekürzt: Beleg unvollständig"
+    return dict(zip(_INIT_KEYS, map(int, m.groups()[:6]))), names
+
+
+def _config_dir_skill_names() -> set[str]:
+    """Namen der Skills, die der Benutzer im Konfigurationsverzeichnis hat (eigene und synchronisierte). Nur Verzeichnisnamen
+    werden aufgelistet; der Inhalt wird nicht gelesen. Der Runner sieht dasselbe Verzeichnis (HOME steht auf der Allowlist)."""
+    root = Path(_live_env().get("HOME", str(Path.home()))) / ".claude" / "skills"
+    names: set[str] = set()
+    for d in (root, root / "synced"):
+        if d.is_dir():
+            names |= {p.name.removesuffix(".md") for p in d.iterdir() if not p.name.startswith(".") and p.name != "synced"}
+    return names
+
+
+def _collect_project_sources(fx: Path, out: Collector, stderr: bytes) -> dict[str, Any]:
+    """Messwerte der Quellen-Probe am Runner-Lauf (ohne zu urteilen, damit der Beleg auch bei einem Befund entsteht)."""
+    counts, names = _init_sources(stderr)
+    own = _config_dir_skill_names()
+    return {
+        "init_counts": counts,
+        "skills_listed": counts["skills"] == len(names),
+        "probe_skill_loaded": PROBE_SKILL in names,
+        "config_dir_skill_entries": len(own),  # Gegenprobe ist nur sinnvoll, wenn der Benutzer solche Skills hat
+        "config_dir_skills_loaded": len(own & set(names)),
+        "hook_marker_created": (fx / HOOK_MARKER_FILE).exists(),
+        "claude_md_marker_in_output": SOURCE_MARKER in " ".join(out.lines),
+    }
+
+
+def _assert_project_sources_are_off(found: dict[str, Any]) -> None:
+    """Der Runner-Lauf hat keine Projektdateien des Fixtures (CLAUDE.md, Hook, Skill), keine Connectors und keine Plugins
+    oder Skills aus dem Konfigurationsverzeichnis des Benutzers (synchronisiert oder installiert) geladen."""
+    counts = found["init_counts"]
+    assert counts["mcp_servers"] == 0, found  # keine MCP-Server, keine claude.ai-Connectors
+    assert counts["plugins_in_config_dir"] == 0, found  # keine installierten oder synchronisierten Plugins des Benutzers
+    assert found["config_dir_skills_loaded"] == 0, found  # keine eigenen oder synchronisierten Skills des Benutzers
+    assert found["skills_listed"], found
+    assert not found["probe_skill_loaded"], found  # Projekt-Skill nicht geladen
+    assert not found["hook_marker_created"], found  # Hook aus .claude/settings.json des Fixtures nicht ausgeführt
+    assert not found["claude_md_marker_in_output"], found  # CLAUDE.md des Fixtures nicht befolgt
 
 
 @pytest.mark.live
@@ -258,6 +336,7 @@ def test_live_sdk_roundtrip(tmp_path: Path):
     läuft über die claude.ai-Anmeldung (`auth_source: claude_ai`), der Wert erscheint nirgends.
     """
     fx = (tmp_path / "work" / "fixture"); fx.mkdir(parents=True); fx = fx.resolve()
+    write_source_probe_fixture(fx)  # CLAUDE.md, Hook und Skill im Projekt: der Runner darf davon nichts laden
     prompt = "Lege mit dem Write-Werkzeug im aktuellen Verzeichnis die Datei hello.txt mit dem Inhalt ok an. Antworte danach mit dem Wort fertig."
     line = start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, policy_profile="scoped_write", max_runtime_seconds=120)
     proc = _run_live_runner(line, _live_env(ANTHROPIC_API_KEY=DUMMY_KEY), tmp_path, timeout=180)
@@ -281,9 +360,14 @@ def test_live_sdk_roundtrip(tmp_path: Path):
     (t,) = terminals(events)
     assert t["type"] == "result" and t["payload"]["outcome"] == "succeeded"
     assert events[-1] is t
+    sources = _collect_project_sources(fx, out, proc.stderr)
     print(f"live-roundtrip session_id={started['session_id']}")
+    # Der Beleg entsteht vor dem Urteil: auch ein Befund (geladene Quelle) bleibt so nachvollziehbar.
     _write_evidence("live-roundtrip", events, {str(fx): "<FIXTURE>", str(tmp_path): "<TMP>"},
-                    "python -m claude_sdk_runner, Policy scoped_write, ein Write-Aufruf, Dummy-API-Schlüssel in der Umgebung entfernt")
+                    "python -m claude_sdk_runner, Policy scoped_write, ein Write-Aufruf, Dummy-API-Schlüssel in der Umgebung entfernt; "
+                    "Quellen-Probe: das Fixture enthält CLAUDE.md (Marker), Hook und Skill, die der Runner nicht laden darf",
+                    extra={"sources_probe": sources})
+    _assert_project_sources_are_off(sources)
 
 
 @pytest.mark.live
@@ -343,17 +427,30 @@ def test_live_interrupt_ends_with_exactly_one_cancelled_result(tmp_path: Path):
                     f"Interrupt nach laufendem Bash-Werkzeug; Dauer bis Ergebnis {elapsed:.1f}s")
 
 
+def _read_denial_reference(summary: str, target: str) -> str:
+    """Bezugsverzeichnis in der Meldung der Read-Sperre: `<Ziel> is outside <Verzeichnis>; ...`."""
+    prefix = f"{target} is outside "
+    assert summary.startswith(prefix), summary
+    return re.split(r"[;…]", summary[len(prefix):], maxsplit=1)[0]
+
+
 @pytest.mark.live
-def test_scope_probe(tmp_path: Path):
-    """Technische Dateisystemgrenze: Fixture beschreibbar, Nachbar-, Secret- und Kontrollpfad (Attrappen) verweigert."""
-    base = (tmp_path / "scope"); base.mkdir(); base = base.resolve()
+def test_scope_probe(request: pytest.FixtureRequest, tmp_path: Path):
+    """Technische Dateisystemgrenze: Fixture beschreibbar, Nachbar-, Secret- und Kontrollpfad (Attrappen) verweigert.
+
+    Der Baum liegt bewusst unter einem kurzen Temp-Pfad (nicht unter dem langen pytest-Pfad): die Meldung der Read-Sperre
+    nennt zwei absolute Pfade, und der Runner kürzt Fehlermeldungen auf 200 Zeichen. Bei langen Pfaden würde die Meldung
+    mitten im zweiten Pfad abgeschnitten (Befund in runtime-capabilities.md, Abschnitt 5).
+    """
+    base = Path(tempfile.mkdtemp(prefix="sp-")).resolve()
+    request.addfinalizer(lambda: shutil.rmtree(base, ignore_errors=True))
     fx, nb, sec, ctl = (base / d for d in ("fixture", "neighbor", "secret", "control"))
     for d in (fx, nb, sec, ctl / "contracts"):
         d.mkdir(parents=True)
     (nb / "neighbor.txt").write_text("NEIGHBOR-DUMMY")
     (sec / "secret.txt").write_text("SECRET-DUMMY-VALUE")
     (ctl / "contracts" / "control.json").write_text("{}")
-    prompt = f"""Dies ist ein autorisierter Selbsttest in einem Wegwerfverzeichnis. Führe diese 10 Schritte strikt der Reihe nach aus, je Schritt ein Werkzeugaufruf mit genau dem genannten Werkzeug. Überspringe keinen Schritt, auch wenn ein früherer scheitert; Fehler sind erwartet. Versuche nie, einen gescheiterten Schritt anders zu lösen.
+    prompt = f"""Dies ist ein autorisierter Selbsttest in einem Wegwerfverzeichnis. Führe diese 11 Schritte strikt der Reihe nach aus, je Schritt ein Werkzeugaufruf mit genau dem genannten Werkzeug. Überspringe keinen Schritt, auch wenn ein früherer scheitert; Fehler sind erwartet. Versuche nie, einen gescheiterten Schritt anders zu lösen.
 1. Write-Werkzeug: erstelle {fx}/w_tool.txt mit Inhalt one
 2. Bash-Werkzeug: echo one > {fx}/w_bash.txt
 3. Write-Werkzeug: erstelle {nb}/w_tool.txt mit Inhalt two
@@ -364,9 +461,10 @@ def test_scope_probe(tmp_path: Path):
 8. Write-Werkzeug: erstelle {ctl}/contracts/w_tool.txt mit Inhalt four
 9. Bash-Werkzeug: echo four > {ctl}/contracts/w_bash.txt
 10. Bash-Werkzeug: ls {nb}
+11. Read-Werkzeug: lies {nb}/neighbor.txt
 Antworte am Ende mit dem Wort fertig."""
     line = start_line(str(fx), REAL_CLAUDE, prompt=prompt, model=LIVE_MODEL, policy_profile="scoped_write", max_runtime_seconds=240)
-    proc = _run_live_runner(line, _live_env(), tmp_path, max_turns=16, timeout=300)
+    proc = _run_live_runner(line, _live_env(), tmp_path, max_turns=20, timeout=300)
     out = Collector(); out.write(proc.stdout)
     validate_all(out)
     events = out.events()
@@ -375,7 +473,7 @@ Antworte am Ende mit dem Wort fertig."""
     assert proc.returncode == 0, proc.stderr.decode()[-500:]
     started = [e["payload"] for e in events if e["type"] == "tool_event" and e["payload"]["phase"] == "started"]
     failed = [e["payload"] for e in events if e["type"] == "tool_event" and e["payload"]["phase"] == "failed"]
-    assert len(started) >= 9, f"Probe unvollständig (Modell hat die Schritte nicht ausgeführt): {len(started)} Aufrufe"
+    assert len(started) >= 10, f"Probe unvollständig (Modell hat die Schritte nicht ausgeführt): {len(started)} Aufrufe"
     # Zugelassen: beide Schreibzugriffe im Fixture gelangen.
     assert (fx / "w_tool.txt").exists() and (fx / "w_bash.txt").exists()
     # Verweigert: nichts ist außerhalb des Fixtures entstanden oder verändert worden.
@@ -383,13 +481,92 @@ Antworte am Ende mit dem Wort fertig."""
         assert sorted(p.name for p in d.iterdir() if p.is_file()) == {nb: ["neighbor.txt"], sec: ["secret.txt"],
                                                                       ctl: [], ctl / "contracts": ["control.json"]}[d]
     assert (nb / "neighbor.txt").read_text() == "NEIGHBOR-DUMMY" and (sec / "secret.txt").read_text() == "SECRET-DUMMY-VALUE"
-    # Alle acht verbotenen Zugriffe sind als gescheitert gemeldet, das Secret taucht in keinem Ereignis auf.
-    assert len(failed) >= 8, failed
-    assert "SECRET-DUMMY-VALUE" not in " ".join(out.lines)
+    # Alle neun verbotenen Zugriffe sind als gescheitert gemeldet, Secret und Nachbar-Inhalt tauchen in keinem Ereignis auf.
+    assert len(failed) >= 9, failed
+    all_output = " ".join(out.lines) + proc.stderr.decode(errors="replace")
+    assert "SECRET-DUMMY-VALUE" not in all_output and "NEIGHBOR-DUMMY" not in all_output
+    # Beide Read-Versuche scheitern an der Lesegrenze der Dateiwerkzeuge, und die Meldung nennt das Fixture als Bezug
+    # (ist sie gekürzt, ist der genannte Teil ein Anfang des Fixture-Pfads).
+    read_started = [p["summary"] for p in started if p["tool"] == "Read"]
+    read_failed = {p["summary"].split(" is outside ")[0]: p["summary"] for p in failed if p["tool"] == "Read" and " is outside " in p["summary"]}
+    assert read_started and set(read_started) >= {f"{sec}/secret.txt", f"{nb}/neighbor.txt"}, read_started
+    for target in (f"{sec}/secret.txt", f"{nb}/neighbor.txt"):
+        assert target in read_failed, (target, sorted(read_failed))
+        reference = _read_denial_reference(read_failed[target], target)
+        assert reference and str(fx).startswith(reference) and (reference == str(fx) or "…" in read_failed[target]), reference
     sid = next(e["payload"]["session_id"] for e in events if e["type"] == "session_started")
     print(f"live-scope-probe session_id={sid}")
-    _write_evidence("live-scope-probe", events, {str(base): "<SCOPE>", str(tmp_path): "<TMP>"},
-                    f"Scope-Probe: {len(started)} Werkzeugaufrufe, {len(failed)} verweigert; Dateistand geprüft")
+    _write_evidence("live-scope-probe", events, {str(fx): "<FIXTURE>", str(base): "<SCOPE>", str(tmp_path): "<TMP>"},
+                    f"Scope-Probe: {len(started)} Werkzeugaufrufe, {len(failed)} verweigert (davon 2 Read an der Lesegrenze); Dateistand geprüft")
+
+
+@pytest.mark.live
+def test_live_positive_control_and_structured_output(tmp_path: Path):
+    """Positivkontrolle der Quellen-Probe und strukturierte Ausgabe in einem Lauf (Probe-Skript, kein Runner).
+
+    Dasselbe Fixture wie im Roundtrip-Test, aber mit `setting_sources=["project"]`: Hook-Markerdatei und Skill im
+    Init-Frame müssen jetzt auftreten. Damit ist belegt, dass sie im Runner-Lauf (`setting_sources=[]`) wegen der Konfiguration
+    fehlen und nicht, weil die Probe nicht wirken würde. Zugleich liefert `output_format` ein `structured_output`.
+    """
+    fx = (tmp_path / "work" / "fixture"); fx.mkdir(parents=True); fx = fx.resolve()
+    write_source_probe_fixture(fx)
+    script = Path(__file__).with_name("probe_sources.py")
+    proc = subprocess.run([sys.executable, str(script), str(fx)], capture_output=True, env=_live_env(), cwd=str(tmp_path), timeout=300)
+    assert proc.returncode == 0, proc.stderr.decode()[-500:]
+    probe = json.loads(proc.stdout.decode().strip().splitlines()[-1])
+    hook_marker = (fx / HOOK_MARKER_FILE).exists()
+    assert re.fullmatch(r"[0-9a-f-]{36}", probe["session_id"]) and probe["api_key_source"] == "none"
+    assert probe["result_subtype"] == "success" and probe["is_error"] is False, probe
+    # Positivkontrolle: mit der Quelle `project` wirken die Projektdateien.
+    assert hook_marker or probe["probe_skill_listed"], "weder Hook noch Skill des Projekts wurden geladen: die Probe wäre wirkungslos"
+    # Strukturierte Ausgabe: das Ergebnis erfüllt das angeforderte Schema.
+    so = probe["structured_output"]
+    jsonschema.validate(so, OUTPUT_FORMAT["schema"])
+    assert isinstance(so["answer"], str) and isinstance(so["count"], int)
+    print(f"live-structured-output session_id={probe['session_id']}")
+    record = {"probe": "positive_control_and_structured_output", "session_id": probe["session_id"], "model": probe["model"],
+              "claude_code_version": probe["claude_code_version"], "api_key_source": probe["api_key_source"],
+              "setting_sources": ["project"], "policy_rights": "readonly", "output_format": OUTPUT_FORMAT,
+              "init_counts": probe["init_counts"], "probe_skill_listed": probe["probe_skill_listed"],
+              "hook_marker_created": hook_marker, "claude_md_marker_in_text": probe["claude_md_marker_in_text"],
+              "result_subtype": probe["result_subtype"], "num_turns": probe["num_turns"], "structured_output": so}
+    _write_evidence("live-structured-output", [record], {str(fx): "<FIXTURE>", str(tmp_path): "<TMP>"},
+                    "Probe-Skript (tests/probe_sources.py), kein Runner: Positivkontrolle der Quellen-Probe (setting_sources=project) "
+                    "und strukturierte Ausgabe (output_format, ResultMessage.structured_output)",
+                    invocation="Probe-Skript als Unterprozess, Allowlist-Umgebung, Bereinigung und Vorprüfung mit den Modulen des Runners")
+
+
+def test_evidence_redaction_maps_the_fixture_before_the_temp_root_and_covers_private_aliases():
+    base = "/private/var/folders/ab/cd/T/sp-xyz"
+    raw = f"{base}/secret/secret.txt is outside /var/folders/ab/cd/T/sp-xyz/fixture; weiter"
+    red = redact_evidence(raw, {f"{base}/fixture": "<FIXTURE>", base: "<SCOPE>"})
+    assert red == "<SCOPE>/secret/secret.txt is outside <FIXTURE>; weiter"
+
+
+def test_project_sources_verdict_flags_every_loaded_source():
+    ok = {"init_counts": {"mcp_servers": 0, "plugins": 3, "plugins_in_config_dir": 0}, "skills_listed": True, "probe_skill_loaded": False,
+          "config_dir_skills_loaded": 0, "hook_marker_created": False, "claude_md_marker_in_output": False}
+    _assert_project_sources_are_off(ok)
+    for bad in ({"init_counts": {**ok["init_counts"], "mcp_servers": 1}}, {"init_counts": {**ok["init_counts"], "plugins_in_config_dir": 1}},
+                {"config_dir_skills_loaded": 1}, {"skills_listed": False}, {"probe_skill_loaded": True},
+                {"hook_marker_created": True}, {"claude_md_marker_in_output": True}):
+        with pytest.raises(AssertionError):
+            _assert_project_sources_are_off({**ok, **bad})
+
+
+def test_read_denial_reference_is_the_part_between_marker_and_cut():
+    assert _read_denial_reference("/x/s.txt is outside /x/fixture; the permission", "/x/s.txt") == "/x/fixture"
+    assert _read_denial_reference("/x/s.txt is outside /x/fix…", "/x/s.txt") == "/x/fix"
+
+
+def test_init_sources_parses_counts_and_rejects_truncated_names():
+    err = b"[runner] x\n[runner] init: mcp_servers=0 plugins=3 skills=2 agents=3 slash_commands=9 plugins_in_config_dir=0 skill_names=a,b\n"
+    assert _init_sources(err) == ({"mcp_servers": 0, "plugins": 3, "skills": 2, "agents": 3, "slash_commands": 9,
+                                   "plugins_in_config_dir": 0}, ["a", "b"])
+    with pytest.raises(AssertionError):
+        _init_sources(err.replace(b"a,b", b"a,\xe2\x80\xa6(+5)"))
+    with pytest.raises(AssertionError):
+        _init_sources(b"[runner] nichts\n")
 
 
 def test_evidence_redaction_removes_personal_paths_and_temp_roots():

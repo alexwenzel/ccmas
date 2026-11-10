@@ -71,6 +71,7 @@ class EventSink(Protocol):
 class Preflight:
     claude_binary: str
     claude_version: str
+    """Rohes Versions-Token von `claude -v` (gekürzt), nicht die normalisierte Zahlenfolge."""
     auth_source: str
     scrubbed: list[str]
     untested_version: bool
@@ -126,7 +127,8 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
             f"CLI {'.'.join(map(str, version))} ist älter als die nachgewiesene Mindestversion "
             f"{'.'.join(map(str, MINIMUM_CLI_VERSION))} (SDK {EXPECTED_SDK_VERSION}).",
         )
-    version_text = ".".join(map(str, version))
+    # Fail-closed streng: maßgeblich ist das rohe Token, nicht die geparste Zahlenfolge (`2.1.311-rc.1`, `2.1.311.7`).
+    version_text = fit(v.stdout.split()[0], 40)
     if version_text != VERIFIED_CLI_VERSION and pol.profile in WRITING_PROFILES:
         # Fail-closed: die Dateisystemgrenze ist nur für die nachgewiesene Version belegt.
         raise RuntimeDiagnostic(
@@ -147,6 +149,45 @@ def preflight(spec: dict[str, Any], environ: MutableMapping[str, str], scrub: Sc
         raise RuntimeDiagnostic(dx.NOT_SUBSCRIPTION_LOGIN, "Der aktive Weg ist nicht die claude.ai-Anmeldung. Es gibt keinen Wechsel zu API-Abrechnung.")
     pre = Preflight(binary, version_text, "claude_ai", scrub.removed, version_text != VERIFIED_CLI_VERSION)
     return pre, pol
+
+
+def _config_dir() -> str:
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def init_summary(data: dict[str, Any], config_dir: str | None = None) -> str:
+    """Anzahlen der Quellen im Init-Frame der CLI, für die Log-Zeile `init:` (stderr, kein Protokollfeld).
+
+    `plugins_in_config_dir` zählt die Plugins, deren Pfad unter dem Konfigurationsverzeichnis des Benutzers liegt
+    (installiert oder synchronisiert), `?` wenn ein Eintrag keinen Pfad nennt. Namen nennt die Zeile nur für Skills,
+    gekürzt (je Name 40 Zeichen, zusammen höchstens 400, danach `…(+N)`). Namen von MCP-Servern, Connectors, Plugins
+    und Agents erscheinen nie."""
+    def count(key: str) -> str:
+        value = data.get(key)
+        return str(len(value)) if isinstance(value, (list, dict)) else "?"
+
+    def plugins_in_config_dir() -> str:
+        plugins = data.get("plugins")
+        if not isinstance(plugins, list):
+            return "?"
+        root = os.path.realpath(config_dir or _config_dir())
+        paths = [p.get("path") if isinstance(p, dict) else None for p in plugins]
+        if not all(isinstance(p, str) and p for p in paths):
+            return "?"
+        return str(sum(1 for p in paths if os.path.realpath(p) == root or os.path.realpath(p).startswith(root + os.sep)))
+
+    skills = data.get("skills")
+    names: list[str] = [fit(str(s), 40) for s in skills] if isinstance(skills, list) else []
+    shown: list[str] = []
+    used = 0
+    for name in names:
+        if used + len(name) + 1 > 400:
+            break
+        shown.append(name)
+        used += len(name) + 1
+    joined = ",".join(shown) + (f",…(+{len(names) - len(shown)})" if len(shown) < len(names) else "")
+    counts = " ".join(f"{k}={count(k)}" for k in ("mcp_servers", "plugins", "skills", "agents", "slash_commands"))
+    return f"{counts} plugins_in_config_dir={plugins_in_config_dir()} skill_names={joined}"
 
 
 def _iso(epoch: float | int | None) -> str:
@@ -327,6 +368,8 @@ class Session:
             self._on_result(msg)
 
     def _on_init(self, data: dict[str, Any]) -> None:
+        # Welche Quellen die CLI geladen hat (Beleg, dass Projekt-/Benutzerquellen und Connectors aus sind).
+        self.log("init: " + init_summary(data))
         source = data.get("apiKeySource")
         if source != "none":
             # Nicht über das Abo: sofort abbrechen, kein Werkzeug darf laufen.

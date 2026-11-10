@@ -26,10 +26,12 @@ uv run --frozen pytest tests/test_contracts.py -q
 schreibt Ereignisse nach stdout (Protokoll, redigierte Logs auf stderr). Er verwendet das offizielle SDK mit dem
 ausdrücklich gewählten lokalen Claude-Binary (`RunSpec.claude_binary`) und dessen eigener claude.ai-Anmeldung; es gibt
 keinen API-Fallback. Variablen, die den Login übersteuern würden (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, ...),
-entfernt der Runner und meldet ihre Namen. `--max-turns N` (1 bis 200) begrenzt die Runden der Sitzung. Befunde und
-Belege: `docs/architecture/runtime-capabilities.md`.
+entfernt der Runner und meldet ihre Namen. Einstellungsquellen sind immer aus (`setting_sources=[]`), claude.ai-Connectors
+sind abgeschaltet; beim Init schreibt der Runner Anzahlen der geladenen Quellen auf stderr. Bei einer CLI-Version, die nicht
+exakt der nachgewiesenen entspricht, sind schreibende Profile gesperrt. `--max-turns N` (1 bis 200) begrenzt die Runden der
+Sitzung. Befunde und Belege: `docs/architecture/runtime-capabilities.md`.
 
 ```bash
 uv run --frozen pytest tests/test_runtime_smoke.py -q                              # ohne Konto, ohne Netzwerk
-CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # echte Läufe (Unterprozess, Allowlist-Umgebung), verbraucht Abo-Kontingent
+CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # 4 echte Läufe (Unterprozess, Allowlist-Umgebung), verbraucht Abo-Kontingent
 ```

@@ -1,9 +1,10 @@
 # CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17)
 
 Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**. Führend ist die Spezifikation
-„Multi Agent Setup“ (Version 1.3.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
-Abonnement“, „Berechtigungen und technische Isolation“, „Technische Nachweise und Freigabepunkte“ und „Remote
-Control, mobile Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
+„Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
+Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
+(Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
+Geräte und Desktop“. Diese Datei hält die Befunde fest und ist keine Kopie der Spezifikation.
 
 Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), lokales Claude Code 2.1.311
 (`cli_path` ausdrücklich gesetzt, nicht die gebündelte CLI), Python 3.13, macOS (Seatbelt), Modell
@@ -16,13 +17,15 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Start mit lokalem Binary und eigener Anmeldung | Echte Sitzung über `python -m claude_sdk_runner` und `ClaudeSDKClient`, `cli_path` = lokales Binary, `apiKeySource: none`, Anmeldeart claude.ai (Beleg `live-roundtrip.jsonl`) | andere CLI-Versionen, auch die im SDK gebündelte 2.1.321 | – |
 | Ereignisstrom | `session_started`, `activity`, `tool_event` (started, finished, failed), genau ein `result` (Belege) | Teilnachrichten-Streaming (`include_partial_messages`) – M04 | – |
 | Wirksame Konfiguration | Modell, Berechtigungsmodus, CLI-Pfad und -Version, Anmeldeart kommen aus dem Init-Frame der CLI beziehungsweise der Vorprüfung | **Wirksames Effort:** der Init-Frame enthält kein Effort-Feld, der Runner meldet nur den übergebenen Wert | – |
+| Strukturierte Ausgabe (SDK-Fähigkeit für M02) | `output_format` (JSON-Schema) liefert `ResultMessage.structured_output` (Beleg `live-structured-output.jsonl`, Abschnitt 8) | Anbindung im Runner und im Protokoll (**M02**), größere Schemata, Verhalten bei Schemaverstoß | – |
 | Interrupt/Stop | Interrupt über das Protokoll während eines laufenden Bash-Prozesses: Prozess beendet, genau ein terminales `result` mit `cancelled` (Beleg `live-interrupt.jsonl`) | Stop als eigener Sitzungsabschluss (der Runner behandelt `stop` wie `interrupt`); Prozessbaum bei Schlaf/Absturz | – |
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
 | Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
-| Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen | **Autonomer Modus:** nicht verfügbar (Profil `autonomous` wird abgelehnt) |
+| Fremde Quellen (Projektdateien, Connectors, Plugins, Skills) | Im Runner-Lauf (`setting_sources=[]`) laden weder Hook, Projekt-Skill noch Benutzer-Skills/-Plugins aus dem Konfigurationsverzeichnis; `mcp_servers` ist 0; Positivkontrolle mit Quelle `project` zeigt Hook und Skill (Belege `live-roundtrip.jsonl`, `live-structured-output.jsonl`, Abschnitt 5) | Wirkung von `disableClaudeAiConnectors` (Anzahl ist auch ohne die Einstellung 0), Nachladen von Connectors nach dem Init-Frame, Herkunft von 3 Plugins mit Pfad außerhalb des Konfigurationsverzeichnisses, `CLAUDE.md` (keine Positivkontrolle) | – |
+| Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen, Lesen unter `~/.claude` | **Unbeaufsichtigter Modus:** nicht freigegeben (`scoped_write` ist ein Prüfprofil; Profil `autonomous` wird abgelehnt) |
 | Diagnosen ohne Konto | Abschnitt 6 (Tests ohne Konto-Zugriff) | Abo-Limit gegen die echte CLI (nur mit Fake-Client belegt) | – |
 | Remote Control | nur Dokumentation und `--help` gelesen (Abschnitt 7) | SDK-Sitzungen in Remote Control | – |
-| Bedingungen für SDK mit Max-Anmeldung | Abschnitt 1 | eindeutige Erlaubnis in den Bedingungen | – |
+| SDK mit Max-Anmeldung (Zulässigkeit) | Entscheidung des Projektinhabers vom 10.11.2026: Betrieb angenommen (Abschnitt 1) | eindeutige Erlaubnis in den Bedingungen (bleibt als Hintergrund) | – |
 
 ## Der Runner in diesem Stand
 
@@ -54,13 +57,33 @@ Dateien im Paket `claude_sdk_runner` (`runners/claude_sdk/src/claude_sdk_runner/
   CLI), SDK-Pin, `claude -v` (Mindestversion 2.1.311), **Versionssperre** (siehe unten), `claude auth status` (nur
   `loggedIn`, `authMethod`, `apiProvider` werden gelesen). Kein Modellaufruf. Im Init-Frame prüft der Runner
   `apiKeySource == none`, die Fähigkeit `interrupt_receipt_v1` und die CLI-Version.
-- **Fail-closed bei ungetesteter CLI-Version:** Ist die CLI ungleich 2.1.311 (aber nicht älter), bricht ein
-  schreibendes Profil (`scoped_write`, `policy.WRITING_PROFILES`) in der Vorprüfung terminal mit
-  `cli_version_untested` ab (die Meldung nennt beide Versionen), ohne Sitzung und ohne Modellaufruf. `readonly` läuft
-  mit nicht terminaler Warnung `cli_version_untested` weiter.
-- **Policy-Profile** (`RunSpec.policy_profile`): `readonly`, `scoped_write` (Abschnitt 5), `autonomous` wird mit
-  `isolation_not_proven` abgelehnt, alles andere mit `unknown_policy_profile`. `setting_sources` ist immer leer, damit
-  Benutzer- und Projekteinstellungen (zum Beispiel `remoteControlAtStartup`, Hooks, MCP) nicht in Läufe gelangen.
+- **Fail-closed bei ungetesteter CLI-Version:** Maßgeblich ist das **rohe erste Token** von `claude -v`; nur exakt
+  `2.1.311` gilt als getestet. `2.1.311-rc.1`, `2.1.311.7` oder `2.1.311+build5` sind ungetestet, auch wenn ihre
+  Zahlenfolge der Untergrenze entspricht. Bei ungetesteter, aber nicht älterer CLI bricht ein schreibendes Profil
+  (`scoped_write`, `policy.WRITING_PROFILES`) in der Vorprüfung terminal mit `cli_version_untested` ab (die Meldung nennt
+  beide Versionen), ohne Sitzung und ohne Modellaufruf. `readonly` läuft mit nicht terminaler Warnung
+  `cli_version_untested` weiter. Ein Test legt fest, dass `readonly` das einzige nicht schreibende Profil ist
+  (`set(PROFILES) - set(WRITING_PROFILES) == {"readonly"}`): ein neues Profil gilt als schreibend, bis es ausdrücklich
+  anders eingeordnet ist.
+- **Policy-Profile** (`RunSpec.policy_profile`): `readonly`, `scoped_write` (Abschnitt 5, ein **Prüfprofil**, kein
+  freigegebener unbeaufsichtigter Modus), `autonomous` wird mit `isolation_not_proven` abgelehnt, alles andere mit
+  `unknown_policy_profile`. `setting_sources` ist immer leer, damit Benutzer- und Projekteinstellungen (zum Beispiel
+  `remoteControlAtStartup`, Hooks, MCP, `CLAUDE.md`, Projekt-Skills) nicht in Läufe gelangen. Beide Profile übergeben
+  über `--settings` zusätzlich `disableClaudeAiConnectors: true` (Scope „Any file“) und
+  `permissions.blockReadsOutsideWorkingDirectories`. `syncClaudeAiSkills` und `syncClaudeAiPlugins` setzt der Runner
+  **bewusst nicht** (ein Test hält das fest): laut Settings-Doku verschiebt `false` in Benutzer- oder verwalteten
+  Einstellungen bereits synchronisierte Skills und Plugins nach `~/.claude/skills/.trash` beziehungsweise
+  `~/.claude/plugins/.trash`; der Runner darf die echte Konfiguration des Benutzers nicht verändern. Für Einstellungen
+  per `--settings` nennt die Doku diese Verschiebung nicht; das wurde nicht geprüft.
+- **Init-Zusammenfassung:** Beim Init-Frame schreibt der Runner eine Zeile auf stderr (kein Protokollfeld):
+  `init: mcp_servers=N plugins=N skills=N agents=N slash_commands=N plugins_in_config_dir=N skill_names=<Namen>`.
+  `plugins_in_config_dir` zählt Plugins, deren Pfad unter dem Konfigurationsverzeichnis des Benutzers liegt (installiert
+  oder synchronisiert), `?` bei einem Eintrag ohne Pfad. Namen nennt die Zeile nur für Skills, je höchstens 40 Zeichen und
+  zusammen 400 Zeichen (danach `…(+N)`); Namen von MCP-Servern, Connectors, Plugins und Agents erscheinen nie. Die
+  Belege enthalten daraus nur Anzahlen.
+- **Systemprompt:** Ohne `system_prompt` startet das SDK die CLI mit `--system-prompt ""` (SDK-Quelltext 0.2.180,
+  `_build_command`). Runner-Sitzungen laufen damit ohne den Standardprompt von Claude Code; ob und wie ein eigener Prompt
+  gesetzt wird, ist eine Wahl für **M02**. Der wirksame Prompt wurde nicht geprüft.
 - **Wirksame Konfiguration:** `session_started` trägt die optionalen Felder `permission_mode`, `claude_binary`,
   `auth_source` (Vertragserweiterung in CC-17, siehe `contracts.md`).
 - **Grenzen:** `max_runtime_seconds` gilt für Verbindungsaufbau, Anfrage und Antworten zusammen. Bei Ablauf: Interrupt
@@ -80,11 +103,14 @@ CCMAS_LIVE_TESTS=1 uv run --frozen pytest tests/test_runtime_smoke.py -m live -q
 CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=<Ziel> uv run --frozen pytest tests/test_runtime_smoke.py -m live -q   # mit Belegen
 ```
 
-Die Live-Tests laufen nie in CI und nie in `make py-test`. Alle drei starten den Runner als Unterprozess
-(`python -m claude_sdk_runner`; Interrupt-Test mit `Popen`, Kommandos über stdin, `--max-turns 4`; Scope-Probe mit
-`--max-turns 16`) und geben ihm eine **Allowlist-Umgebung**, nie die Umgebung des Testprozesses: `PATH` (Binary-Suche,
+Die Live-Tests laufen nie in CI und nie in `make py-test`. Roundtrip, Interrupt und Scope-Probe starten den Runner als
+Unterprozess (`python -m claude_sdk_runner`; Interrupt-Test mit `Popen`, Kommandos über stdin, `--max-turns 4`;
+Scope-Probe mit `--max-turns 20`); der vierte Test (Positivkontrolle und strukturierte Ausgabe) startet das
+test-eigene Probe-Skript `tests/probe_sources.py` (kein Produktionscode) als Unterprozess. Alle vier geben dem Prozess
+eine **Allowlist-Umgebung**, nie die Umgebung des Testprozesses: `PATH` (Binary-Suche,
 Shell-Werkzeuge), `HOME` (Konfiguration, Schlüsselbund), `USER`/`LOGNAME` (Kontoname), `SHELL` (Bash-Werkzeug),
-`TMPDIR` (macOS-Temp, Sandbox), `LANG`, `__CF_USER_TEXT_ENCODING` (macOS). Der Roundtrip-Test setzt zusätzlich einen
+`TMPDIR` (macOS-Temp, Sandbox), `LANG`, `__CF_USER_TEXT_ENCODING` (macOS). `CLAUDE_CONFIG_DIR` gehört nicht dazu: die
+Live-Läufe verwenden `~/.claude`. Der Roundtrip-Test setzt zusätzlich einen
 Dummy-`ANTHROPIC_API_KEY` (`ccmas-dummy-not-a-key`) und prüft, dass er gemeldet und entfernt wird und die Sitzung über
 claude.ai (`auth_source: claude_ai`) läuft. Ohne Konto-Zugriff prüft `test_real_sdk_transport_passes_none_of_the_injected_variables_to_the_binary`
 über den echten SDK-Transport mit einem Stub-Binary, dass keine injizierte Variable das Binary erreicht.
@@ -94,10 +120,16 @@ claude.ai (`auth_source: claude_ai`) läuft. Ohne Konto-Zugriff prüft `test_rea
 Frage: Ist der Einsatz des SDK mit der eigenen claude.ai-Max-Anmeldung für persönliche, lokale Nutzung ausdrücklich
 erlaubt, ausgeschlossen oder nicht eindeutig?
 
-**Bewertung: nicht eindeutig, mit Tendenz zu „nicht ausgeschlossen“.** Ein ausdrückliches Verbot für die eigene,
-persönliche, lokale Nutzung steht nirgends. Eine ausdrückliche Erlaubnis für das SDK mit Abo-Anmeldung steht an
-keiner der normativen Stellen, nur in einer Support-Aussage zur Abrechnung. Die Live-Läufe sind ausdrücklich vom
-Projektinhaber beauftragt.
+**Ergebnis (Entscheidung des Projektinhabers vom 10.11.2026):** Der SDK-Betrieb mit dem eigenen Max-Login ist
+**angenommen**. Grundlage: CCMAS ist ein Open-Source-Programm zur persönlichen Nutzung, mit eigenem Login und
+unverändertem lokalem Binary. Die Unschärfe der Bedingungen (siehe Bewertung unten) bleibt als dokumentierter
+Hintergrund stehen und ist **keine Blockade** mehr. Unverändert gelten: kein API-Fallback, Abo-Limits ergeben sichtbare
+Wartezustände, keine Weitergabe von Anmeldedaten.
+
+**Bewertung der Quellen (Recherche am 2026-11-10): nicht eindeutig, mit Tendenz zu „nicht ausgeschlossen“.** Ein
+ausdrückliches Verbot für die eigene, persönliche, lokale Nutzung steht nirgends. Eine ausdrückliche Erlaubnis für das
+SDK mit Abo-Anmeldung steht an keiner der normativen Stellen, nur in einer Support-Aussage zur Abrechnung. Die
+Live-Läufe sind ausdrücklich vom Projektinhaber beauftragt.
 
 | Stelle | Wortlaut (Auszug) | Lesart für CCMAS |
 | --- | --- | --- |
@@ -108,10 +140,11 @@ Projektinhaber beauftragt.
 | [Support: Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) | „… when you're signed in with your Claude plan, the Claude Agent SDK and `claude -p` still draw from your subscription limits.“ Nachtrag 15.06.2026: „We've paused the previously-announced changes to Claude Agent SDK usage. For now, nothing has changed …“ | Abrechnung über Abo-Limits ist aktuell bestätigt. „For now“ heißt: kann sich ändern. Monatliche API-Guthaben (seit 07.10.2026 für Max) gelten nur bei Nutzung mit API-Schlüssel, nicht bei Plan-Anmeldung. |
 | [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) (Stand 08.10.2025), Abschnitt 3 | Verboten ist der Zugriff „through automated or non-human means, whether through a bot, script, or otherwise“ außer „when you are accessing our Services via an Anthropic API Key or where we otherwise explicitly permit it“. | **Spannung:** Ein Skript-/SDK-Zugriff mit Plan-Anmeldung ist hier nicht ausdrücklich erlaubt. Die Support-Seite und die Legal-Seite zu Claude Code und Agent SDK sprechen dafür, dass Anthropic diese Nutzung vorsieht („otherwise explicitly permit“ ist damit plausibel, aber nicht wörtlich bestätigt). |
 
-Restrisiko, das der Projektinhaber tragen muss: Anthropic kann die Aussage „for now“ ändern, und die Consumer Terms
-enthalten die allgemeine Automatisierungsklausel. Jede Ausweitung auf Dritte (andere Nutzer, geteilte Konten) wäre
-nach den oben zitierten Stellen **ausgeschlossen**. Ein stiller Wechsel auf API-Abrechnung findet nicht statt
-(Abschnitt 3).
+Restrisiko, das der Projektinhaber mit seiner Entscheidung trägt: Anthropic kann die Aussage „for now“ ändern, und die
+Consumer Terms enthalten die allgemeine Automatisierungsklausel. Ob eine Orchestrierung mit bis zu 16 parallelen
+Workern noch „ordinary, individual usage“ ist, ist nicht geklärt. Jede Ausweitung auf Dritte (andere Nutzer, geteilte
+Konten) wäre nach den oben zitierten Stellen **ausgeschlossen** und von der Entscheidung nicht gedeckt. Ein stiller
+Wechsel auf API-Abrechnung findet nicht statt (Abschnitt 3).
 
 ## 2. Anmeldung und Umgebung (nachgewiesen)
 
@@ -130,54 +163,61 @@ nach den oben zitierten Stellen **ausgeschlossen**. Ein stiller Wechsel auf API-
   SDK-Transport (Unterprozess, Stub-Binary protokolliert nur Variablennamen): keine der injizierten Variablen
   erreicht `-v`, `auth status` oder den Sitzungsstart; erlaubt sind nur die vom SDK selbst gesetzten
   `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION` und `CLAUDE_CODE_SDK_READS_SESSION_STATE`.
-- Die frühere Fassung der Live-Tests rief `main` im Testprozess mit einem bereinigten Dict auf. Das SDK hätte dort
-  trotzdem die unbereinigte `os.environ` des Testprozesses (zum Beispiel `CLAUDE_CODE_*` einer übergeordneten
-  Claude-Sitzung) an die CLI vererbt. Die Läufe der Interrupt-Probe und der Scope-Probe in den Belegen vom 2026-11-10
-  entstanden in dieser Form; sie wurden nach der Umstellung auf Unterprozess und Allowlist wiederholt (Abschnitt 4).
+- Deshalb laufen die Live-Tests als Unterprozess mit Allowlist-Umgebung (Abschnitt „Der Runner in diesem Stand“): ein
+  Aufruf von `main` im Testprozess mit einem bereinigten Dict würde die unbereinigte `os.environ` des Testprozesses
+  (zum Beispiel `CLAUDE_CODE_*` einer übergeordneten Claude-Sitzung) an die CLI vererben.
 
 ## 3. Kompatibilität SDK 0.2.180 und CLI 2.1.311
 
 **Nachgewiesen:** Die Kombination funktioniert in echten Läufen (Abschnitt 4): Start über `cli_path`, Init-Frame mit
 `claude_code_version` 2.1.311 und den Fähigkeiten (unter anderem `interrupt_receipt_v1`), Werkzeugereignisse,
 `ResultMessage`, Interrupt. Das SDK selbst prüft die CLI-Version nur auf `>= 2.0.0` und warnt nur; der Runner erzwingt
-deshalb die Untergrenze 2.1.311 (ältere CLI → `sdk_cli_incompatible`) und die gepinnte SDK-Version. Eine
-andere, neuere CLI ist ungetestet und wird **fail-closed** behandelt: schreibende Profile (`scoped_write`) enden in der
-Vorprüfung terminal mit `cli_version_untested` (ohne Sitzung, ohne Modellaufruf), `readonly` läuft mit der nicht
-terminalen Warnung `cli_version_untested`. Es gibt keinen CLI-Upgrade durch den Runner; lokal ist 2.1.311 installiert.
+deshalb die Untergrenze 2.1.311 (ältere CLI → `sdk_cli_incompatible`) und die gepinnte SDK-Version. Jede
+andere CLI-Version, auch ein Token wie `2.1.311-rc.1` oder `2.1.311.7`, ist ungetestet und wird **fail-closed** behandelt:
+schreibende Profile (`scoped_write`) enden in der Vorprüfung terminal mit `cli_version_untested` (ohne Sitzung, ohne
+Modellaufruf), `readonly` läuft mit der nicht terminalen Warnung `cli_version_untested`. Es gibt keinen CLI-Upgrade durch
+den Runner und keinen in diesem Ticket: lokal bleibt 2.1.311 installiert. Damit stehen Einstellungen, die die Settings-Doku
+erst für neuere Versionen nennt, nicht zur Verfügung, zum Beispiel `permissions.blockWritesOutsideWorkingDirectories`
+(laut Doku ab 2.1.314).
 
 **Nicht nachgewiesen:** andere CLI-Versionen, insbesondere die im SDK gebündelte 2.1.321. Es gibt keine offizielle
 Kompatibilitätsmatrix.
 
 ## 4. Echte SDK-Läufe und Belege
 
-Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-out. Insgesamt **11 echte Läufe**:
-7 Vorversuche mit Wegwerf-Skripten (Basislauf und Isolationsvergleich, Abschnitt 5) und 4 Läufe über den Runner
-(Roundtrip, Interrupt ×2, Scope-Probe). Der erste Interrupt-Lauf war ungültig, weil die CLI ein einzelnes `sleep 57`
-sofort blockiert („Blocked: standalone sleep“); der Test wurde auf einen echten Kindprozess mit Positivkontrolle
-umgestellt und wiederholt.
+Alle Läufe: temporäres Fixture unter `$TMPDIR`, Haiku, Effort `low`, kein Fan-out. In CC-17 sind insgesamt **21 echte
+Sitzungen** gelaufen: 7 Vorversuche mit Wegwerf-Skripten (Basislauf und Isolationsvergleich, Abschnitt 5), 7 frühere Läufe
+über den Runner (ersetzt, siehe unten) und 7 in der Abschlussrunde vom 2026-11-10. Die Belege stammen ausschließlich aus
+der Abschlussrunde (4 Belegläufe); die übrigen drei Sitzungen der Runde waren Diagnoseläufe ohne Beleg: die rohe
+Read-Meldung (Abschnitt 5), ein erster Roundtrip-Lauf, dessen Quellenurteil zum Befund über die Plugins führte, und die
+Gegenprobe ohne `disableClaudeAiConnectors` (Abschnitt 5).
 
-**Was der Beleg enthält und was nur der Test prüft:** Die JSONL-Dateien enthalten ausschließlich die Protokollereignisse.
-Weitere Prüfungen führt der Live-Test selbst aus, sie stehen **nicht** in den Belegen und sind nicht aus ihnen
-nachprüfbar: Dateistand im Fixture und Unverändertheit von Nachbar-, Secret- und Kontrollpfad-Attrappen
-(`test_scope_probe`), Positivkontrolle „Kindprozess läuft vor dem Interrupt“ und „Kindprozess danach beendet“
-(`test_live_interrupt`, per `pgrep`), Inhalt der angelegten Datei (`test_live_sdk_roundtrip`). Sie gelten für den
-Testlauf am 2026-11-10; wer sie belegen will, muss den Live-Test wiederholen. Es wurden keine Felder nachträglich in
-die Belegkopfzeilen geschrieben.
+**Was der Beleg enthält und was nur der Test prüft:** Die Protokoll-Belege enthalten die Protokollereignisse nach der
+Kopfzeile. Weitere Prüfungen führt der Live-Test selbst aus; sie stehen nicht oder nur teilweise in den Belegen:
+Dateistand im Fixture und Unverändertheit von Nachbar-, Secret- und Kontrollpfad-Attrappen (`test_scope_probe`),
+Positivkontrolle „Kindprozess läuft vor dem Interrupt“ und „Kindprozess danach beendet“ (`test_live_interrupt`, per
+`pgrep`), Inhalt der angelegten Datei (`test_live_sdk_roundtrip`). Wer sie belegen will, muss den Live-Test wiederholen.
+Neu seit dieser Runde stehen in der Kopfzeile des Roundtrip-Belegs die Messwerte der Quellen-Probe (`sources_probe`:
+Anzahlen aus dem Init-Frame, Ja/Nein-Angaben zu Hook, Skill und Marker, keine Namen), und jede Kopfzeile nennt den
+Aufrufweg (`invocation`).
 
-**Nachprüfung nach der Umstellung auf Unterprozess und Allowlist (2026-11-10, derselbe Tag, 3 weitere echte Läufe, Haiku,
-Effort `low`):** `test_live_sdk_roundtrip` mit Dummy-`ANTHROPIC_API_KEY` in der Umgebung (Session
-`9e71bb53-bc7e-4bed-8b18-85d6944d9d93`), `test_live_interrupt_ends_with_exactly_one_cancelled_result` (Session
-`88408048-46f1-4d6d-8f66-be6b15bf30ca`) und `test_scope_probe` (Session `51a86faa-988d-4aac-aebf-8256456ac08f`)
-bestanden. Die Belegdateien unten stammen noch von den früheren Läufen und werden in einem Folgeauftrag neu erzeugt.
+Alle Belege entstanden mit `claude-agent-sdk` 0.2.180 und Claude Code 2.1.311 (Modell `claude-haiku-5-5`, angefordert
+`haiku`), jeweils als Unterprozess mit Allowlist-Umgebung; Pfade des Fixtures sind geschwärzt, es gibt keine Konto-,
+E-Mail- oder Organisationsdaten und keine Namen von Skills, Plugins oder Connectors; die Session-ID steht bewusst
+darin. Die Dateien liegen unter `docs/architecture/evidence/` (alle vom 2026-11-10):
 
-Redigierte Belege (JSONL, Kopfzeile mit Datum, SDK-, CLI-Version und Modell; Pfade des Fixtures geschwärzt, keine
-Konto-, E-Mail- oder Organisationsdaten; die Session-ID steht bewusst darin) unter `docs/architecture/evidence/`:
+| Beleg | Session | Inhalt |
+| --- | --- | --- |
+| `live-roundtrip.jsonl` | `74a3280b-3b45-4b40-8bf2-b16e1f526327` | `python -m claude_sdk_runner`, Profil `scoped_write`, Dummy-`ANTHROPIC_API_KEY` in der Umgebung: nicht terminaler `error` `api_credentials_removed` (nur der Name), `session_started` (wirksames Modell `claude-haiku-5-5`, `auth_source: claude_ai`, `permission_mode: dontAsk`, gewähltes Binary), `Write`-Werkzeugereignis (started, finished), genau ein `result` (`succeeded`). Das Fixture enthält `CLAUDE.md` (Marker), Hook und Skill; Messwerte in `sources_probe` (Abschnitt 5) |
+| `live-interrupt.jsonl` | `2dfe34da-7748-4734-b5d1-e80608de04d7` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled`, Dauer bis zum Ergebnis 0,7 s (Kopfzeile). Positivkontrolle und „Kindprozess beendet“ sind nur vom Test geprüft |
+| `live-scope-probe.jsonl` | `225a80b7-3490-4afc-b10e-08911f21158f` | Scope-Probe über den Runner (Abschnitt 5): 11 Werkzeugaufrufe, 2 erlaubt, 9 als `failed` gemeldet (darunter beide `Read`-Versuche an der Lesegrenze). Der Dateistand ist nur vom Test geprüft |
+| `live-structured-output.jsonl` | `2755b1ab-0890-4d16-bd63-9b35b3a64d93` | Probe-Skript (kein Runner): Positivkontrolle der Quellen-Probe mit `setting_sources=["project"]` (Abschnitt 5) und strukturierte Ausgabe (Abschnitt 8); eine Datensatzzeile statt Protokollereignissen |
 
-| Beleg | Inhalt |
-| --- | --- |
-| `live-roundtrip.jsonl` | `python -m claude_sdk_runner` als Unterprozess: `session_started` (Session-ID, wirksames Modell `claude-haiku-5-5`, `auth_source: claude_ai`, `permission_mode: dontAsk`, gewähltes Binary), `Write`-Werkzeugereignis (started, finished), genau ein `result` (`succeeded`) |
-| `live-interrupt.jsonl` | Laufender Bash-Prozess (`python3 -c "…time.sleep(57)"`), Interrupt über das Protokoll, Werkzeug `failed`, genau ein `result` mit `cancelled`, Dauer bis zum Ergebnis 0,7 s (Kopfzeile). Positivkontrolle und „Kindprozess beendet“ sind nur vom Test geprüft |
-| `live-scope-probe.jsonl` | Scope-Probe über den Runner (Abschnitt 5): 10 Werkzeugaufrufe, 2 erlaubt, 8 als `failed` gemeldet. Der Dateistand ist nur vom Test geprüft |
+**Stand der Läufe:** Der erste Lauf der Live-Suite in der Abschlussrunde bestand `test_live_interrupt…`,
+`test_scope_probe` und `test_live_positive_control_and_structured_output`; `test_live_sdk_roundtrip` scheiterte am
+Quellenurteil (Befund zu den Plugins, Abschnitt 5). Nach der Ergänzung der Messgröße `plugins_in_config_dir` in der
+Init-Zeile bestand er im zweiten Lauf. Die Suite wurde wegen der Kontingentgrenze (höchstens 7 Sitzungen) nicht noch
+einmal als Ganzes ausgeführt; die Belege stammen aus diesen beiden Läufen.
 
 Beobachtung zu Limits: Ein `RateLimitEvent` (Status `allowed`, Fenster `five_hour`, Überziehung `rejected`, Grund
 `org_level_disabled`) zeigt, dass keine Überziehungsabrechnung aktiv ist. Die gemeldeten Kosten werden lokal zum
@@ -190,10 +230,11 @@ Berechtigungsmodus stehen im Init-Frame.
 ## 5. Scope und Isolation: Befund
 
 Aufbau: Fixture (erlaubt), Nachbarverzeichnis, Secret-Attrappe, Kontrollpfad-Attrappe (`control/contracts/`), alles in
-einem temporären Baum, keine echten Secrets, keine Repo-Pfade. Neun (frühe Vorversuche) beziehungsweise zehn Schritte je Lauf, je Schritt ein Werkzeugaufruf:
-Schreiben im Fixture mit `Write` und `Bash`, Schreiben im Nachbarn mit `Write`, `Bash` und `python3 -c`, Lesen der
-Secret-Attrappe mit `Read` und `Bash`, Schreiben im Kontrollpfad mit `Write` und `Bash`, Auflisten des Nachbarn.
-Maßgeblich ist der Dateistand nach dem Lauf, nicht die Auskunft des Modells.
+einem temporären Baum, keine echten Secrets, keine Repo-Pfade. Neun (frühe Vorversuche) beziehungsweise elf Schritte im
+Runner-Lauf, je Schritt ein Werkzeugaufruf: Schreiben im Fixture mit `Write` und `Bash`, Schreiben im Nachbarn mit
+`Write`, `Bash` und `python3 -c`, Lesen der Secret-Attrappe mit `Read` und `Bash`, Schreiben im Kontrollpfad mit `Write`
+und `Bash`, Auflisten des Nachbarn, Lesen der Nachbardatei mit `Read` (Schritt 11, seit der Abschlussrunde). Maßgeblich ist
+der Dateistand nach dem Lauf, nicht die Auskunft des Modells.
 
 | Konfiguration | Fixture schreiben | Nachbar/Kontrollpfad schreiben | Secret lesen | Befund |
 | --- | --- | --- | --- | --- |
@@ -203,45 +244,139 @@ Maßgeblich ist der Dateistand nach dem Lauf, nicht die Auskunft des Modells.
 | Sandbox plus Permission-Regeln (Deny je Pfad) | ja | alle neun Versuche verweigert | verweigert | Beide Ebenen zusammen halten für die getesteten Pfade. |
 | Sandbox plus Standard-Verweigerung (`denyRead` auf den Elternpfad, `allowRead` und `allowWrite` nur Fixture, `permissions.blockReadsOutsideWorkingDirectories`, `dontAsk`, nur auf das Fixture begrenzte Allow-Regeln) | ja | alle verweigert, ohne dass die Pfade einzeln aufgezählt sind | verweigert, auch das Auflisten des Nachbarn | Beste Variante: verweigert alles, was nicht erlaubt ist. |
 | Wie zuvor, zusätzlich `denyRead` auf das Home-Verzeichnis | ja | alle verweigert | verweigert | Das Bash-Werkzeug funktioniert weiterhin. |
-| **Runner-Profil `scoped_write`** (Live-Test `test_scope_probe`, Beleg `live-scope-probe.jsonl`; erzeugt aus `policy.py` mit dem Fixture als Arbeitsverzeichnis, Standard-Verweigerung wie zuvor) | ja (beide Wege) | alle 8 verbotenen Zugriffe verweigert, Dateistand unverändert | verweigert, das Secret taucht in keinem Ereignis auf | Die Grenze gilt auch über den produktiven Runner-Pfad. |
+| **Runner-Profil `scoped_write`** (Live-Test `test_scope_probe`, Beleg `live-scope-probe.jsonl`; erzeugt aus `policy.py` mit dem Fixture als Arbeitsverzeichnis, Standard-Verweigerung wie zuvor) | ja (beide Wege) | alle 9 verbotenen Zugriffe verweigert, Dateistand unverändert | verweigert, weder Secret noch Nachbar-Inhalt (`NEIGHBOR-DUMMY`) taucht in einem Ereignis oder auf stderr auf | Die Grenze gilt auch über den produktiven Runner-Pfad. |
 
 Verwendete Mittel in der besten Variante: `permission_mode: dontAsk`, `allowed_tools` mit auf das Fixture begrenzten
 `Write(//…/**)`, `Edit(…)`, `Read(…)` und `Bash`, `setting_sources: []`, Sandbox mit `enabled`, `failIfUnavailable`,
 `allowUnsandboxedCommands: false`, `autoAllowBashIfSandboxed`, `filesystem.allowWrite`, `filesystem.denyRead`,
 `filesystem.allowRead`. Pfade müssen als `realpath` angegeben werden (`/var/…` ist `/private/var/…`).
 
+### Read-Grenze und Meldung
+
+Die Sperre der Dateiwerkzeuge (`permissions.blockReadsOutsideWorkingDirectories`) meldet im Fehlerereignis, zum Beispiel:
+`<Ziel> is outside <Fixture>; the permissions.blockRe…`. Bezugsverzeichnis ist also das **Fixture als Arbeitsverzeichnis**.
+Im älteren Beleg stand stattdessen `<SCOPE>/secret/secret.txt is outside <TMP>`; das sah wie ein anderes Bezugsverzeichnis
+aus, war aber ein Artefakt von Kürzung und Schwärzung:
+
+1. Der Runner kürzt Fehlermeldungen in `tool_event.summary` auf 200 Zeichen (`fit(..., 200)`). Die Meldung enthält zwei
+   absolute Pfade; unter dem langen pytest-Pfad (`…/T/pytest-of-<user>/pytest-N/test_…`) wurde sie **mitten im zweiten
+   Pfad** abgeschnitten.
+2. Die Schwärzung ersetzte zuerst die vollständigen Pfade (`<SCOPE>`), den abgeschnittenen Rest erfasste danach das
+   Temp-Muster (`/private/var/folders/…` bis zum nächsten Leerzeichen) und machte daraus `<TMP>`.
+
+Nachgestellt (ohne Sitzung) reproduziert genau diese Kürzung mit anschließender Schwärzung die alte Zeile. Die rohe Meldung
+wurde in einer Diagnosesitzung lokal angesehen (kurzer Pfad, nicht eingecheckt) und nennt das Fixture. Ein Unterschied
+zwischen In-Process- und Unterprozess-Aufruf spielt dafür keine Rolle, nur die Pfadlänge. Seit der Abschlussrunde liegt
+der Baum der Scope-Probe unter einem kurzen Temp-Pfad, die Schwärzung ersetzt längste Pfade zuerst (mit und ohne
+`/private`), und der Test prüft, dass das in der Meldung genannte Bezugsverzeichnis das Fixture ist (oder ein Anfang
+seines Pfads, wenn die Meldung gekürzt ist). Im neuen Beleg steht `… is outside <FIXTURE>; …` für beide `Read`-Versuche.
+
+**Nicht geprüft, nur dokumentiert:** Laut Settings-Doku bleiben bei `blockReadsOutsideWorkingDirectories` Dateien lesbar,
+die Claude Code selbst braucht: Skills, Plugins, Regeln, Agents, Commands und die `CLAUDE.md` unter `~/.claude/`. Die
+Lesegrenze der Dateiwerkzeuge schützt `~/.claude` damit nicht. Das ist ein Punkt für M04 (Liste unten); eine Probe, die
+Dateien unter `~/.claude` liest, wurde bewusst nicht gebaut.
+
+### Fremde Quellen: Projektdateien, Connectors, Plugins, Skills
+
+Frage: Gelangen Dinge in eine Runner-Sitzung, die der Benutzer oder das Projekt konfiguriert hat (Hooks, `CLAUDE.md`,
+Skills, MCP-Server, claude.ai-Connectors, synchronisierte Skills und Plugins)? Maßnahmen: `setting_sources=[]`
+(das SDK übergibt `--setting-sources=`), `disableClaudeAiConnectors: true` in den per `--settings` übergebenen
+Einstellungen, **keine** Änderung an den Sync-Einstellungen (Abschnitt „Der Runner in diesem Stand“). Beleg ist der
+Init-Frame der CLI, ausgewertet über die Zeile `init:` auf stderr (nur Anzahlen).
+
+**Roundtrip-Fixture** (`live-roundtrip.jsonl`, Kopfzeile `sources_probe`): `CLAUDE.md` mit der Anweisung, jede Antwort mit
+`ZEBRA17` zu beenden, `.claude/settings.json` mit einem Hook (SessionStart und UserPromptSubmit), der nur eine Markerdatei im
+Fixture anlegt, und der Skill `ccmas-probe`. Ergebnis im Runner-Lauf:
+
+| Messgröße | Wert | Aussage |
+| --- | --- | --- |
+| Hook-Markerdatei | nicht entstanden | Projekt-Hook wurde nicht ausgeführt |
+| Skill `ccmas-probe` im Init-Frame | nein | Projekt-Skill nicht geladen |
+| Marker `ZEBRA17` in den Ereignissen | nein | `CLAUDE.md` wurde nicht befolgt (siehe Einschränkung unten) |
+| `mcp_servers` | 0 | keine MCP-Server, keine Connectors im Init-Frame |
+| `plugins_in_config_dir` | 0 (bei `plugins` = 3) | kein Plugin aus dem Konfigurationsverzeichnis des Benutzers, auch kein synchronisiertes |
+| Skills des Benutzers (Konfigurationsverzeichnis, eigene und synchronisierte) im Init-Frame | 0 von 1 vorhandenen | Gegenprobe ist nicht leer: es liegt ein solcher Skill lokal vor und wurde nicht geladen |
+| `skills` / `agents` / `slash_commands` | 19 / 5 / 55 | mitgelieferte Einträge der CLI und des Sitzungsstarts; im Positivlauf mit Quelle `project` waren es 20 Skills (genau der Probe-Skill mehr) |
+
+**Positivkontrolle** (`live-structured-output.jsonl`, Probe-Skript `tests/probe_sources.py`, gleiches Fixture, gleiche Rechte
+wie `readonly`, Bereinigung und Vorprüfung mit den Modulen des Runners, aber `setting_sources=["project"]`): Hook-Markerdatei
+entstand, `ccmas-probe` stand im Init-Frame (20 statt 19 Skills), `mcp_servers` 0, `plugins` 3. Das Ausbleiben im Runner-Lauf
+ist damit eine Wirkung der Konfiguration und nicht einer wirkungslosen Probe.
+
+**Einschränkungen und Befunde:**
+
+- **`CLAUDE.md` ohne Positivkontrolle.** Auch im Positivlauf erschien der Marker nicht im Text (die Antwort war eine
+  strukturierte Ausgabe). Die Aussage „`CLAUDE.md` nicht geladen“ stützt sich auf den Runner-Lauf allein und ist schwächer
+  als die für Hook und Skill.
+- **3 Plugins im Init-Frame, Herkunft offen (Befund).** `plugins` ist im Runner-Lauf 3, mit und ohne Quelle `project`, und
+  der Pfad liegt bei allen drei außerhalb des Konfigurationsverzeichnisses, ohne Marketplace-Kennung (`@…`). Es handelt
+  sich damit nicht um synchronisierte oder installierte Plugins des Benutzers (diese lägen unter `~/.claude/plugins/`; der
+  Benutzer hat lokal solche). Vermutlich sind es mit der CLI gelieferte Plugins; das wurde nicht bestätigt. Die
+  erste Fassung des Tests (`plugins == 0`) schlug deshalb fehl; die Messgröße ist seither `plugins_in_config_dir`. M04: Herkunft klären
+  und, wenn nötig, abschalten.
+- **Connectors: Wirkung von `disableClaudeAiConnectors` nicht belegt.** Der Init-Frame zeigte `mcp_servers` = 0, auch in der
+  Gegenprobe **ohne** die Einstellung (Diagnosesitzung mit `setting_sources=[]` und sonst denselben Rechten), obwohl das
+  Konto in interaktiven Sitzungen Connectors hat. Die Einstellung ist also Absicherung, ihre Wirkung ist hier nicht von der
+  Wirkung der leeren Quellenliste oder des nicht interaktiven Starts zu trennen. Der Init-Frame ist eine Momentaufnahme: ein
+  späteres Nachladen von Connectors wurde nicht ausgeschlossen. Schutz davor bietet die Rechtevergabe (`dontAsk`, in
+  `allowed_tools` stehen keine MCP-Werkzeuge, `tools` ist eine Positivliste), nicht der Init-Frame. M04: Nachladen prüfen.
+- **Synchronisierte Skills/Plugins.** Laut Skills-Doku („Where synced skills load“) und Plugin-Doku synchronisiert und
+  lädt Claude Code nicht, wenn `--setting-sources` `user` auslässt. Die Messwerte oben stützen das (vorhandene
+  synchronisierte Skills und Plugins wurden nicht geladen). Deshalb werden `syncClaudeAiSkills`/`syncClaudeAiPlugins` nicht
+  auf `false` gesetzt, siehe oben.
+- **Mitgelieferte Skills/Agents/Commands** (19, 5, 55) sind geladen; ob sie in einer Sitzung mit der Positivliste in
+  `tools` nutzbar sind (kein `Skill`-, kein `Task`-Werkzeug), wurde nicht geprüft.
+
 ### Isolationsurteil
 
 **Kurzurteil:** Die Dateisystemgrenze ist für die getesteten Fälle **technisch nachgewiesen** (Mittel: OS-Sandbox der CLI
 für Shell-Prozesse plus Permission-Regeln mit `dontAsk` für die Dateiwerkzeuge, beides aus dem Profil `scoped_write`).
-Ein vollständiger Isolationsnachweis liegt **nicht** vor; **autonome Ausführung ist nicht verfügbar**
-(`policy.autonomous_execution_status()` meldet `available: false` mit Gründen, das Profil `autonomous` wird abgelehnt).
+Ein vollständiger Isolationsnachweis liegt **nicht** vor. `scoped_write` ist ausdrücklich nur ein **Prüfprofil**; es gibt
+**keinen freigegebenen unbeaufsichtigten Modus für echte Worktrees**. Ein solcher wird erst nach bestandener Scope-Probe
+ausgewiesen. Das Profil `autonomous` wird abgelehnt (`policy.autonomous_execution_status()` meldet `available: false` mit
+Gründen).
+
+**Entscheidung des Projektinhabers vom 10.11.2026 (Isolationsarchitektur für M04):**
+
+- **A, innere Grenze in der CLI:** Seatbelt-Sandbox für Shell-Prozesse und pfadgebundene Berechtigungsregeln für die
+  Dateiwerkzeuge; Git-Schreibaktionen nur über Go; Toolchain-Caches je Ausführung im erlaubten Bereich; Netzwerk nur über
+  eine Allowlist; claude.ai-Connectors sowie synchronisierte Skills und Plugins abgeschaltet.
+- **B, Spike:** ein äußeres `sandbox-exec`-Profil um Runner und CLI.
+- **Nicht gewählt:** ein eigener macOS-Benutzer und Container.
+- Ein unbeaufsichtigter Modus wird erst nach bestandener Scope-Probe ausgewiesen.
+
+Stand der Umsetzung zu A in diesem Ticket: Seatbelt plus Pfadregeln (nachgewiesen für die getesteten Fälle),
+Connectors-Einstellung gesetzt (Wirkung nicht belegt), Sync-Quellen über `setting_sources=[]` aus (belegt). Offen:
+Git über Go, Toolchain-Caches, Netzwerk-Allowlist; B ist nicht erprobt.
 
 - **Technisch nachgewiesen (nur für die getesteten Fälle):** Auf macOS mit CLI 2.1.311 bilden die Kombination aus
   OS-Sandbox für Shell-Prozesse und Permission-Regeln für Dateiwerkzeuge eine technische Dateisystemgrenze. Schreiben im
   Fixture gelingt, Schreiben und Lesen in Nachbar-, Secret- und Kontrollpfad-Attrappen scheitern über alle getesteten
   Wege (`Write`, `Read`, `Bash`, `python3`). Eine einzelne Ebene reicht nicht.
-- **Nicht nachgewiesen, daher gilt der autonome Modus weiterhin als nicht verfügbar:**
+- **Nicht nachgewiesen, daher kein unbeaufsichtigter Modus:**
   1. Arbeiten im echten Worktree: `git commit` aus der Sandbox. Das `.git` eines Worktrees liegt außerhalb des
-     Arbeitsverzeichnisses und ist ein geschützter Pfad. Entweder Go übernimmt Commit/Push, oder die Freigabe öffnet
-     eine Kontrollstelle.
+     Arbeitsverzeichnisses und ist ein geschützter Pfad. Nach der Entscheidung laufen Git-Schreibaktionen nur über Go.
+     (Die aktuelle Settings-Doku nennt, dass das gemeinsame `.git`-Verzeichnis eines verknüpften Worktrees für Sandbox-Befehle
+     les- und schreibbar bleibt; für 2.1.311 ungeprüft. Das wäre eine Lücke, kein Nachweis.)
   2. Testläufe der Werkzeugkette (`go test`, `uv run pytest`, Cache- und Toolchain-Pfade unter dem Home-Verzeichnis).
   3. Netzwerk: In der Sandbox sind Verbindungen blockiert, solange `allowedDomains` leer ist. Das wurde nicht
-     eigens getestet.
+     eigens getestet; die Allowlist ist nicht umgesetzt.
   4. Weitere Wege außerhalb der Sandbox: Hooks, MCP-Server, `excludedCommands`, Unterprozess-Start von `claude`,
      Zählung ungezählter Agentenprozesse.
   5. Verhalten bei Versionswechsel der CLI und auf anderen Plattformen als macOS.
   6. Der Beleg gilt nur für ein Fixture unter `$TMPDIR`. Der Fall `denyRead` auf das Home-Verzeichnis mit einem
      Arbeitsverzeichnis **unterhalb** des Home-Verzeichnisses (echter Worktree) ist nicht belegt. Im Vorversuch lag das
      Fixture außerhalb von Home.
-  7. Das Profil `readonly` hat keinen eigenen Live-Beleg; es ist nur als Policy-Aufbau getestet.
+  7. Das Profil `readonly` hat keinen eigenen Live-Beleg für die Dateigrenze; es ist nur als Policy-Aufbau getestet und
+     lief als Rechtegrundlage der Positivkontrolle (Lesen im Fixture, keine Schreibprobe).
   8. Die übrige Umgebung (`os.environ`, zum Beispiel `GH_TOKEN` oder andere Tokens) wird bisher an das Binary und die
-     Bash-Kindprozesse weitergereicht; nur `ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*` und `CLAUDECODE` werden
-     entfernt oder abgewiesen. Eine kontrollierte Umgebung per Allowlist ist für M04 nötig.
-- **Lösungsvorschlag für M04:** Die Profil-Erzeugung (Standard verweigern, Fixture erlauben, `failIfUnavailable`, kein
-  `dangerouslyDisableSandbox`) steht in `policy.py` und wird in M04 mit dem Katalog aus Go verbunden. Zusätzlich eine
-  Betriebssystemgrenze außerhalb des SDK prüfen: dedizierter macOS-Benutzer oder Seatbelt-Profil (`sandbox-exec`) für den
-  gesamten Runner-Prozess, um auch Hooks und MCP abzudecken. Git-Schreibaktionen über den Go-Dienst.
+     Bash-Kindprozesse weitergereicht. Der Runner **entfernt** zwar `ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*` und
+     `CLAUDECODE` (Credential-Variablen werden entfernt und gemeldet, nicht abgewiesen), alles Weitere aber nicht. Eine
+     kontrollierte Umgebung per Allowlist ist für M04 nötig (die Live-Tests nutzen sie bereits).
+  9. `~/.claude` bleibt für die Dateiwerkzeuge lesbar (siehe „Read-Grenze und Meldung“).
+  10. Ohne CLI-Upgrade steht `permissions.blockWritesOutsideWorkingDirectories` (laut Settings-Doku ab 2.1.314) nicht zur
+      Verfügung; die Schreibgrenze der Dateiwerkzeuge beruht auf den pfadgebundenen Regeln.
+  11. Fremde Quellen: Herkunft der 3 Plugins, Nachladen von Connectors, `CLAUDE.md` ohne Positivkontrolle (siehe oben).
 
 **Abnahmeexperimente je Lücke (M04, kurz, jeweils mit Kontrolllauf ohne Grenze und echtem Worktree unter dem
 Home-Verzeichnis):**
@@ -255,16 +390,14 @@ Home-Verzeichnis):**
 | Hooks/MCP/ausgenommene Befehle | Lauf mit Hook beziehungsweise MCP-Server, der außerhalb schreibt | Entweder verweigert durch die OS-Grenze um den Runner, oder diese Konfiguration wird vom Runner abgelehnt |
 | Prozesse | Kindprozessbaum eines Laufs zählen und nach Interrupt, `stop` und SIGTERM prüfen | Kein Prozess bleibt übrig, Start weiterer `claude`-Prozesse scheitert oder wird gezählt |
 | Umgebung | Lauf mit gesetztem Dummy-`GH_TOKEN` | Der Wert ist im Bash-Kindprozess nicht sichtbar (Allowlist) |
+| Connectors und Plugins nach dem Start | Lauf, der nach dem Init-Frame wartet (Werkzeugliste prüfen), mit und ohne `disableClaudeAiConnectors`; Herkunft der 3 Plugins über die Einträge des Init-Frames (`source`) klären | Keine claude.ai-Connectors und kein MCP-Werkzeug in der Werkzeugliste, auch nicht verspätet; die Plugins sind erklärt oder abgeschaltet |
+| Lesbarkeit von `~/.claude` | Lauf in der Sandbox mit `denyRead` auf `~/.claude` und Prüfung, ob die Dateiwerkzeuge (`Read`, `Grep`, `Glob`) dort trotz Lesegrenze lesen (Attrappe in einem Test-Konfigurationsverzeichnis, `CLAUDE_CONFIG_DIR`, nie das echte) | Zugriff auf Attrappen unter dem Konfigurationsverzeichnis scheitert, oder die Ausnahme ist bewusst akzeptiert und begrenzt |
+| Gemeinsames `.git` im Worktree | `git`-Schreibaktion aus der Sandbox in einem verknüpften Worktree (Wegwerf-Repository) | Schreiben in das gemeinsame `.git` ist nicht möglich, oder die CLI-Version bestätigt die Ausnahme und Go übernimmt Git trotzdem allein |
 
-**Entscheidungskriterien dedizierter Benutzer gegenüber `sandbox-exec`-Profil:** Ein dedizierter macOS-Benutzer
-(eigenes Home, eigene Dateirechte) trennt Dateien, Schlüsselbund und Prozesse dauerhaft und deckt Hooks und MCP ab; er
-verlangt aber eine eigene claude.ai-Anmeldung in diesem Benutzer (nur durch den Nutzer selbst per `/login`,
-keine Übertragung von Zugangsdaten), Rechtevergabe für Worktrees und Einrichtungsaufwand. Ein `sandbox-exec`-Profil um
-den Runner ist ohne zweites Konto einsetzbar und nutzt die vorhandene Anmeldung, ist aber ein von Apple als veraltet
-geführtes Werkzeug, schwerer zu pflegen und liefert keine Trennung des Schlüsselbunds. Empfehlung: zuerst das
-`sandbox-exec`-Profil mit den Abnahmeexperimenten erproben; der dedizierte Benutzer wird gewählt, wenn die
-Anmeldung im zweiten Konto zumutbar ist **oder** das Profil eine der Zeilen oben nicht besteht (insbesondere Hooks/MCP,
-Umgebung oder Home-Lesegrenze).
+**Spike B (äußeres `sandbox-exec`-Profil) und Abgrenzung:** Ein Profil um Runner und CLI soll Hooks, MCP, `~/.claude` und
+die Umgebung abdecken, die die innere Grenze nicht erreicht. Es ist ohne zweites Konto einsetzbar und nutzt die vorhandene
+Anmeldung, ist aber ein von Apple als veraltet geführtes Werkzeug, schwerer zu pflegen und trennt den Schlüsselbund nicht.
+Ein eigener macOS-Benutzer (eigenes Home, eigene Anmeldung per `/login`) und Container wurden nicht gewählt.
 
 ## 6. Diagnosen ohne Konto-Zugriff
 
@@ -277,7 +410,7 @@ Jede Diagnose ist ein eigener Code im `error` (Art `runtime`, terminal, wenn nic
 | `not_logged_in` | `claude auth status` meldet `loggedIn: false`; auch Antwort `authentication_failed` in der Sitzung | `test_no_api_fallback_when_not_logged_in`, zusätzlich mit dem echten Binary und leerem `CLAUDE_CONFIG_DIR` (kein Netzwerk, kein Konto) |
 | `not_subscription_login` | Anmeldung ist nicht claude.ai/firstParty | `test_no_api_fallback_when_login_is_not_claude_ai` |
 | `api_credentials_removed` (**nicht terminal**) | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_*` u. ä. waren in der Umgebung und wurden **entfernt**; nur Namen, nie Werte. Danach läuft die normale Vorprüfung mit der bereinigten Umgebung; ohne Anmeldung folgt `not_logged_in` | `test_credentials_in_environment_are_removed_with_a_warning_and_never_reach_the_cli`, `test_removed_credentials_and_not_logged_in_ends_with_terminal_not_logged_in`, `test_real_sdk_transport_passes_none_of_the_injected_variables_to_the_binary`; live: `test_live_sdk_roundtrip` |
-| `cli_version_untested` | CLI ist neuer als die nachgewiesene 2.1.311: **terminal** für `scoped_write` (Vorprüfung, keine Sitzung), **nicht terminal** (Warnung) für `readonly` | `test_untested_cli_version_blocks_the_writing_profile_before_any_session`, `test_newer_but_consistent_cli_runs_readonly_with_untested_warning` |
+| `cli_version_untested` | rohes Versions-Token von `claude -v` ist nicht exakt `2.1.311` (neuere Version, aber auch `2.1.311-rc.1`, `2.1.311.7`): **terminal** für `scoped_write` (Vorprüfung, keine Sitzung), **nicht terminal** (Warnung) für `readonly` | `test_untested_cli_version_blocks_the_writing_profile_before_any_session`, `test_newer_but_consistent_cli_runs_readonly_with_untested_warning`, `test_only_the_exact_verified_version_token_counts_as_tested`, `test_readonly_runs_with_a_warning_for_a_lookalike_version_token` |
 | `internal_error` (Art `internal`) | Echter SDK-Start mit einem anderen Mapping als `os.environ` (die Umgebung wäre unbereinigt); nur durch Programmierfehler erreichbar | `test_real_sdk_client_is_never_started_with_a_foreign_environment` |
 | `max_runtime_exceeded` | `max_runtime_seconds` überschritten, auch bei hängendem Verbindungsaufbau oder hängender Anfrage | `test_max_runtime_exceeded_is_terminal_error`, `test_max_runtime_also_bounds_connect_and_query`, `test_hanging_disconnect_after_timeout_still_ends_with_max_runtime_exceeded` |
 | `api_billing_detected` | `apiKeySource` im Init-Frame ist nicht `none`: Abbruch im Init-Frame, **nach** dem Senden der Anfrage: garantiert ist, dass der Runner danach nichts mehr verarbeitet und unterbricht, nicht dass in der CLI kein Werkzeug anläuft | `test_api_key_source_in_init_aborts_immediately` |
@@ -325,6 +458,21 @@ der Spezifikation vorgesehen): zusätzliche native Claude-Sitzung im Servermodus
 CCMAS-Steuerungs-Skill, der nur über die CCMAS-CLI liest und antwortet. M10 muss `claude remote-control` real mit dem
 Konto erproben und dabei die Kombination mit dem Isolationsprofil prüfen.
 
+## 8. Strukturierte Ausgabe als SDK-Fähigkeit (für M02)
+
+**Nachgewiesen:** `ClaudeAgentOptions(output_format={"type": "json_schema", "schema": …})` (das SDK übergibt `--json-schema`)
+liefert in der `ResultMessage` das Feld `structured_output`. Beleg `live-structured-output.jsonl` (Session
+`2755b1ab-0890-4d16-bd63-9b35b3a64d93`, Haiku, Effort `low`, SDK 0.2.180, CLI 2.1.311): Schema
+`{"answer": string, "count": integer}` (beide Pflicht, keine weiteren Felder), Ergebnis `{"answer": "ok", "count": 3}`, Untertyp
+`success`, 2 Runden. Der Test prüft die Antwort mit `jsonschema` gegen das Schema. Die Sitzung lief mit den Rechten des Profils
+`readonly` (nur `Read`) und `permission_mode: dontAsk`; das interne Werkzeug für die strukturierte Ausgabe war damit ohne
+zusätzliche Freigabe nutzbar.
+
+**Nicht nachgewiesen:** Anbindung im Runner. Es gibt keinen Vertrag, kein `RunSpec`-Feld und keinen Ereignisweg dafür; der
+Nachweis lief über ein test-eigenes Probe-Skript (`tests/probe_sources.py`), nicht über `python -m claude_sdk_runner`. Offen
+sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch und das Zusammenspiel mit Schreibprofilen.
+**Anbindung in M02** (Vertragsänderung dort entscheiden, zum Beispiel für `review_report`).
+
 ## Offene Punkte für M04 (CC-40) und folgende
 
 - **Interrupt-Race:** Ein Interrupt/Stop, der vor dem Senden der Anfrage eintrifft, wird vorgemerkt und direkt nach
@@ -335,11 +483,31 @@ Konto erproben und dabei die Kombination mit dem Isolationsprofil prüfen.
 - **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und
   Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04.
 - **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
-- **Isolation:** Git-Schreibaktionen, Werkzeugkette in der Sandbox, Netzwerkgrenze, Hooks/MCP und eine OS-Grenze um
-  den ganzen Runner (Abschnitt 5, Lösungsvorschlag) vor der Freigabe des autonomen Modus.
+- **Isolation (Entscheidung A plus Spike B vom 10.11.2026, Abschnitt 5):** Git-Schreibaktionen nur über Go, Toolchain-Caches
+  je Ausführung im erlaubten Bereich, Netzwerk nur über eine Allowlist, Werkzeugkette in der Sandbox, Hooks/MCP, Spike B
+  (äußeres `sandbox-exec`-Profil um Runner und CLI) und eine kontrollierte Umgebung per Allowlist, bevor ein unbeaufsichtigter
+  Modus ausgewiesen wird. Bis dahin ist `scoped_write` ein Prüfprofil.
+- **Lesbarkeit von `~/.claude`:** Die Lesegrenze der Dateiwerkzeuge lässt laut Settings-Doku Skills, Plugins, Regeln, Agents,
+  Commands und `CLAUDE.md` unter `~/.claude` lesbar. Nur dokumentiert, nicht geprobt; die Wirkung (zum Beispiel
+  Konfiguration mit Inhalten, die nicht in eine Sitzung gehören) und die Gegenmaßnahme (eigenes Konfigurationsverzeichnis je
+  Ausführung über `CLAUDE_CONFIG_DIR`, Sandbox-`denyRead`) sind zu entscheiden.
+- **Fremde Quellen:** Herkunft der 3 Plugins im Init-Frame klären; Wirkung von `disableClaudeAiConnectors` und spätes Nachladen
+  von Connectors prüfen; `CLAUDE.md` positiv kontrollieren; ob die mitgelieferten Skills/Agents (19/5) in einer Sitzung mit
+  Positivliste in `tools` nutzbar sind; ob `syncClaudeAiSkills`/`syncClaudeAiPlugins` per `--settings` ohne Verschiebung
+  nach `.trash` wirken würden (nur dann wäre ein Setzen zu erwägen).
+- **Schreibgrenze ohne CLI-Upgrade:** `permissions.blockWritesOutsideWorkingDirectories` (laut Settings-Doku ab 2.1.314) ist
+  mit der lokalen 2.1.311 nicht verfügbar; ein CLI-Upgrade ist keine Entscheidung dieses Tickets. Vor einem Upgrade wäre die
+  Versionssperre (`VERIFIED_CLI_VERSION`) und der gesamte Nachweis zu wiederholen.
 - **Laufzeitgrenze:** Die Aufräumzeit eines abgebrochenen `connect()` im SDK (`disconnect()`) ist nicht vom Runner
-  begrenzt; auf einem Rechner im Schlaf oder bei hängendem CLI-Prozess bleibt die Prozessgruppen-Beendigung durch
-  Go (M04) maßgeblich.
+  begrenzt (unbegrenzte SDK-Aufräumzeit); auf einem Rechner im Schlaf oder bei hängendem CLI-Prozess bleibt die
+  Prozessgruppen-Beendigung durch Go (M04) maßgeblich. Randfall: Läuft die Zeitgrenze ab, während ein `_Abort`
+  (zum Beispiel `api_billing_detected`) den Interrupt auslöst, kann der Timeout die Ursache überdecken; das Ergebnis ist dann
+  `max_runtime_exceeded` statt der eigentlichen Diagnose.
+- **Systemprompt:** Ohne `system_prompt` startet das SDK mit `--system-prompt ""`; ob Runner-Sitzungen einen eigenen Prompt
+  oder den Standardprompt von Claude Code bekommen, ist in M02 zu wählen.
+- **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
 - **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
 - **Skills** (`skill_ids`) werden noch nicht angewendet.
-- **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt offen und wird vom Projektinhaber getragen.
+- **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt als Hintergrund dokumentiert; der Betrieb ist durch die Entscheidung
+  des Projektinhabers vom 10.11.2026 angenommen und blockiert M02 bis M04 nicht. Zu beobachten bleibt die Aussage „for now“ der
+  Support-Seite.

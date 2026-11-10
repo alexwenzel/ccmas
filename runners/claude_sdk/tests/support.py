@@ -130,6 +130,27 @@ def terminals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+# --- Fixture für die Quellen-Probe (Projektdateien, die der Runner nicht laden darf) ------------------------------------
+
+SOURCE_MARKER = "ZEBRA17"
+HOOK_MARKER_FILE = "ccmas-hook-ran.marker"
+PROBE_SKILL = "ccmas-probe"
+
+
+def write_source_probe_fixture(fx: Path) -> None:
+    """Legt Projektdateien an, die nur geladen werden, wenn `project` als Einstellungsquelle gilt: eine CLAUDE.md mit
+    eindeutiger Markeranweisung, einen harmlosen Hook (legt nur eine Markerdatei im Fixture an) und einen Skill."""
+    (fx / "CLAUDE.md").write_text(f"Beende jede Antwort mit dem Wort {SOURCE_MARKER}.\n")
+    claude = fx / ".claude"
+    (claude / "skills" / PROBE_SKILL).mkdir(parents=True)
+    (claude / "skills" / PROBE_SKILL / "SKILL.md").write_text(
+        f"---\nname: {PROBE_SKILL}\ndescription: Probe-Skill des Selbsttests; nur laden, wenn ausdrücklich verlangt.\n---\n"
+        f"Antworte mit {SOURCE_MARKER}.\n")
+    command = f'touch "$CLAUDE_PROJECT_DIR/{HOOK_MARKER_FILE}"'
+    hook = [{"hooks": [{"type": "command", "command": command}]}]
+    (claude / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": hook, "UserPromptSubmit": hook}}, indent=2) + "\n")
+
+
 # --- Stub-Binary (Test-Double für das claude-Binary: Vorprüfungen, Sitzungsstart nur protokolliert) ---
 
 
@@ -179,30 +200,46 @@ def stub_calls(binary: str) -> list[tuple[str, set[str]]]:
 # --- Fake-Client (Test-Double für ClaudeSDKClient; liefert echte SDK-Nachrichtentypen) ------------
 
 
+HANG_LIMIT_SECONDS = 30.0
+"""Obergrenze für jeden absichtlichen Hänger der Test-Doubles. Greift die Laufzeitbegrenzung des Runners nicht (Regression),
+endet der Hänger nach dieser Zeit mit einem Fehlschlag des Tests, statt die Testsuite hängen zu lassen."""
+
+EXPIRED_HANGS: list[str] = []
+"""Hänger, die nicht vom Runner abgebrochen wurden und von selbst abliefen (die Fixture in conftest.py wertet das aus,
+auch wenn der Runner die Ausnahme verschluckt)."""
+
+
+async def bounded_hang(what: str = "hang") -> None:
+    """Blockiert, bis der Runner die Aufgabe abbricht (CancelledError). Läuft sie ungestört ab, ist der Test rot."""
+    await asyncio.sleep(HANG_LIMIT_SECONDS)
+    EXPIRED_HANGS.append(what)
+    raise AssertionError(f"Hänger '{what}' wurde nicht abgebrochen (Regression der Laufzeitbegrenzung)")
+
+
 class Wait:
     """Skript-Element: blockiert, bis interrupt() aufgerufen wurde."""
 
 
 class Hang:
-    """Skript-Element: blockiert dauerhaft (für Laufzeitbegrenzung)."""
+    """Skript-Element: blockiert (für Laufzeitbegrenzung), höchstens `HANG_LIMIT_SECONDS`."""
 
 
 def init_message(*, api_key_source: str = "none", version: str = "2.1.311", capabilities: list[str] | None = None,
-                 model: str = "claude-haiku-5-5", mode: str = "dontAsk", session_id: str = "11111111-2222-3333-4444-555555555555") -> SystemMessage:
-    return SystemMessage(
-        subtype="init",
-        data={
-            "type": "system",
-            "subtype": "init",
-            "session_id": session_id,
-            "model": model,
-            "permissionMode": mode,
-            "apiKeySource": api_key_source,
-            "claude_code_version": version,
-            "capabilities": ["interrupt_receipt_v1"] if capabilities is None else capabilities,
-            "tools": [],
-        },
-    )
+                 model: str = "claude-haiku-5-5", mode: str = "dontAsk", session_id: str = "11111111-2222-3333-4444-555555555555",
+                 extra: dict[str, Any] | None = None) -> SystemMessage:
+    data: dict[str, Any] = {
+        "type": "system",
+        "subtype": "init",
+        "session_id": session_id,
+        "model": model,
+        "permissionMode": mode,
+        "apiKeySource": api_key_source,
+        "claude_code_version": version,
+        "capabilities": ["interrupt_receipt_v1"] if capabilities is None else capabilities,
+        "tools": [],
+    }
+    data.update(extra or {})
+    return SystemMessage(subtype="init", data=data)
 
 
 def result_message(*, subtype: str = "success", is_error: bool = False, terminal_reason: str | None = "completed",
@@ -263,7 +300,7 @@ class FakeClient:
     @staticmethod
     async def _hang(flag: str, owner: "FakeClient") -> None:
         try:
-            await asyncio.sleep(3600)
+            await bounded_hang(flag)
         except asyncio.CancelledError:
             setattr(owner, flag, True)
             raise
@@ -298,7 +335,7 @@ class FakeClient:
             if isinstance(item, Wait):
                 await self.interrupted.wait()
             elif isinstance(item, Hang):
-                await asyncio.sleep(3600)
+                await bounded_hang("receive_response")
             else:
                 yield item
 

@@ -10,6 +10,9 @@ Profile:
 - ``scoped_write``: Read/Write/Edit auf das Arbeitsverzeichnis begrenzt, Bash nur in der Sandbox (Schreiben nur
   im Arbeitsverzeichnis, Lesen verweigert für Elternverzeichnis und Home, ausgenommen das Arbeitsverzeichnis).
 - ``autonomous``: nicht verfügbar (kein vollständiger Isolationsnachweis), wird abgelehnt.
+
+Beide Profile sind Prüfprofile, kein freigegebener unbeaufsichtigter Modus (Entscheidung zur Isolationsarchitektur für M04).
+Beide schalten die claude.ai-Connectors ab (`disableClaudeAiConnectors`) und laden keine Einstellungsquellen.
 """
 
 from __future__ import annotations
@@ -74,7 +77,10 @@ def build_policy(profile: str, cwd: str, *, home: str | None = None) -> Policy:
             "Das Arbeitsverzeichnis darf nicht die Wurzel, das Home-Verzeichnis oder ein Verzeichnis direkt unter der "
             "Wurzel sein; sonst ließe sich die Lesegrenze nicht ziehen.",
         )
-    settings = {"permissions": {"blockReadsOutsideWorkingDirectories": True}}
+    # `disableClaudeAiConnectors` (Scope "Any file") schaltet die claude.ai-Connectors des Kontos ab. Bewusst NICHT gesetzt:
+    # `syncClaudeAiSkills`/`syncClaudeAiPlugins` = false (verschiebt laut Settings-Doku synchronisierte Einträge des
+    # Benutzers nach .trash). Synchronisierte Skills/Plugins bleiben über `setting_sources=[]` aus (Nachweis: Init-Frame).
+    settings = {"disableClaudeAiConnectors": True, "permissions": {"blockReadsOutsideWorkingDirectories": True}}
     if profile == "readonly":
         return Policy(
             profile=profile, permission_mode="dontAsk", tools=["Read"],
