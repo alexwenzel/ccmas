@@ -34,8 +34,9 @@ func (o OutboxOutcome) Valid() bool {
 func (o OutboxOutcome) NeedsReconcile() bool { return o == OutboxUncertain }
 
 // Grenzen der Fehlerkennung. Der Fehlertext enthält nur Code und eine kurze Meldung des Adapters: Adapter geben keine
-// Zugangsdaten, Header oder Antwortkörper hinein (das kann kein Wertetest beweisen); begrenzt und von Steuerzeichen
-// befreit wird er hier.
+// Zugangsdaten, Header oder Antwortkörper hinein (das kann kein Wertetest beweisen und bleibt ihre Abnahmebedingung);
+// begrenzt, von Steuerzeichen befreit und als zweite Sicherung von typischen Geheimnissen maskiert wird er hier
+// (RedactSecrets).
 const (
 	MaxOutboxErrorCodeBytes    = 64
 	MaxOutboxErrorMessageBytes = 256
@@ -50,7 +51,8 @@ type OutboxError struct {
 
 // Normalized liefert die Fehlerkennung in der Form, in der sie gespeichert wird: Code nur aus a-z, 0-9, _, . und -
 // (anderes wird zu _; leer: „error“; höchstens 64 Bytes), Meldung ohne Steuerzeichen und ungültiges UTF-8, Leerraum
-// zusammengefasst, höchstens 256 Bytes (bei Kürzung mit „…“).
+// zusammengefasst, typische Geheimnisse durch „[redigiert]“ ersetzt (RedactSecrets), danach höchstens 256 Bytes (bei Kürzung
+// mit „…“).
 func (e OutboxError) Normalized() OutboxError {
 	var code strings.Builder
 	for _, r := range strings.ToLower(e.Code) {
@@ -84,7 +86,8 @@ func cleanErrorMessage(s string) string {
 		b.WriteRune(r)
 		space = false
 	}
-	out := strings.TrimRight(b.String(), " ")
+	// Zuerst maskieren, dann kürzen: Die Längengrenze gilt für den gespeicherten Text.
+	out := RedactSecrets(strings.TrimRight(b.String(), " "))
 	if len(out) <= MaxOutboxErrorMessageBytes {
 		return out
 	}

@@ -200,10 +200,30 @@ Ereignisarten (Ebene `outbox`, `domain.OutboxAuditKinds`): `outbox.enqueued`, `o
 Erfolg und Klärung die externe Referenz und der Grund; nie Nutzdaten oder Fehlermeldungen.
 
 `outbox.last_error` enthält nur die **Fehlerkennung** `code: kurze meldung` (`domain.OutboxError`): Code in `a-z0-9_.-`, höchstens
-64 Bytes; Meldung ohne Steuerzeichen und ungültiges UTF-8, Leerraum zusammengefasst, höchstens 256 Bytes (bei Kürzung mit „…“).
-Die Begrenzung geschieht vor dem Speichern, in der Persistenzschicht. **Adapter dürfen keine Zugangsdaten, Header,
-Antwortkörper oder Nutzdaten in Meldungen geben**; das kann keine Prüfung beweisen, und Logs und Fehlertexte werden nicht für
-Secrets entschärft, die ein Adapter hineinschreibt.
+64 Bytes; Meldung ohne Steuerzeichen und ungültiges UTF-8, Leerraum zusammengefasst, typische Geheimnisse maskiert, danach
+höchstens 256 Bytes (bei Kürzung mit „…“). Die Normalisierung geschieht vor dem Speichern, in der Persistenzschicht
+(`OutboxError.Normalized`); maskiert wird **vor** der Kürzung, die Längengrenze gilt für den gespeicherten Text.
+
+**Maskierung (`domain.RedactSecrets`)** ersetzt durch `[redigiert]`:
+
+| Muster | Beispiel (erfunden) → Ergebnis |
+| --- | --- |
+| `Authorization:`-Werte (auch `=`, mit Schema `Bearer`/`Basic`/`Token`/`Digest`) | `Authorization: Bearer abc…` → `Authorization: [redigiert]` |
+| `Bearer <Wert>` ab 8 Zeichen, nicht rein kleingeschrieben (`bearer authentication` bleibt Text) | `Bearer Zk93…` → `Bearer [redigiert]` |
+| `token=`, `access_token=`, `refresh_token=`, `id_token=`, `api_key=`/`api-key=`, `apikey=`, `password=`, `passwd=`, `secret=`, `client_secret=` (Groß-/Kleinschreibung egal; in Query und Text; auch angeführte Werte), ebenso `"password":"…"` im JSON-Stil | `?token=abc&a=1` → `?token=[redigiert]&a=1` |
+| URL-Userinfo `scheme://nutzer:passwort@` und `scheme://token@` | `https://u:pw@host` → `https://[redigiert]@host` |
+| GitHub-Token-Präfixe `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_` | `ghp_…` → `[redigiert]` |
+| Asana-Personal-Access-Token (`1/123:<32 Hex>`, `1/123/456:<32 Hex>`) | → `[redigiert]` |
+| lange Folgen ab 32 Zeichen aus `A-Za-z0-9+/_=-`, sofern rein hexadezimal oder mit Ziffern sowie Groß- und Kleinbuchstaben | → `[redigiert]` |
+
+Grenzen der Maskierung: Der Doppelpunkt nach `token`, `secret` und `password` zählt nur im JSON-Stil (nach einem
+Anführungszeichen); `token: abgelaufen` bleibt lesbar, `password: wert` wird nicht erkannt. Eine lange, kleingeschriebene Kennung
+(zum Beispiel ein Auftragsname mit Bindestrichen) bleibt unmaskiert. Die Funktion ist idempotent.
+
+**Die Maskierung ist eine zweite Sicherung, kein Ersatz.** Adapter (M05/M06) dürfen trotzdem keine Zugangsdaten, Header,
+Antwortkörper oder Nutzdaten in Fehlermeldungen geben; das bleibt ihre Abnahmebedingung und lässt sich nicht durch einen
+Wertetest beweisen. Das Audit-Ereignis trägt nie die Meldung. Nutzdaten von Nachrichten und Aktionen werden nicht maskiert (sie
+enthalten laut Vertrag keine Zugangsdaten und gehören nicht ins Audit).
 
 ### Grenzen
 

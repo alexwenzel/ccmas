@@ -594,6 +594,40 @@ func TestOutboxErrorTextIsBounded(t *testing.T) {
 	wantCode(t, mapErr(execSQL(t, s, "UPDATE outbox SET last_error = ? WHERE action_id = ?", strings.Repeat("x", 1025), a.ActionID)), CodeConstraint)
 }
 
+// TestOutboxErrorTextIsRedacted: Typische Geheimnisse im Meldungstext eines Adapters gelangen weder in die Spalte last_error
+// noch in den zurückgegebenen Wert noch in ein Ereignis (zweite Sicherung; die Werte sind erfunden).
+func TestOutboxErrorTextIsRedacted(t *testing.T) {
+	s := obStore(t)
+	a := obAction(t)
+	obEnqueue(t, s, a)
+	obClaim(t, s, obT0, time.Minute, 1)
+	leaks := []string{"ghp_ErfundenerWert1234567890abcdef", "pw-erfunden", "erfundenerBearer99"}
+	msg := "POST https://nutzer:pw-erfunden@example.org/x?api_key=zzz fehlgeschlagen, Authorization: Bearer erfundenerBearer99, " + leaks[0]
+	got := obDo(t, s, func(tx *Tx) (domain.OutboxAction, error) {
+		return tx.FailOutbox(projectID, a.ActionID, domain.OutboxPermanent, domain.OutboxError{Code: "http_401", Message: msg}, time.Time{})
+	})
+	stored := obGet(t, s, a.ActionID).LastError
+	for _, text := range []string{stored, got.LastError} {
+		for _, leak := range append(leaks, "api_key=zzz") {
+			if strings.Contains(text, leak) {
+				t.Errorf("%q enthält %q", text, leak)
+			}
+		}
+		if !strings.HasPrefix(text, "http_401: POST ") || !strings.Contains(text, "[redigiert]") || !strings.Contains(text, "fehlgeschlagen") {
+			t.Errorf("Text %q", text)
+		}
+	}
+	for _, e := range obEvents(t, s) {
+		for k, v := range e.Details {
+			for _, leak := range leaks {
+				if strings.Contains(v, leak) {
+					t.Errorf("Ereignis %s trägt %q in %s", e.Kind, leak, k)
+				}
+			}
+		}
+	}
+}
+
 func TestEscalateCancelAndResolve(t *testing.T) {
 	s := obStore(t)
 	mk := func(name string) domain.OutboxAction {

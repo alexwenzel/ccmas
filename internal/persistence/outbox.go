@@ -20,8 +20,9 @@ import (
 // nur updated_at und die Ereignisse.
 //
 // Fehlertexte: Es wird nur die Fehlerkennung gespeichert (domain.OutboxError: Code und kurze Meldung, begrenzt, ohne
-// Steuerzeichen). Adapter dürfen keine Zugangsdaten, Header oder Antwortkörper in Meldungen geben; das kann keine
-// Prüfung beweisen. Das Audit-Ereignis trägt nur den Code, nie die Meldung und nie die Nutzdaten.
+// Steuerzeichen, typische Geheimnisse maskiert: domain.RedactSecrets). Die Maskierung ist nur die zweite Sicherung: Adapter
+// dürfen keine Zugangsdaten, Header oder Antwortkörper in Meldungen geben; das kann keine Prüfung beweisen. Das
+// Audit-Ereignis trägt nur den Code, nie die Meldung und nie die Nutzdaten.
 
 // maxClaimBatch begrenzt die Aktionen eines Claim-Aufrufs.
 const maxClaimBatch = 1000

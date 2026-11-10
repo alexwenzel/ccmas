@@ -349,3 +349,96 @@ func TestOutboxAuditKinds(t *testing.T) {
 		}
 	}
 }
+
+// Alle Werte sind erfunden; sie haben nur die Form echter Geheimnisse.
+func TestRedactSecrets(t *testing.T) {
+	cases := map[string]struct{ in, leak string }{
+		"Authorization Bearer":    {"HTTP 401 Authorization: Bearer abc123DEF456ghi", "abc123DEF456ghi"},
+		"Authorization Basic":     {"authorization=Basic dXNlcjpwYXNz weiter", "dXNlcjpwYXNz"},
+		"Authorization ohne":      {"Authorization: sekret-wert-1", "sekret-wert-1"},
+		"Authorization Anführung": {`header "Authorization: Bearer x1Y2z3W4v5"`, "x1Y2z3W4v5"},
+		"Bearer allein":           {"abgewiesen mit Bearer Zk93mQ71xT", "Zk93mQ71xT"},
+		"token":                   {"GET /v1/x?token=erfundenerWert1&a=1", "erfundenerWert1"},
+		"TOKEN groß":              {"TOKEN=ERFUNDEN-77", "ERFUNDEN-77"},
+		"access_token":            {"access_token=zz-erfunden-42", "zz-erfunden-42"},
+		"api_key":                 {"api_key=erfunden99 abgelehnt", "erfunden99"},
+		"apikey":                  {"?apikey=erfunden99&b=2", "erfunden99"},
+		"API-Key":                 {"API-KEY=erfunden99", "erfunden99"},
+		"password":                {"password=Pa55w0rd! zu kurz", "Pa55w0rd!"},
+		"password angeführt":      {`password="mein geheimes wort" falsch`, "geheimes"},
+		"secret":                  {"Secret=nichtsagen", "nichtsagen"},
+		"JSON":                    {`{"password":"hunter-erfunden","user":"u"}`, "hunter-erfunden"},
+		"URL mit Passwort":        {"clone https://nutzer:pw-erfunden@github.com/o/r.git fehlgeschlagen", "pw-erfunden"},
+		"URL nur Nutzer":          {"fetch https://tokenwert123@example.org/x", "tokenwert123"},
+		"ghp":                     {"Token ghp_ErfundenerWert1234567890abcdef", "ErfundenerWert1234567890abcdef"},
+		"gho":                     {"gho_erfundenerwert123456", "erfundenerwert123456"},
+		"ghu":                     {"ghu_erfundenerwert123456", "erfundenerwert123456"},
+		"ghs":                     {"ghs_erfundenerwert123456", "erfundenerwert123456"},
+		"ghr":                     {"ghr_erfundenerwert123456", "erfundenerwert123456"},
+		"github_pat":              {"github_pat_11ERFUNDEN0_abcdefghijklmn", "11ERFUNDEN0_abcdefghijklmn"},
+		"Asana":                   {"Asana 1/1200000000000001" + ":0123456789abcdef0123456789abcdef abgelehnt", "0123456789abcdef0123456789abcdef"},
+		"Asana lang":              {"PAT 2/1200000000000001/1200000000000002" + ":0123456789abcdef0123456789abcdef", "0123456789abcdef0123456789abcdef"},
+		"Hex lang":                {"Signatur deadbeefdeadbeefdeadbeefdeadbeef01 ungültig", "deadbeefdeadbeefdeadbeefdeadbeef01"},
+		"Base64 lang":             {"Wert QWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3 ungültig", "QWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3"},
+		"Base64 mit Plus":         {"x=Zm9vYmFyK2Zvb2JhciUvZm9vYmFyK2Zvb2Jhcg==", "Zm9vYmFyK2Zvb2JhciUvZm9vYmFyK2Zvb2Jhcg"},
+	}
+	for name, c := range cases {
+		got := RedactSecrets(c.in)
+		if strings.Contains(got, c.leak) {
+			t.Errorf("%s: Geheimnis bleibt: %q", name, got)
+		}
+		if !strings.Contains(got, "[redigiert]") {
+			t.Errorf("%s: keine Maskierung: %q", name, got)
+		}
+		if again := RedactSecrets(got); again != got {
+			t.Errorf("%s: nicht idempotent: %q -> %q", name, got, again)
+		}
+	}
+
+	// Gewöhnliche Meldungen bleiben unverändert und lesbar.
+	for _, plain := range []string{
+		"context deadline exceeded",
+		"HTTP 429 Too Many Requests, retry after 30s",
+		"token: abgelaufen",
+		"missing bearer authentication",
+		"Ticket 1200000000000001 nicht gefunden",
+		"https://app.asana.com/0/123/456 nicht erreichbar",
+		"Auftrag implement-feature-oauth-login-handler-for-project fehlgeschlagen",
+		"ccmas/asana.comment/wo-1/result existiert bereits",
+		"dial tcp 10.0.0.5:443: connect: connection refused",
+		"mailto:team@example.org",
+		"verboten",
+		"",
+	} {
+		if got := RedactSecrets(plain); got != plain {
+			t.Errorf("gewöhnliche Meldung verändert: %q -> %q", plain, got)
+		}
+	}
+}
+
+func TestOutboxErrorNormalizedRedactsAndBoundsAfterwards(t *testing.T) {
+	// Die Maskierung geschieht vor der Kürzung: Ein Geheimnis am Ende des Rohtexts darf nicht durch eine Kürzung in der Mitte
+	// zerlegt (und damit nicht mehr erkannt) werden, und der gespeicherte Text bleibt in der Grenze.
+	secret := "ghp_ErfundenerWert1234567890abcdef"
+	msg := "Anfrage abgelehnt: " + strings.Repeat("x ", 100) + " token=" + secret + " " + strings.Repeat("y ", 300)
+	got := OutboxError{Code: "http_401", Message: msg}.Normalized()
+	if strings.Contains(got.Message, "ghp_") || strings.Contains(got.Message, "Erfunden") {
+		t.Errorf("Geheimnis in %q", got.Message)
+	}
+	if len(got.Message) > MaxOutboxErrorMessageBytes || len(got.String()) > MaxOutboxLastErrorBytes {
+		t.Errorf("Länge %d / %d", len(got.Message), len(got.String()))
+	}
+	// Die Längengrenze gilt nach dem Maskieren: viele kurze Geheimnisse werden länger oder kürzer, nie über die Grenze.
+	many := OutboxError{Code: "x", Message: strings.Repeat("password=a ", 100)}.Normalized()
+	if len(many.Message) > MaxOutboxErrorMessageBytes || strings.Contains(many.Message, "password=a ") {
+		t.Errorf("viele Geheimnisse: %d Bytes, %q", len(many.Message), many.Message)
+	}
+	// Normalized ist idempotent.
+	if again := many.Normalized(); again != many {
+		t.Errorf("nicht idempotent: %+v -> %+v", many, again)
+	}
+	// Lesbare Meldungen bleiben lesbar.
+	if ok := (OutboxError{Code: "http_403", Message: "Keine Berechtigung für das Projekt"}).Normalized(); ok.Message != "Keine Berechtigung für das Projekt" {
+		t.Errorf("Meldung verändert: %q", ok.Message)
+	}
+}
