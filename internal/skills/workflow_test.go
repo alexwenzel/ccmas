@@ -1713,3 +1713,169 @@ func TestConceptRepairBudget(t *testing.T) {
 		}
 	})
 }
+
+// ---- Angepasste Workflow-Skills (W33.2) ----------------------------------------
+
+// workflowRoleSkill nennt je Workflow-Rolle den Skill, der ihre Standardausstattung trägt.
+var workflowRoleSkill = map[domain.Role]string{
+	domain.RoleConcept:         "ccmas-concept-ticket",
+	domain.RoleConceptReviewer: "ccmas-concept-review",
+	domain.RoleReviewer:        "ccmas-code-review",
+	domain.RoleImplementer:     "ccmas-feature-parallel",
+	domain.RoleCompletion:      "ccmas-meilenstein-abschluss",
+	domain.RoleQuestionHandler: "ccmas-antworten-abholen",
+}
+
+func TestWorkflowSkillsAreAdapted(t *testing.T) {
+	c := mustLoadRepo(t) // Load und ValidateWorkflow gegen die echten Rollenregeln
+	rules := repoRules(t)
+
+	t.Run("alle Workflow-Skills sind freigegeben, keiner wartet mehr auf Anpassung", func(t *testing.T) {
+		seen := 0
+		for _, sk := range c.Skills() {
+			if !rules.IsWorkflowCategory(sk.Category) {
+				continue
+			}
+			seen++
+			if sk.Status != StatusApproved || sk.Adaptation != "" {
+				t.Errorf("%s (%s): Status %s, Anpassung %q", sk.ID, sk.Category, sk.Status, sk.Adaptation)
+			}
+		}
+		if seen != len(workflowSkillIDs) {
+			t.Errorf("%d Workflow-Skills gefunden, erwartet %d", seen, len(workflowSkillIDs))
+		}
+		for _, cat := range []Category{CategoryDelivery, CategoryCompletion, CategoryQuestions} {
+			for _, sk := range c.Skills() {
+				if sk.Category == cat && sk.Status == StatusPendingAdaptation {
+					t.Errorf("Kategorie %s enthält den pending-Skill %s", cat, sk.ID)
+				}
+			}
+		}
+	})
+
+	t.Run("die Standardausstattung jeder Workflow-Rolle enthält ihren Workflow-Skill", func(t *testing.T) {
+		for role, id := range workflowRoleSkill {
+			snap, err := c.Resolve(role, nil)
+			if err != nil {
+				t.Errorf("Resolve(%s): %v", role, err)
+				continue
+			}
+			if !slices.Contains(snap.SkillIDs(), id) {
+				t.Errorf("Standardausstattung von %s = %v, erwartet %s", role, snap.SkillIDs(), id)
+			}
+			sk, _ := c.Skill(id)
+			if !sk.DefaultForRole(role) {
+				t.Errorf("%s: default_for %v enthält %s nicht", id, sk.DefaultFor, role)
+			}
+		}
+	})
+
+	t.Run("Folgeschritte der Verträge passen zu den Rollenregeln", func(t *testing.T) {
+		if err := ValidateWorkflow(c, rules); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"ccmas-feature-parallel", "ccmas-meilenstein-abschluss", "ccmas-antworten-abholen"} {
+			ct, ok := c.Contract(id)
+			if !ok {
+				t.Fatalf("%s: kein Vertrag", id)
+			}
+			for result, rc := range ct.Results {
+				steps, err := rules.NextSteps(ct.Role, result)
+				if err != nil {
+					t.Errorf("%s/%s: %v", id, result, err)
+				}
+				for _, f := range rc.Followups {
+					if !slices.ContainsFunc(steps, func(s Step) bool { return s.Action == f.Action && s.Role == f.Role }) {
+						t.Errorf("%s/%s: %s/%s steht nicht in den Folgeschritten der Rolle", id, result, f.Action, f.Role)
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("external_writes entspricht den Schreibfähigkeiten des Vertrags", func(t *testing.T) {
+		// Inventar und Umfang sagen dasselbe: keine Systeme im Inventar, die der Vertrag nie beschreibt (etwa
+		// github bei einem Skill, der nicht mehr pusht oder merged), und umgekehrt (ValidateWorkflow).
+		for _, id := range workflowSkillIDs {
+			sk, _ := c.Skill(id)
+			ct, _ := c.Contract(id)
+			want := map[string]bool{}
+			for _, a := range ct.Scope.Allowed {
+				if sys, ok := capabilityWrites[a]; ok {
+					want[sys] = true
+				}
+			}
+			got := map[string]bool{}
+			for _, w := range sk.ExternalWrites {
+				got[w] = true
+			}
+			if !reflect.DeepEqual(want, got) {
+				t.Errorf("%s: external_writes %v, Vertrag beschreibt %v", id, sk.ExternalWrites, want)
+			}
+		}
+		fp, _ := c.Skill("ccmas-feature-parallel")
+		if !slices.Equal(fp.ExternalWrites, []string{"git"}) {
+			t.Errorf("feature-parallel: external_writes %v, erwartet [git] (nur der lokale Commit)", fp.ExternalWrites)
+		}
+		ct, _ := c.Contract("ccmas-feature-parallel")
+		for _, forbidden := range []string{"push", "open_pr", "merge", "start_agents", "write_asana", "write_vault"} {
+			if slices.Contains(ct.Scope.Allowed, forbidden) || !slices.Contains(ct.Scope.Forbidden, forbidden) {
+				t.Errorf("feature-parallel: %s muss verboten sein", forbidden)
+			}
+		}
+	})
+
+	t.Run("obsidian-seite für Abschluss und Fragenbearbeitung erlaubt, nicht als Standard", func(t *testing.T) {
+		os, _ := c.Skill("ccmas-obsidian-seite")
+		for _, role := range []domain.Role{domain.RoleCompletion, domain.RoleQuestionHandler} {
+			if !os.AllowsRole(role) || os.DefaultForRole(role) {
+				t.Errorf("obsidian-seite für %s: erlaubt=%v, Standard=%v", role, os.AllowsRole(role), os.DefaultForRole(role))
+			}
+			snap, err := c.Resolve(role, nil)
+			if err != nil || slices.Contains(snap.SkillIDs(), "ccmas-obsidian-seite") {
+				t.Errorf("Standardausstattung von %s darf obsidian-seite nicht enthalten: %v %v", role, snap.SkillIDs(), err)
+			}
+			if _, err := c.Resolve(role, []string{workflowRoleSkill[role], "ccmas-obsidian-seite"}); err != nil {
+				t.Errorf("Resolve(%s) mit obsidian-seite: %v", role, err)
+			}
+			ct, _ := c.Contract(workflowRoleSkill[role])
+			if !slices.Contains(ct.UsesSkills, "ccmas-obsidian-seite") {
+				t.Errorf("Vertrag %s nennt obsidian-seite nicht in uses_skills: %v", ct.Skill, ct.UsesSkills)
+			}
+		}
+	})
+
+	t.Run("Kennungen des Vertrags kommen im Ablauf des Skills vor", func(t *testing.T) {
+		// Prüft Kennungen, nicht Formulierungen: Jedes Ergebnis, jede Blockade und jede Prüfung des Vertrags steht
+		// als `kennung` in der SKILL.md; so beschreibt der Ablauf, was der Vertrag zusagt.
+		for _, id := range []string{"ccmas-feature-parallel", "ccmas-meilenstein-abschluss", "ccmas-antworten-abholen"} {
+			ct, _ := c.Contract(id)
+			text := readRepoFile(t, ".claude/skills/"+id+"/SKILL.md")
+			var ids []string
+			for r := range ct.Results {
+				ids = append(ids, r)
+			}
+			for _, b := range ct.Blockers {
+				ids = append(ids, b.ID)
+			}
+			for _, ch := range ct.Checks {
+				ids = append(ids, ch.ID)
+			}
+			sort.Strings(ids)
+			for _, k := range ids {
+				if !strings.Contains(text, "`"+k+"`") {
+					t.Errorf("%s: Kennung `%s` des Vertrags kommt in der SKILL.md nicht vor", id, k)
+				}
+			}
+		}
+	})
+
+	t.Run("jede SKILL.md nennt den Ausführungskontext", func(t *testing.T) {
+		for _, id := range workflowSkillIDs {
+			text := readRepoFile(t, ".claude/skills/"+id+"/SKILL.md")
+			if !strings.Contains(text, "## Ausführungskontext") {
+				t.Errorf("%s: Abschnitt Ausführungskontext fehlt", id)
+			}
+		}
+	})
+}

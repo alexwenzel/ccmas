@@ -160,13 +160,22 @@ func TestSkillsShow(t *testing.T) {
 		}
 	}
 
-	_, out, _ = runSkills(t, root, "show", "ccmas-feature-parallel", "--json")
+	_, out, _ = runSkills(t, root, "show", "ccmas-neue-aufgabe-nehmen", "--json")
 	var sk skills.Skill
 	if err := json.Unmarshal([]byte(out), &sk); err != nil {
 		t.Fatalf("kein JSON: %v\n%s", err, out)
 	}
-	if sk.ID != "ccmas-feature-parallel" || sk.Status != skills.StatusPendingAdaptation || sk.Adaptation == "" ||
-		len(sk.Files) != 2 || len(sk.TreeSHA256) != 64 || sk.Source.PackageSHA256 == "" {
+	if sk.ID != "ccmas-neue-aufgabe-nehmen" || sk.Status != skills.StatusPendingAdaptation || sk.Adaptation == "" ||
+		len(sk.Files) != 1 || len(sk.TreeSHA256) != 64 || sk.Source.PackageSHA256 == "" {
+		t.Errorf("JSON = %+v", sk)
+	}
+	// Ein angepasster Workflow-Skill trägt SKILL.md und Vertrag und ist freigegeben.
+	_, out, _ = runSkills(t, root, "show", "ccmas-feature-parallel", "--json")
+	sk = skills.Skill{}
+	if err := json.Unmarshal([]byte(out), &sk); err != nil {
+		t.Fatalf("kein JSON: %v\n%s", err, out)
+	}
+	if sk.ID != "ccmas-feature-parallel" || sk.Status != skills.StatusApproved || sk.Adaptation != "" || len(sk.Files) != 2 {
 		t.Errorf("JSON = %+v", sk)
 	}
 
@@ -189,7 +198,7 @@ func TestSkillsValidate(t *testing.T) {
 	t.Run("gültiger Bestand", func(t *testing.T) {
 		root := copyCatalog(t)
 		code, out, errOut := runSkills(t, root, "validate")
-		if code != ExitOK || errOut != "" || !strings.Contains(out, "12 Skills") || !strings.Contains(out, "6 approved") ||
+		if code != ExitOK || errOut != "" || !strings.Contains(out, "12 Skills") || !strings.Contains(out, "9 approved") ||
 			!strings.Contains(out, "6 Workflow-Verträge") {
 			t.Errorf("Exit-Code %d, stdout %q, stderr %q", code, out, errOut)
 		}
@@ -205,7 +214,7 @@ func TestSkillsValidate(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &rep); err != nil {
 			t.Fatalf("kein JSON: %v\n%s", err, out)
 		}
-		if code != ExitOK || !rep.OK || rep.Skills != 12 || rep.Approved != 6 || rep.Pending != 6 || rep.Contract != 6 || rep.Findings == nil || len(rep.Findings) != 0 {
+		if code != ExitOK || !rep.OK || rep.Skills != 12 || rep.Approved != 9 || rep.Pending != 3 || rep.Contract != 6 || rep.Findings == nil || len(rep.Findings) != 0 {
 			t.Errorf("Exit-Code %d, Bericht %+v", code, rep)
 		}
 	})
@@ -391,7 +400,7 @@ func TestSkillsSnapshot(t *testing.T) {
 		t.Cleanup(func() { skills.RemoveSnapshotDir(out) })
 		var first string
 		for i := 1; i <= 2; i++ {
-			code, stdout, errOut := runSkills(t, root, "snapshot", "--role", "implementer", "--out", out)
+			code, stdout, errOut := runSkills(t, root, "snapshot", "--role", "project_setup", "--out", out)
 			if code != ExitOK || errOut != "" {
 				t.Fatalf("Aufruf %d: Exit-Code %d, stderr %q", i, code, errOut)
 			}
@@ -454,7 +463,7 @@ func TestSkillsSnapshot(t *testing.T) {
 			args []string
 			code string
 		}{
-			"pending Skill":          {[]string{"--role", "implementer", "--skill", "ccmas-feature-parallel"}, "skill_not_approved"},
+			"pending Skill":          {[]string{"--role", "supervisor", "--skill", "ccmas-neue-aufgabe-nehmen"}, "skill_not_approved"},
 			"unbekannter Skill":      {[]string{"--role", "concept", "--skill", "ccmas-gibtsnicht"}, "unknown_skill"},
 			"Rules-Skill für Prüfer": {[]string{"--role", "reviewer", "--skill", "ccmas-regeln-pflegen"}, "skill_not_allowed_for_role"},
 			"Skill nicht für Rolle":  {[]string{"--role", "implementer", "--skill", "ccmas-concept-ticket"}, "skill_not_allowed_for_role"},

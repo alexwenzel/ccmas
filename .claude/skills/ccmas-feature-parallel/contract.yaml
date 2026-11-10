@@ -1,8 +1,10 @@
 # Workflow-Vertrag (schema_version 1). Aufbau und Prüfungen: docs/architecture/workflow-rules.md.
 # Der Vertrag wählt aus den Rollenregeln (rules/roles.yaml) aus; er kann sie nicht erweitern und
 # setzt weder Worker-Limit, Integrationsmodus, Policy-Profil, Berechtigungen noch Zielbranch.
-# Zielbild: Der Implementierer arbeitet im ihm zugewiesenen Worktree; Push, PR und Merge führt die
-# Plattform erst nach dem unabhängigen Review aus (Aktion request_integration).
+# Der Implementierer arbeitet im ihm zugewiesenen Worktree und committet nur lokal (in CCMAS künftig über
+# den Go-Dienst, M04); Push und PR führt die Plattform beziehungsweise die Hauptsitzung erst nach dem
+# unabhängigen Review aus (Aktion request_integration), der Merge nie dieser Skill. Parallelität entsteht
+# über Delegationsanträge an die zentrale Steuerung, nie über eigene Agenten oder Worktrees.
 schema_version: 1
 skill: ccmas-feature-parallel
 role: implementer
@@ -12,6 +14,7 @@ inputs:
   - {name: worktree, required: true, description: "Zugewiesener Worktree auf eigenem Branch von develop"}
   - {name: concept_version, required: true, description: "Freigegebene Konzeptversion, auf der die Umsetzung beruht"}
   - {name: findings, required: false, description: "Befunde eines Reviews, wenn nachgebessert wird"}
+  - {name: integration_mode, required: false, description: "Auftragsmodus pr oder auto, nur zum Lesen; der Skill ändert ihn nie"}
 preconditions: [concept_version_approved, capacity_available]
 scope:
   within_work_order: true
@@ -20,6 +23,7 @@ scope:
 result:
   format: work_report
 checks:
+  - {id: isolated_tests, description: "Tests laufen nur gegen eigene, isolierte Ressourcen dieser Ausführung (Datenbank, Ports, temporäre Bereiche), nie gegen gemeinsame oder produktive"}
   - {id: tests_first, description: "Neue Logik hat Tests, Fehler haben einen Regressionstest, Tests spiegeln nicht nur die Implementierung"}
   - {id: repo_checks, description: "Alle Prüfungen des Repos laufen mit echtem Ergebnis, bevor der Stand gemeldet wird"}
   - {id: criteria_matched, description: "Jedes Akzeptanzkriterium ist mit Beleg abgeglichen"}
@@ -28,10 +32,12 @@ blockers:
   - {id: concept_unclear, description: "Das Konzept lässt eine Frage offen, die den Lösungsweg ändert", result: implementation_blocked}
   - {id: scope_exceeded, description: "Die Aufgabe verlangt mehr als der Auftrag erlaubt", result: implementation_blocked}
   - {id: checks_failing, description: "Eine verpflichtende Prüfung lässt sich nicht grün bekommen", result: implementation_blocked}
+  - {id: test_isolation_missing, description: "Es stehen keine isolierten Testressourcen bereit; getestet wird nicht gegen gemeinsame oder produktive", result: implementation_blocked}
 completion_criteria:
   - "Der Änderungsstand ist committet und im zugewiesenen Worktree eindeutig bestimmt (Commit-Hash)"
   - "Testergebnisse und offene Punkte sind ehrlich berichtet; Nicht-Ausführbares ist benannt"
-  - "Nichts wurde gepusht, gemergt oder außerhalb des Auftrags verändert"
+  - "Nichts wurde gepusht, gemergt oder außerhalb des Auftrags verändert; es wurden weder Agenten noch Worktrees gestartet"
+  - "Der Stand ist reif für ein unabhängiges Review; Push und PR folgen erst nach FREIGEGEBEN für genau diesen Commit"
 results:
   implemented:
     followups:

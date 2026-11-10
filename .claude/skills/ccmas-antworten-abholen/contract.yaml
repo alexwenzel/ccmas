@@ -1,12 +1,14 @@
 # Workflow-Vertrag (schema_version 1). Aufbau und Prüfungen: docs/architecture/workflow-rules.md.
 # Der Vertrag wählt aus den Rollenregeln (rules/roles.yaml) aus; er kann sie nicht erweitern und
 # setzt weder Worker-Limit, Integrationsmodus, Policy-Profil, Berechtigungen noch Zielbranch.
-# Zielbild: Fragenweg Worker, Supervisor, CCMAS-Zentrale, Supervisor, zuständiger Worker; die
-# Zentrale ist der primäre Antwortort, Asana dokumentiert ergänzend. Keine Antwort ist keine Freigabe.
+# Fragenweg Worker, Supervisor, CCMAS-Zentrale, Supervisor, zuständiger Worker; die Zentrale ist der
+# primäre Antwortort, Asana dokumentiert ergänzend (im Entwicklungsprojekt bis dahin Regel 7.8). Keine
+# Antwort ist keine Freigabe. uses_skills nennt Wissen für die Schreibabsicht (Asana, Vault); die
+# Ausführung läuft über die kontrollierten Adapter.
 schema_version: 1
 skill: ccmas-antworten-abholen
 role: question_handler
-uses_skills: [ccmas-asana-ticket]
+uses_skills: [ccmas-asana-ticket, ccmas-obsidian-seite]
 inputs:
   - {name: question, required: true, description: "Offene Frage mit ID, Auftrag, Ausführung, Kontext und Empfehlung"}
   - {name: answers, required: true, description: "Eingegangene Antworten aus der Zentrale und ergänzend aus Asana"}
@@ -29,6 +31,7 @@ completion_criteria:
   - "Jede übernommene Antwort ist genau einer Frage und einem blockierten Auftrag zugeordnet"
   - "Unklares wurde nicht angenommen, sondern als neue Rückfrage formuliert"
   - "Weder Auftragsmodus noch Umfang noch Berechtigungen wurden durch die Antwort erweitert"
+  - "Die Antwort geht an den zuständigen Worker zurück; der Skill hat weder eine Ausführung gestartet noch gemergt oder gepusht"
 results:
   answer_assigned:
     followups:

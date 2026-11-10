@@ -812,18 +812,19 @@ func TestRepoManifestMatchesFiles(t *testing.T) {
 	}
 	R := func(rs ...domain.Role) []domain.Role { return rs }
 	// Version 2: contract.yaml ergänzt (CC-33); die beiden Prüfskills sind neu in CC-33. Nachbesserung nach dem
-	// Review: concept-ticket 3, concept-review 2.
+	// Review: concept-ticket 3, concept-review 2. W33.2: feature-parallel, meilenstein-abschluss und
+	// antworten-abholen an Ort und Stelle angepasst (Version 3, approved).
 	inventory := map[string]want{
 		"ccmas-concept-ticket":        {3, StatusApproved, CategoryConcept, R("concept"), R("concept"), []string{"asana", "vault"}},
-		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation"), R("concept", "documentation"), []string{"vault"}},
+		"ccmas-obsidian-seite":        {1, StatusApproved, CategoryKnowledge, R("concept", "documentation", "completion", "question_handler"), R("concept", "documentation"), []string{"vault"}},
 		"ccmas-asana-ticket":          {1, StatusApproved, CategoryTracking, R("supervisor", "concept", "completion", "question_handler"), nil, []string{"asana"}},
 		"ccmas-regeln-pflegen":        {1, StatusApproved, CategoryRules, R("documentation"), nil, []string{"vault"}},
 		"ccmas-projekt-anlegen":       {1, StatusPendingAdaptation, CategorySetup, R("project_setup"), nil, []string{"asana", "vault"}},
 		"ccmas-neue-aufgabe-nehmen":   {1, StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, []string{"asana", "vault"}},
 		"ccmas-morgen-briefing":       {1, StatusPendingAdaptation, CategoryPlanning, R("supervisor"), nil, nil},
-		"ccmas-feature-parallel":      {2, StatusPendingAdaptation, CategoryDelivery, R("implementer"), nil, []string{"git", "github"}},
-		"ccmas-meilenstein-abschluss": {2, StatusPendingAdaptation, CategoryCompletion, R("completion"), nil, []string{"asana", "vault"}},
-		"ccmas-antworten-abholen":     {2, StatusPendingAdaptation, CategoryQuestions, R("question_handler"), nil, []string{"asana", "vault"}},
+		"ccmas-feature-parallel":      {3, StatusApproved, CategoryDelivery, R("implementer"), R("implementer"), []string{"git"}},
+		"ccmas-meilenstein-abschluss": {3, StatusApproved, CategoryCompletion, R("completion"), R("completion"), []string{"asana", "vault"}},
+		"ccmas-antworten-abholen":     {3, StatusApproved, CategoryQuestions, R("question_handler"), R("question_handler"), []string{"asana", "vault"}},
 		"ccmas-code-review":           {1, StatusApproved, CategoryReview, R("reviewer"), R("reviewer"), nil},
 		"ccmas-concept-review":        {2, StatusApproved, CategoryReview, R("concept_reviewer"), R("concept_reviewer"), nil},
 	}

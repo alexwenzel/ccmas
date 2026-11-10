@@ -165,10 +165,12 @@ Alle zwölf Schlüssel auf der obersten Ebene sind Pflicht. Go prüft gegen die 
 
 Skills mit Vertrag im Bestand und ihre Rolle: `ccmas-concept-ticket` (`concept`), `ccmas-concept-review`
 (`concept_reviewer`), `ccmas-code-review` (`reviewer`), `ccmas-feature-parallel` (`implementer`),
-`ccmas-meilenstein-abschluss` (`completion`), `ccmas-antworten-abholen` (`question_handler`). Die Verträge der drei
-Skills, deren Texte erst in W33.2 angepasst werden, beschreiben bereits das **Zielbild** (zentrale Delegation, Push und
-PR erst nach dem Review durch die Plattform, Abschluss nur mit Merge und Nachweisen, Fragenweg über die Zentrale); die
-Skills selbst bleiben bis dahin `pending_adaptation`.
+`ccmas-meilenstein-abschluss` (`completion`, zugleich Feature-Abschluss), `ccmas-antworten-abholen` (`question_handler`).
+Alle sechs sind `approved` und Standard ihrer Rolle. Seit W33.2 stimmen Text und Vertrag der drei zuletzt angepassten Skills
+überein: zentrale Delegation statt Fan-out, Push und PR erst nach dem Review, Abschluss nur mit Merge und Nachweisen,
+Fragenweg über die Zentrale, `external_writes` wie der Umfang (`ccmas-feature-parallel`: nur `git` für den lokalen Commit).
+Die Verträge von Abschluss und Fragenbearbeitung nennen `ccmas-obsidian-seite` in `uses_skills` (Wissen für die
+Schreibabsicht; Ausführung über die Adapter), der Skill ist dafür für beide Rollen erlaubt, aber nicht Standard.
 
 ## Auswerter der Plattform (`internal/skills/workflow_eval.go`)
 
@@ -225,7 +227,9 @@ Berechtigungsmodell. `external_writes` im Manifest bleibt dazu das Inventar der 
 **Nicht erzwungen** (Verantwortung bleibt bei Plattform und Prozess):
 
 - Der **Inhalt** der `SKILL.md`: dass ein Skill seinen Vertrag tatsächlich einhält, sagt kein Test. Es gibt bewusst
-  keine Textsuche nach Formulierungen. Eingehalten wird er durch die Ausführung, ihre Berechtigungen (Policy-Profil,
+  keine Textsuche nach Formulierungen; geprüft wird nur, dass die Kennungen des Vertrags (Ergebnisse, Blockaden,
+  Prüfungen) der drei in W33.2 angepassten Skills im Text als `kennung` vorkommen und jede SKILL.md einen Abschnitt
+  „Ausführungskontext“ hat. Eingehalten wird er durch die Ausführung, ihre Berechtigungen (Policy-Profil,
   Worktree-Isolation) und das Review.
 - Dass `PushAllowed`, `FeatureComplete` und die übrigen Auswerter **aufgerufen** werden: das ist Sache des
   Orchestrators (M03) und der Adapter (M05/M06). Bis dahin sind sie getestete Bausteine.
@@ -250,7 +254,5 @@ Berechtigungsmodell. `external_writes` im Manifest bleibt dazu das Inventar der 
   optionaler `commit` im Schema; beides ist eine Vertragsänderung (`contracts/`, `internal/domain`, Folgeticket).
 - **Supervisor und Dokumentationsrolle:** Die Verträge von `ccmas-supervisor` und `ccmas-work-assessment` entstehen mit
   CC-14. Die Rolle `documentation` bekommt dann ihren Eintrittspunkt.
-- **W33.2:** Anpassung der Texte von `ccmas-feature-parallel`, `ccmas-antworten-abholen` und
-  `ccmas-meilenstein-abschluss` an die Verträge; danach `status: approved`.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` sowie die
   Voraussetzungsprüfung vor einer Ausführung gehören zum Orchestrator (CC-46, M03).

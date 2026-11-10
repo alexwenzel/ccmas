@@ -1,7 +1,8 @@
 # CCMAS – Skill-Bestand, Manifest und Snapshots
 
 Stand: Ticket CC-35, Teil 1 (Katalog, Manifest, Snapshot, CLI) und Teil 2 (Einbringung in die Laufzeit), ergänzt um
-CC-33, Teil 1 (Workflow-Verträge, Rollenregeln, Prüfskills; siehe [`workflow-rules.md`](workflow-rules.md)). **Führend ist die Spezifikation**
+CC-33, Teil 1 (Workflow-Verträge, Rollenregeln, Prüfskills; siehe [`workflow-rules.md`](workflow-rules.md)) und
+Teil 2 (W33.2: `feature-parallel`, `meilenstein-abschluss` und `antworten-abholen` an Ort und Stelle angepasst). **Führend ist die Spezifikation**
 „Multi Agent Setup“, Abschnitt „Skills, Regeln und Rollen“ (Entscheidungen des Projektinhabers vom 09.11. und
 10.11.2026). Diese Datei hält fest, wie das Repository den Bestand führt und prüft; sie ist keine Kopie der
 Spezifikation.
@@ -20,7 +21,7 @@ Spezifikation.
 - Der frühere Platzhalter `skills/` (nur `.gitkeep`) ist entfallen (Entscheidung 10.11.2026). Das Ticket nannte noch
   `skills/manifest.yaml`; das gilt nicht mehr.
 
-## Inventar (Stand CC-33, Teil 1)
+## Inventar (Stand CC-33, Teil 2)
 
 Die zehn ursprünglichen Skills sind inhaltsgleich zum Original bis auf das Präfix `ccmas-` in Namen und Querverweisen
 (Ableitung 2026-11-09, Version 1). Zusätzlich: `feature-parallel` und `neue-aufgabe-nehmen` ohne YAML-Anführungszeichen im
@@ -30,23 +31,32 @@ zwei neuen Prüfskills `ccmas-concept-review` und `ccmas-code-review` (Version 1
 Bei `ccmas-concept-ticket` änderte sich außerdem die `SKILL.md` (Einstufung routine/strategisch, Konzeptprüfung,
 Ausführungskontext; Version 3 nach dem Review: Status `review` bis zur Freigabe des Konzeptprüfers beziehungsweise
 Projektinhabers, Routineweg nach FREIGEGEBEN und BEFUNDE). `ccmas-concept-review` Version 2: Bericht bezieht sich auf
-die Konzeptversion, `commit` ist nur Bezugsstand; Konzeptschleife mit dem Reparaturbudget der Code-Schleife. Die `SKILL.md` von `feature-parallel`, `meilenstein-abschluss` und `antworten-abholen` ist
-unverändert; ihre Textanpassung folgt in W33.2 (`pending_adaptation`).
+die Konzeptversion, `commit` ist nur Bezugsstand; Konzeptschleife mit dem Reparaturbudget der Code-Schleife.
+
+Mit W33.2 (Entscheidung des Projektinhabers vom 10.11.2026: Anpassung an Ort und Stelle, keine englischen Doppelungen,
+keine neuen Skills) wurden `ccmas-feature-parallel`, `ccmas-meilenstein-abschluss` (zugleich Feature-Abschluss) und
+`ccmas-antworten-abholen` auf ihre CCMAS-Form gebracht: Version 3, `approved`, `default_for` jeweils ihre Rolle. Neu
+in den Texten: Ausführungskontext (CCMAS: Plattform führt Schreibaktionen über Adapter aus und startet allein
+Ausführungen; Entwicklungssitzung: Hauptsitzung nach Regeldatei und Repo-`CLAUDE.md`); `feature-parallel` ohne eigenes
+Fan-out und ohne `gh pr merge`, mit Review vor jedem Push; `meilenstein-abschluss` ohne GitHub-Milestones, Termine und
+Verschieben (Regel 7.7); `antworten-abholen` mit dem Fragenweg über die Zentrale. `ccmas-obsidian-seite` ist zusätzlich für
+die Rollen `completion` und `question_handler` erlaubt (nicht als Standard, Inhalt und Version unverändert), weil die
+Verträge von Abschluss und Fragenbearbeitung sie als `uses_skills` nennen.
 
 | Skill | Version | roles | status / Anpassung | category | default_for | external_writes | tree_sha256 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ccmas-concept-ticket` | 3 | concept | approved | concept | concept | asana, vault | `aa4539d916264dde641aa64951e3e6636fbfdd5d4b9ae16d7ebfed56d1f8d162` |
 | `ccmas-concept-review` | 2 | concept_reviewer | approved (neu in CC-33) | review | concept_reviewer | – | `6b14e2d3c2c3f33b7e15e1cd5574c8732744f7255fe73946dbf0578c2acf7898` |
 | `ccmas-code-review` | 1 | reviewer | approved (neu in CC-33) | review | reviewer | – | `60797c5af7f5d43ced4827b6d668911da9b58343f17fb2cfee3f545fce300c9d` |
-| `ccmas-obsidian-seite` | 1 | concept, documentation | approved | knowledge | concept, documentation | vault | `1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7` |
+| `ccmas-obsidian-seite` | 1 | concept, documentation, completion, question_handler | approved (completion und question_handler erlaubt, kein Standard) | knowledge | concept, documentation | vault | `1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7` |
 | `ccmas-asana-ticket` | 1 | supervisor, concept, completion, question_handler | approved (für concept nur auf ausdrückliche Anforderung, daher kein Standard) | tracking | – | asana | `fd600476d4883c3ef56b58a70c1a37d61d95194d33fb98f0f29588cbc2ea4556` |
 | `ccmas-regeln-pflegen` | 1 | documentation | approved (nur auf ausdrücklichen Auftrag, daher kein Standard) | rules | – | vault | `8986c0c0b04be22d478d9c270c44d90a6a1648ee5efd65c0290a6366e5d512fd` |
 | `ccmas-projekt-anlegen` | 1 | project_setup | pending: Zuschnitt auf lokale Projektzuordnung (M07) | setup | – | asana, vault | `7385b9f448ec150e60749af2b8bb46edfd82ab372bdf305e6fd6fd29b03d5bf0` |
 | `ccmas-neue-aufgabe-nehmen` | 1 | supervisor | pending: Anpassung an die Supervisor-Planung (CC-14) | planning | – | asana, vault | `c6c4138891c148fa20d2d09cbfe73b8a25753d424678887d279ab546e93bb9b2` |
 | `ccmas-morgen-briefing` | 1 | supervisor | pending: Anpassung an die Supervisor-Planung (CC-14) | planning | – | – | `1b95c0137ffad7ae2508ab7982e22594b4208c030651e1b43ae6f190d783a92b` |
-| `ccmas-feature-parallel` | 2 | implementer | pending: zentrale Delegation statt Fan-out, Review vor Push (CC-33, W33.2) | delivery | – | git, github | `8851654a25ac700777cc49a42ac4b93c89a67b63f69ae8820d5645c869b32608` |
-| `ccmas-meilenstein-abschluss` | 2 | completion | pending: PR-/Auto-Modus, Feature-Abschluss, keine GitHub-Milestones und Termine (CC-33, W33.2) | completion | – | asana, vault | `b0bf24fa158e3ff41773fad85acf5fb4f2b239f673a1a7e803db2ecb79fa16aa` |
-| `ccmas-antworten-abholen` | 2 | question_handler | pending: Fragenweiterleitung über die Zentrale, PR-/Auto-Modus (CC-33, W33.2) | questions | – | asana, vault | `dec8129c344dcef5571b38dfcfa18db222027017f71ebf5cad68e5c4a1955bee` |
+| `ccmas-feature-parallel` | 3 | implementer | approved (W33.2) | delivery | implementer | git | `5a6f547cacb7b9caf04272d47a4c916bfcbf0f0c2ccbe065b59e978a12d122ec` |
+| `ccmas-meilenstein-abschluss` | 3 | completion | approved (W33.2) | completion | completion | asana, vault | `221578e620cdd0086555b8af87300a92cd1be8886135f0a64b5243baaf675417` |
+| `ccmas-antworten-abholen` | 3 | question_handler | approved (W33.2) | questions | question_handler | asana, vault | `1f31038da696f751edab4c04496d0e8d04b143c32875b96e7863804731cf3a44` |
 
 Workflow-Skills sind die sechs Skills der Kategorien `concept`, `review`, `delivery`, `completion` und `questions`; sie
 haben eine `contract.yaml` (Aufbau und Prüfung: [`workflow-rules.md`](workflow-rules.md)). Hilfsskills haben keinen Vertrag.
@@ -55,6 +65,9 @@ Die Standardausstattung des Konzept-Agenten besteht nur aus `ccmas-concept-ticke
 Spezifikation (Tabelle „Rollen und Ergebnisse“) nur diese beiden nennt; `ccmas-asana-ticket` bleibt für `concept`
 erlaubt (`ccmas-concept-ticket` verweist darauf), wird aber nur auf ausdrückliche Anforderung bereitgestellt. Der Konzeptprüfer
 erhält `ccmas-concept-review`, der Reviewer `ccmas-code-review`; beide sind reine Lese-/Prüfskills ohne Schreibzugriffe.
+Seit W33.2 erhalten außerdem der Implementierer `ccmas-feature-parallel`, die Abschlussrolle `ccmas-meilenstein-abschluss`
+und die Fragenbearbeitung `ccmas-antworten-abholen` ihre Skills als Standard; jede Workflow-Rolle hat damit ihren
+Workflow-Skill in der Standardausstattung (Test `TestWorkflowSkillsAreAdapted`).
 
 `external_writes` sagt, in welche Systeme ein Skill nach seinem Inhalt schreiben lässt. Das ist eine
 Inventarangabe für die späteren Adapter und **keine Berechtigung**: Asana-, Vault- und Git-Schreibvorgänge laufen
@@ -164,7 +177,8 @@ prüft den Code; mehrere Befunde sind `skills.Findings`.
 - `Resolve` liest die Dateien der gewählten Skills **neu** und vergleicht sie mit den Manifest-Hashes; eine Änderung
   nach `Load` wird als `changed_resource`, `missing_resource` oder `unlisted_resource` erkannt. Ein Snapshot enthält
   die dabei gelesenen und geprüften Bytes, nicht eine zweite Lesung.
-- Die Standardausstattung einer Rolle enthält nie einen pending-Skill; Prüfrollen erhalten nie `rules`- oder
+- Die Standardausstattung einer Rolle enthält nie einen pending-Skill; die Kategorien `delivery`, `completion` und
+  `questions` enthalten seit W33.2 keinen pending-Skill mehr; Prüfrollen erhalten nie `rules`- oder
   `delivery`-Skills (Manifest-Invariante plus Test gegen den echten Bestand). Seit CC-33 hat `reviewer` die
   Standardausstattung `ccmas-code-review` und `concept_reviewer` `ccmas-concept-review`.
 
@@ -285,9 +299,12 @@ nur das Schreibschutz-Layout (0444/0555), eine zweite Prüfung gibt es nicht.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` werden vom
   Orchestrator über `Resolve` aufgelöst; der heutige `domain.Catalog.Skills` (reine ID-Menge) wird aus dem Katalog
   gespeist.
-- **Anpassungen der pending-Skills:** CC-33, W33.2 (`feature-parallel`, `meilenstein-abschluss`, `antworten-abholen`: Texte
-  an die bereits vorhandenen Verträge anpassen, dann `approved`), CC-14 (`neue-aufgabe-nehmen`, `morgen-briefing`, neue
-  Skills `ccmas-supervisor` und `ccmas-work-assessment`), M07 (`projekt-anlegen`). Konzeptprüfer und Reviewer haben seit
-  CC-33 ihre Skills (`ccmas-concept-review`, `ccmas-code-review`).
+- **Anpassungen der pending-Skills:** W33.2 ist erledigt (`feature-parallel`, `meilenstein-abschluss`,
+  `antworten-abholen`). Offen: CC-14 (`neue-aufgabe-nehmen`, `morgen-briefing`, neue Skills `ccmas-supervisor` und
+  `ccmas-work-assessment`), M07 (`projekt-anlegen`). Konzeptprüfer und Reviewer haben seit CC-33 ihre Skills
+  (`ccmas-concept-review`, `ccmas-code-review`).
+- **Adapter statt direkter Schreibzugriffe:** Die Texte der angepassten Skills nennen die Zentrale (`ccmas question`),
+  den Go-Dienst für Commits (M04) und die kontrollierten Adapter als Ziel; bis sie verfügbar sind, gilt in der
+  Entwicklungssitzung die Regeldatei (Regel 7.8 für Antworten über Asana).
 - **Regeln:** `rules/roles.yaml` ist maschinenlesbarer Auszug der Regeldatei und wird von `skills.LoadRules`/`LoadChecked`
   geprüft, nicht von `skills.Load` ([`workflow-rules.md`](workflow-rules.md)). Ein Befehl `ccmas rules` bleibt geplant.

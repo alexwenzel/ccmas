@@ -1,12 +1,15 @@
 # Workflow-Vertrag (schema_version 1). Aufbau und Prüfungen: docs/architecture/workflow-rules.md.
 # Der Vertrag wählt aus den Rollenregeln (rules/roles.yaml) aus; er kann sie nicht erweitern und
 # setzt weder Worker-Limit, Integrationsmodus, Policy-Profil, Berechtigungen noch Zielbranch.
-# Zielbild: Abschluss verlangt bestätigte Integration (Merge), Review-, Test- und CI-Nachweise sowie
-# nachgezogenen Aufgaben- und Wissensstand. Ein offener PR ist der Wartezustand waiting_integration.
+# Abschluss eines Features oder Meilensteins verlangt bestätigte Integration (Merge), Review-, Test- und
+# CI-Nachweise sowie nachgezogenen Aufgaben- und Wissensstand. Ein offener PR ist der Wartezustand
+# waiting_integration. Meilensteine gibt es nur in Asana (Regel 7.7): keine GitHub-Milestones, keine
+# Termine. uses_skills nennt Wissen für die Schreibabsicht (Asana, Vault); die Ausführung läuft über die
+# kontrollierten Adapter.
 schema_version: 1
 skill: ccmas-meilenstein-abschluss
 role: completion
-uses_skills: [ccmas-asana-ticket]
+uses_skills: [ccmas-asana-ticket, ccmas-obsidian-seite]
 inputs:
   - {name: work_order, required: true, description: "Abschlussauftrag für ein Feature oder einen Meilenstein"}
   - {name: scope, required: true, description: "Art des Abschlusses: feature oder milestone"}
@@ -23,15 +26,18 @@ checks:
   - {id: criteria_matched, description: "Die fachlichen Kriterien sind Punkt für Punkt mit Beleg abgeglichen"}
   - {id: merge_confirmed, description: "Der Merge nach develop ist bestätigt; ein offener PR genügt nicht"}
   - {id: evidence_complete, description: "Review-, Test- und CI-Nachweise liegen vor und gehören zum integrierten Stand"}
+  - {id: goal_verified, description: "Bei einem Meilenstein ist das übergeordnete Ergebnisziel tatsächlich geprüft; eine leere Warteschlange oder fertige, aber ungemergte PRs genügen nicht"}
   - {id: state_synced, description: "Aufgaben- und Wissensstand sind auf den tatsächlichen Stand gebracht"}
 blockers:
   - {id: pr_open, description: "Der PR ist offen und wartet auf Merge; das ist der Wartezustand waiting_integration", result: waiting_integration}
   - {id: evidence_missing, description: "Ein Nachweis fehlt oder gehört zu einem anderen Stand", result: incomplete}
+  - {id: children_open, description: "Bei einem Meilenstein sind zugehörige Tickets noch nicht erledigt (gemergt, nicht nur PR offen)", result: incomplete}
   - {id: owner_acceptance_missing, description: "Bei einem Meilenstein fehlt die Abnahme durch den Projektinhaber", result: incomplete}
 completion_criteria:
   - "Der Abschluss ist nur gemeldet, wenn Integration, Nachweise, Aufgaben- und Wissensstand belegt sind"
   - "Fehlendes und nicht Geprüftes ist einzeln benannt und nicht als erfüllt geführt"
   - "Der Auftragsmodus wurde nicht verändert, der Umfang nicht erweitert"
+  - "Es gibt weder GitHub-Milestones noch Termine noch Verschieben; ein Meilenstein ist nur mit Abnahme über die Freigabe-Unteraufgabe geschlossen"
 results:
   completed:
     followups:

@@ -33,7 +33,7 @@ skills:
     version: 1
     status: approved
     category: knowledge
-    roles: [concept, documentation]
+    roles: [concept, documentation, completion, question_handler]
     default_for: [concept, documentation]
     external_writes: [vault]
     tree_sha256: 1abc8b0cdaed7ac803bee01a5d37947b7b9e73f8982f87559a4b1a30f6ef78b7
@@ -46,7 +46,7 @@ skills:
       package: Fachwissen/Claude/Skills/obsidian-seite.skill
       package_sha256: 2ee3df6d1a0ca4ebf55e4371fb1aea84b5c4a50faf82321e647a472e35c1cfeb
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. scripts/linkcheck.py ist identisch zum Original."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. scripts/linkcheck.py ist identisch zum Original. CC-33 (W33.2): zusätzlich für die Rollen completion und question_handler erlaubt (Wissensnachträge in Abschluss und Fragenbearbeitung), nicht als Standard; Inhalt unverändert."
   - id: ccmas-asana-ticket
     version: 1
     status: approved
@@ -131,62 +131,59 @@ skills:
       derived: "2026-11-09"
       changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen."
   - id: ccmas-feature-parallel
-    version: 2
-    status: pending_adaptation
-    adaptation: "CC-33: zentrale Delegation statt Fan-out, Review vor Push"
+    version: 3
+    status: approved
     category: delivery
     roles: [implementer]
-    default_for: []
-    external_writes: [git, github]
-    tree_sha256: 8851654a25ac700777cc49a42ac4b93c89a67b63f69ae8820d5645c869b32608
+    default_for: [implementer]
+    external_writes: [git]
+    tree_sha256: 5a6f547cacb7b9caf04272d47a4c916bfcbf0f0c2ccbe065b59e978a12d122ec
     files:
       - path: SKILL.md
-        sha256: 2c9e649d99da8861eb5bf180a00f1b27ca07f8dd3574c17d2ad3a134e1431200
+        sha256: f18501d6b95523fcdc5ea5331c22619fe3c40a10ed1019d1be778a2f9dc5e8f7
       - path: contract.yaml
-        sha256: f80aa391c91eb47510de08f4a7dec1be903e5f2b01cda420c26fa3ddac2894f2
+        sha256: 2175a8832bbdcc962ac0a914ca4df4a77e46b2dee3526850c94e9951a3f18f51
     source:
       package: Fachwissen/Claude/Skills/feature-parallel.skill
       package_sha256: 83a4d21dc72efa6e3453e100a675ebc7b89357e8ff0bed0f6dbc7993a555dbf3
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. Zusätzlich YAML-Anführungszeichen im Frontmatter entfernt. CC-33: contract.yaml (Workflow-Vertrag) ergänzt. W33.2: SKILL.md an Ort und Stelle auf die CCMAS-Form gebracht: kein eigenes Fan-out (keine Subagenten, keine eigenen Worktrees), Parallelität über Delegationsanträge an die zentrale Steuerung, Arbeit im zugewiesenen develop-basierten Worktree mit isolierten Testressourcen und lokalem Commit, unabhängiges Review über ccmas-code-review vor jedem Push, Integrationsmodus wie im Auftrag (PR Standard, Auto nur ausdrücklich); eigener Merge per gh pr merge und die projektspezifische Docker-/Postgres-Vorlage entfernt; external_writes nur noch git (lokaler Commit)."
   - id: ccmas-meilenstein-abschluss
-    version: 2
-    status: pending_adaptation
-    adaptation: "CC-33: PR-/Auto-Modus, Feature-Abschluss, keine GitHub-Milestones und Termine"
+    version: 3
+    status: approved
     category: completion
     roles: [completion]
-    default_for: []
+    default_for: [completion]
     external_writes: [asana, vault]
-    tree_sha256: b0bf24fa158e3ff41773fad85acf5fb4f2b239f673a1a7e803db2ecb79fa16aa
+    tree_sha256: 221578e620cdd0086555b8af87300a92cd1be8886135f0a64b5243baaf675417
     files:
       - path: SKILL.md
-        sha256: 7266ba2bd57d506ae9c96cdc9f7bfe4ee45386e1260a0eb13de0b3a98a4d10f8
+        sha256: 790b0346b2b75049cac90f06757113264df0f92b7d69e34a75770273141e24b1
       - path: contract.yaml
-        sha256: 129c7066fff5b3521c46692c05fe219f59caa53a02d23589c9c23b794f5fc6ad
+        sha256: 39b7db89c3a62b2369d1d2ab276b7422a88a1c778308e163be1b2553ec9fd4ef
     source:
       package: Fachwissen/Claude/Skills/meilenstein-abschluss.skill
       package_sha256: 168cdc363814ea7444a97b2c0df8ad0722dc9cf2aea5c212d895fc2ef873dc87
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt. W33.2: SKILL.md an Ort und Stelle auf die CCMAS-Form gebracht und um den Feature-Abschluss erweitert: Abschluss nur mit bestätigter Integration, Review-/Test-/CI-Nachweisen und nachgezogenem Asana- und Wissensstand, offener PR als Wartezustand, PR-Modus wartet auf menschlichen Merge (Auto nur ausdrücklich), Meilensteine nur in Asana mit Abnahme über eine Freigabe-Unteraufgabe; GitHub-Milestones, Termine und Verschieben (Regel 7.7) entfernt."
   - id: ccmas-antworten-abholen
-    version: 2
-    status: pending_adaptation
-    adaptation: "CC-33: Fragenweiterleitung über die Zentrale, PR-/Auto-Modus"
+    version: 3
+    status: approved
     category: questions
     roles: [question_handler]
-    default_for: []
+    default_for: [question_handler]
     external_writes: [asana, vault]
-    tree_sha256: dec8129c344dcef5571b38dfcfa18db222027017f71ebf5cad68e5c4a1955bee
+    tree_sha256: 1f31038da696f751edab4c04496d0e8d04b143c32875b96e7863804731cf3a44
     files:
       - path: SKILL.md
-        sha256: 66176a0293521d14f5124ca1a399095e799a1bed07eb88a218ed664f4bbff5fc
+        sha256: 82535016a6e78e5ef6c3e2995bd949d4fde04bc135687a0b8756dc54a98404ea
       - path: contract.yaml
-        sha256: 4ca64e2a82b453f6cf5d6920b698e157caf99c0dd5b27d92d9c813ee0f4a4212
+        sha256: 165b018490a7114e5633eaa53e614a720bcfc81ecd3966a9d78e56993df5ea3e
     source:
       package: Fachwissen/Claude/Skills/antworten-abholen.skill
       package_sha256: 2870c248baf8b1e13ec8730dcfbee0c89c38b3e54e63a368198b583386ce0f72
       derived: "2026-11-09"
-      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt; SKILL.md unverändert, Textanpassung folgt."
+      changes: "Inhaltsgleich bis auf das Präfix ccmas- in Namen und Querverweisen. CC-33: contract.yaml (Workflow-Vertrag) ergänzt. W33.2: SKILL.md an Ort und Stelle auf die CCMAS-Form gebracht: Fragenweg Worker, Supervisor, Zentrale, Supervisor, zuständiger Worker; Zentrale als primärer Antwortort mit Asana ergänzend (bis dahin Regel 7.8), Zuordnung zur blockierten Arbeit mit Bestätigung, keine Antwort ist keine Freigabe, veraltete oder widersprüchliche Antworten nicht stillschweigend übernehmen, gesetzter PR-/Auto-Modus nie erweitert; Board-Pflege auf die Entwicklungssitzung begrenzt, GitHub-Milestones und Termine entfernt."
   - id: ccmas-concept-review
     version: 2
     status: approved
