@@ -1,6 +1,6 @@
 # CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35, CC-46, CC-14)
 
-Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46 und Abschnitt 11 (Systemprompt und strukturierte Ausgabe im Runner) mit CC-14, Teil W14.2. Führend ist die Spezifikation
+Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46, Abschnitt 11 (Systemprompt und strukturierte Ausgabe im Runner) mit CC-14, Teil W14.2, und Abschnitt 12 (Supervisor-Szenarien mit dem Supervisorprofil) mit CC-14, Teil W14.3. Führend ist die Spezifikation
 „Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
 (Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
@@ -17,7 +17,7 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Start mit lokalem Binary und eigener Anmeldung | Echte Sitzung über `python -m claude_sdk_runner` und `ClaudeSDKClient`, `cli_path` = lokales Binary, `apiKeySource: none`, Anmeldeart claude.ai (Beleg `live-roundtrip.jsonl`) | andere CLI-Versionen, auch die im SDK gebündelte 2.1.321 | – |
 | Ereignisstrom | `session_started`, `activity`, `tool_event` (started, finished, failed), genau ein `result` (Belege) | Teilnachrichten-Streaming (`include_partial_messages`) – M04 | – |
 | Wirksame Konfiguration | Modell, Berechtigungsmodus, CLI-Pfad und -Version, Anmeldeart kommen aus dem Init-Frame der CLI beziehungsweise der Vorprüfung | **Wirksames Effort:** der Init-Frame enthält kein Effort-Feld, der Runner meldet nur den übergebenen Wert | – |
-| Strukturierte Ausgabe | `output_format` (JSON-Schema) liefert `ResultMessage.structured_output` (Beleg `live-structured-output.jsonl`, Abschnitt 8). **Im Runner angebunden seit CC-14:** `start.output_schema` → `output_format`, `result.structured_output`, eigene Fehlercodes; mit Fake-Client getestet, live ein Rauchlauf des Planers durch den echten Runner (Beleg `live-supervisor-planner.jsonl`, Abschnitt 11) | `error_max_structured_output_retries` und ein Schemaverstoß der Ausgabe nur mit Fake-Client, nicht live; größere Schemata als das Planungsschema (rund 3,6 KiB); Zusammenspiel mit Schreibprofilen | – |
+| Strukturierte Ausgabe | `output_format` (JSON-Schema) liefert `ResultMessage.structured_output` (Beleg `live-structured-output.jsonl`, Abschnitt 8). **Im Runner angebunden seit CC-14:** `start.output_schema` → `output_format`, `result.structured_output`, eigene Fehlercodes; mit Fake-Client getestet, live ein Rauchlauf des Planers durch den echten Runner (Beleg `live-supervisor-planner.jsonl`, Abschnitt 11) und acht weitere Sitzungen mit dem Supervisorprofil (opus/high), jeweils mit gültig lesbarer Ausgabe (Belege `evidence/supervisor/*.json`, Abschnitt 12) | `error_max_structured_output_retries` und ein Schemaverstoß der Ausgabe nur mit Fake-Client, nicht live; größere Schemata als das Planungsschema (rund 3,6 KiB); Zusammenspiel mit Schreibprofilen | – |
 | Systemprompt | Eigener Systemprompt je Auftrag (`start.system_prompt`) erreicht das Modell: live gezeigt mit einer Kennung im Prompt, die in der Ausgabe erscheint (Abschnitt 11). Ohne Angabe `--system-prompt ""` (am SDK-Quelltext belegt) | wirksamer Prompt der CLI selbst (nicht gemessen, nur über das Verhalten des Modells belegt) | – |
 | Interrupt/Stop | Interrupt über das Protokoll während eines laufenden Bash-Prozesses: Prozess beendet, genau ein terminales `result` mit `cancelled` (Beleg `live-interrupt.jsonl`) | Stop als eigener Sitzungsabschluss (der Runner behandelt `stop` wie `interrupt`); Prozessbaum bei Schlaf/Absturz | – |
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
@@ -664,6 +664,23 @@ echten Katalog) und `output_schema` (`ModelOutputSchema()`); Policy `readonly`, 
 
 **Grenzen.** Das ist ein Rauchlauf der Durchleitung, kein Szenariobeleg und kein Beleg für die Planungsqualität (die Szenarien folgen in W14.3). Eine Sitzung genügt nicht, um das Verhalten bei Schemaverstoß oder
 erschöpften Nachbesserungen live zu zeigen. Dass der Prompt das Modell erreicht, folgt aus dem Verhalten des Modells (Kennung in der Ausgabe), nicht aus einer Messung der CLI.
+
+## 12. Supervisor-Szenarien mit dem Supervisorprofil (CC-14, W14.3)
+
+Frage: Trägt die Kette Go-Planer, Go-Adapter, Python-Runner, SDK und Claude Code auch mit dem **Supervisorprofil der Beispielkonfiguration** (opus/high, keine Overrides), dem echten Skill-Snapshot der Rolle `supervisor` und realistisch großen Zuständen (10 bis 11 KiB) über mehrere Sitzungen? Die fachliche Auswertung (Pläne, Prädikate, Bewertung für M02) steht in [`supervisor.md`](supervisor.md), Abschnitt „Nachweis M02“.
+
+**Lauf am 2026-11-10** (`claude-agent-sdk` 0.2.180, Claude Code 2.1.311, Max-Anmeldung; Aufruf `CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios -count=1 -timeout 90m -v`): **8 echte Sitzungen** (Belege `evidence/supervisor/S1.json`, `S2-routine.json`, `S2-strategisch.json`, `S3.json`, `S4.json`, `S5.json`, `S6.json`, Session-IDs dort und in `supervisor.md`).
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Modell | in allen 8 Sitzungen `claude-opus-5-5` laut `session_started`, angefordert `claude-opus-5-5`, Herkunft `role` (kein Override) |
+| Effort | `high` angefordert (Rollenstandard); **nicht gemessen**, das SDK meldet ihn nicht |
+| Skill-Snapshot | `session_started.skills` = `ccmas-supervisor`, `ccmas-work-assessment`, `skill_snapshot_id` gleich der von Go geschriebenen Kennung in allen 8 Sitzungen (derselbe Snapshot: gleicher Katalog) |
+| strukturierte Ausgabe | in allen 8 Sitzungen gültig lesbar und vom Validator geprüft; kein `structured_output_*`-Fehler, keine Neuplanung wegen fehlender Ausgabe |
+| Dauer | 7 bis 13 Sekunden je Sitzung, Zustand im Prompt 10,4 bis 11,2 KiB |
+| Fehler | kein Abo-Limit, keine Zeitüberschreitung, kein Prozessfehler; keine Wiederholung nach Infrastrukturfehler |
+
+**Grenzen.** Der wirksame Effort bleibt nicht belegt. Das Abo-Limit, `structured_output_*`-Fehler und ein Schemaverstoß der Ausgabe sind weiterhin nur mit Fake-Client beziehungsweise Fake-Runtime belegt. Das Verhalten bei Zuständen nahe am Kontextbudget (64 KiB) ist mit dem echten Modell nicht gezeigt.
 
 ## Offene Punkte für M04 (CC-40) und folgende
 

@@ -169,6 +169,18 @@ func TestPlannerReplansAfterARejectionAndReturnsTheRejectionTextInTheNextPrompt(
 	if second.Verdict != VerdictAccepted || !second.Replan || first.Replan {
 		t.Errorf("zweiter Versuch = %+v", second)
 	}
+	// Die Ablehnungen stehen strukturiert im Versuch (Code, Entscheidung, Begründung), nicht nur als Text.
+	if len(first.Rejections) == 0 || len(second.Rejections) != 0 {
+		t.Fatalf("Ablehnungen des ersten Versuchs = %+v, des zweiten = %+v", first.Rejections, second.Rejections)
+	}
+	for _, r := range first.Rejections {
+		if r.Code == "" || strings.TrimSpace(r.Reason) == "" || !strings.Contains(first.RejectionText, r.Reason) {
+			t.Errorf("Ablehnung %+v unvollständig oder nicht im Text", r)
+		}
+	}
+	if first.Rejections[0].Code != CodePreconditionUnmet || first.Rejections[0].DecisionID != "dec-1" {
+		t.Errorf("erste Ablehnung = %+v", first.Rejections[0])
+	}
 	p1, p2 := e.rt.reqs[0].Prompt, e.rt.reqs[1].Prompt
 	if strings.Contains(p1, "Rückmeldung zum letzten Versuch") {
 		t.Error("der erste Prompt trägt schon eine Rückmeldung")
@@ -212,6 +224,18 @@ func TestPlannerReplansOnAStaleRevisionWithAFreshSnapshot(t *testing.T) {
 	}
 	if res.Batch.StateRevision != 8 {
 		t.Errorf("angenommener Plan beruht auf Revision %d", res.Batch.StateRevision)
+	}
+	// Das Protokoll hält den gestempelten Batch und den Zustand fest, gegen den geprüft wurde: Revision 7 des Batches, aber
+	// Zustand mit Revision 8; der Hash des Planungs-Snapshots (7) und des Prüfzustands (8) unterscheiden sich.
+	if first.StampedBatch == nil || first.StampedBatch.StateRevision != 7 || first.StampedBatch.Decisions[0].StateRevision != 7 {
+		t.Fatalf("gestempelter Batch des ersten Versuchs = %+v", first.StampedBatch)
+	}
+	freshJSON, _ := json.Marshal(fresh)
+	if first.CurrentSnapshotSHA256 != sha256Hex(freshJSON) || first.CurrentSnapshotSHA256 == first.SnapshotSHA256 {
+		t.Errorf("Hash des Prüfzustands %s, des Planungs-Snapshots %s", first.CurrentSnapshotSHA256, first.SnapshotSHA256)
+	}
+	if second := res.Attempts[1]; second.CurrentSnapshotSHA256 != second.SnapshotSHA256 || second.StampedBatch == nil || second.StampedBatch.StateRevision != 8 {
+		t.Errorf("zweiter Versuch: Prüfzustand %s, Planungs-Snapshot %s", second.CurrentSnapshotSHA256, second.SnapshotSHA256)
 	}
 }
 

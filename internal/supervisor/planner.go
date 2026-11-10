@@ -340,6 +340,9 @@ func (p *Planner) attempt(ctx context.Context, n int, planning ProjectSnapshot, 
 	}
 	rec.CurrentRevision = current.StateRevision
 	rec.Stale = current.StateRevision != planning.StateRevision
+	if curJSON, err := json.Marshal(current); err == nil {
+		rec.CurrentSnapshotSHA256 = sha256Hex(curJSON)
+	}
 
 	batch, derr := decodeModelBatch(raw)
 	if derr != nil {
@@ -350,6 +353,8 @@ func (p *Planner) attempt(ctx context.Context, n int, planning ProjectSnapshot, 
 		return p.rejected(rec, current, raw, rej)
 	}
 	batch = stamp(batch, planning, n)
+	stamped := batch
+	rec.StampedBatch = &stamped
 	vb, err := Validator{}.Accept(batch, current, p.cfg.Policy)
 	if err != nil {
 		rej, ok := AsRejection(err)
@@ -365,6 +370,7 @@ func (p *Planner) attempt(ctx context.Context, n int, planning ProjectSnapshot, 
 func (p *Planner) rejected(rec Attempt, current ProjectSnapshot, raw []byte, rej *RejectionError) (attemptState, outcome) {
 	rec.Verdict = VerdictRejected
 	rec.RejectionCodes, rec.RejectionText = rej.Codes(), rej.Error()
+	rec.Rejections = slices.Clone(rej.Rejections)
 	return attemptState{rec}, outcome{next: current, feedback: &feedback{text: rej.Error(), batch: raw}}
 }
 

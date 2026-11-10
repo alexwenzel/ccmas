@@ -208,6 +208,12 @@ func TestScenarioPlanContract(t *testing.T) {
 			{name: "schlecht: neuer Auftrag im Modus auto", batch: batch(planAuto("dec-1"), wait("dec-2", scenario.S5A)), wantViolation: "Modus auto", valid: false},
 			{name: "schlecht: kein wait", batch: batch(planPR("dec-1")), wantViolation: "kein wait", valid: true},
 		},
+		scenario.S6: {
+			{name: "gut: Integration des freigegebenen Auftrags", batch: batch(integration("dec-1", scenario.S6A)), valid: true},
+			{name: "schlecht: kein Integrationsauftrag, nur warten", batch: batch(wait("dec-1", scenario.S6A)), wantViolation: "0 Integrationsanforderungen", valid: true},
+			{name: "schlecht: erneutes Review des freigegebenen Stands", batch: batch(integration("dec-1", scenario.S6A), review("dec-2", scenario.S6A)), wantViolation: "freigegebenen Auftrag", valid: false},
+			{name: "schlecht: Zielabschluss", batch: batch(integration("dec-1", scenario.S6A), completion("dec-2")), wantViolation: "Zielabschluss", valid: false},
+		},
 	}
 
 	for _, id := range scenario.IDs() {
@@ -352,5 +358,71 @@ func TestSnapshotsAreSyntheticAndDistinct(t *testing.T) {
 	}
 	if o := e.snap[scenario.S4].Orders[0]; o.LastReview.Report.Verdict != domain.VerdictFindings || o.CodeRepairRounds >= 3 {
 		t.Errorf("S4 entspricht nicht dem Szenario: %+v", o)
+	}
+}
+
+// TestEvaluateDetailedNamesTheViolatedPredicate: Das Ergebnis je Prädikat nennt, welches Prädikat verletzt ist, und stimmt
+// mit der flachen Liste der Verstöße überein.
+func TestEvaluateDetailedNamesTheViolatedPredicate(t *testing.T) {
+	e := newEnv(t)
+	for _, id := range scenario.IDs() {
+		names := map[string]bool{}
+		for _, p := range scenario.Predicates(id) {
+			if p.Name == "" || p.Statement == "" || names[p.Name] {
+				t.Errorf("%s: Prädikat %q ohne Aussage oder doppelt", id, p.Name)
+			}
+			names[p.Name] = true
+		}
+	}
+	snap := e.snap[scenario.S1]
+	b := batch(implement("dec-1", scenario.S1A), implement("dec-2", scenario.S1C))
+	res := scenario.EvaluateDetailed(scenario.S1, b, snap)
+	got := map[string]bool{}
+	var flat []string
+	for _, r := range res {
+		got[r.Name] = r.Met
+		if r.Met != (len(r.Violations) == 0) {
+			t.Errorf("%s: Met passt nicht zu den Verstößen %v", r.Name, r.Violations)
+		}
+		flat = append(flat, r.Violations...)
+	}
+	if !got["delegations_complete"] || got["independent_orders_in_parallel"] || got["dependent_order_waits"] {
+		t.Errorf("Ergebnis je Prädikat = %v", got)
+	}
+	if want := scenario.Evaluate(scenario.S1, b, snap); !slices.Equal(want, flat) {
+		t.Errorf("Evaluate %v != Summe der Prädikate %v", want, flat)
+	}
+	if len(scenario.Check("S9", b, snap)) == 0 {
+		t.Error("unbekanntes Szenario nicht abgewiesen")
+	}
+}
+
+// TestS6IsAFinishedOrderWithoutConceptReference: S6 trägt die Kennung kein-konzept und ist integrierbar.
+func TestS6IsAFinishedOrderWithoutConceptReference(t *testing.T) {
+	e := newEnv(t)
+	o := e.snap[scenario.S6].Orders[0]
+	if o.Kind != supervisor.OrderBug || o.Concept != nil || o.LastReview.Report.ConceptVersion != supervisor.NoConceptVersion || o.PR != nil {
+		t.Errorf("S6 entspricht nicht dem Szenario: %+v", o)
+	}
+	if o.LastReview.Report.Verdict != domain.VerdictApproved || o.HeadCommit != o.LastReview.Report.Commit {
+		t.Errorf("S6 hat kein gültiges Review des Kopfstands: %+v", o.LastReview)
+	}
+}
+
+// TestConceptReviewNeedsAReportedConceptResult: Ohne gemeldetes Konzeptergebnis (concept_ready) ist die Konzeptprüfung durch die
+// Rollenregeln nicht gedeckt; mit ihm ist sie es. Das Prädikat von S2-routine lässt sie fachlich zu, der Zustand der Live-Läufe
+// meldet kein Ergebnis (siehe supervisor.md, Nachweis M02).
+func TestConceptReviewNeedsAReportedConceptResult(t *testing.T) {
+	e := newEnv(t)
+	snap := e.snap[scenario.S2Routine]
+	b := batch(conceptReview("dec-1", scenario.S2ConRoutine))
+	_, err := supervisor.Validator{}.Accept(b, snap, e.pol)
+	re, ok := supervisor.AsRejection(err)
+	if !ok || !re.Has(supervisor.CodeStepNotCovered) {
+		t.Fatalf("erwartet step_not_covered, Fehler: %v", err)
+	}
+	conceptReady(&snap)
+	if _, err := (supervisor.Validator{}).Accept(b, snap, e.pol); err != nil {
+		t.Errorf("mit concept_ready abgelehnt: %v", err)
 	}
 }

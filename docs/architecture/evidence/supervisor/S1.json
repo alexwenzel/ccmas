@@ -1,0 +1,823 @@
+{
+ "evidence": "supervisor-scenario",
+ "scenario": "S1",
+ "description": "Drei Aufträge: sc1-a und sc1-b unabhängig und startbar, sc1-c hängt an sc1-a. Erwartet: A und B parallel, C wartet.",
+ "invocation": "CCMAS_LIVE_TESTS=1 go test ./internal/supervisor/scenario -run TestLiveSupervisorScenarios: echter Planer (internal/supervisor) über den Go-Runner-Adapter und den echten Python-Runner; Supervisorprofil aus der Beispielkonfiguration per `profile init` in einem temporären Konfigurationsverzeichnis, keine Overrides; Skill-Katalog des Worktrees über skills.LoadChecked; synthetischer Zustand aus internal/supervisor/scenario",
+ "note": "Nachweis des Ergebnisziels von M02 (W14.3). Das Urteil über den Plan fällen der Validator (Zulässigkeit) und die Prädikate des Pakets scenario (Inhalt); ein Szenario, das sie verfehlt oder in Planung ausgesetzt endet, bleibt mit diesem Ergebnis stehen. Der wirksame Effort ist angefordert, nicht gemessen (das SDK meldet ihn nicht). Die Zustände sind synthetisch, nicht das Board.",
+ "redaction": "keine Pfade, keine Konto-, E-Mail- oder Organisationsdaten; nur IDs, Hashes, Versionen, Zustände, Ausgaben des Modells und Urteile (geprüft beim Schreiben und im Offline-Test)",
+ "policy_inputs": {
+  ".claude/skills/manifest.yaml": "bc2b0c7e2a9bd9cf604026ac18cfc8166f01b13db285dcd3270c59c8ecfb26e2",
+  "agents.example.yaml": "87490632bb5bff6712fe6d59fc3045f9b192a5d08214c718409448b061b18dca",
+  "agents.yaml (profile init)": "87490632bb5bff6712fe6d59fc3045f9b192a5d08214c718409448b061b18dca",
+  "models.example.yaml": "7c01585bd37d8cf1970c4ac3d27167c7ea094e3a2330947f38fbff6b8e1ec85b",
+  "models.yaml (profile init)": "7c01585bd37d8cf1970c4ac3d27167c7ea094e3a2330947f38fbff6b8e1ec85b",
+  "output_schema": "025ee0898c85b0f3278091a941c2c20dc0c87316e777979485e777c40cd7d6b5",
+  "prompts/supervisor.md": "7f8972d0c24337e9a5c895a7be933e1a214735fd2b2ceed800508f61326f8629",
+  "rules/roles.yaml": "4c31595a222a7f6201693b384c013ec000b0d85650e85c8be397559a2a95c7f6"
+ },
+ "runs": [
+  {
+   "run": 1,
+   "outcome": "accepted",
+   "sessions": 1,
+   "attempts": [
+    {
+     "number": 1,
+     "date": "2026-11-10",
+     "started_at": "2026-11-10T05:57:11Z",
+     "scenario": "S1",
+     "snapshot": {
+      "schema_version": 1,
+      "project_id": "ccmas",
+      "state_revision": 12,
+      "goal": {
+       "kind": "milestone",
+       "id": "ms-1",
+       "title": "Beispielmeilenstein",
+       "acceptance_criteria": [
+        "Alle Aufträge abgeschlossen und integriert"
+       ],
+       "scope": [],
+       "out_of_scope": []
+      },
+      "integration_mode": "pr",
+      "capacity": {
+       "max_workers": 3,
+       "active": []
+      },
+      "orders": [
+       {
+        "id": "sc1-a",
+        "kind": "implementation",
+        "title": "Auftrag sc1-a",
+        "state": "waiting",
+        "mode": "pr",
+        "depends_on": [],
+        "concept": {
+         "version": "1.0",
+         "class": "routine",
+         "criteria": [],
+         "approval": {
+          "version": "1.0",
+          "approver": "concept_reviewer"
+         }
+        },
+        "code_repair_rounds": 0,
+        "concept_repair_rounds": 0,
+        "review_concept_version": "1.0"
+       },
+       {
+        "id": "sc1-b",
+        "kind": "implementation",
+        "title": "Auftrag sc1-b",
+        "state": "waiting",
+        "mode": "pr",
+        "depends_on": [],
+        "concept": {
+         "version": "1.0",
+         "class": "routine",
+         "criteria": [],
+         "approval": {
+          "version": "1.0",
+          "approver": "concept_reviewer"
+         }
+        },
+        "code_repair_rounds": 0,
+        "concept_repair_rounds": 0,
+        "review_concept_version": "1.0"
+       },
+       {
+        "id": "sc1-c",
+        "kind": "implementation",
+        "title": "Auftrag sc1-c",
+        "state": "waiting",
+        "mode": "pr",
+        "depends_on": [
+         "sc1-a"
+        ],
+        "concept": {
+         "version": "1.0",
+         "class": "routine",
+         "criteria": [],
+         "approval": {
+          "version": "1.0",
+          "approver": "concept_reviewer"
+         }
+        },
+        "code_repair_rounds": 0,
+        "concept_repair_rounds": 0,
+        "review_concept_version": "1.0"
+       }
+      ],
+      "open_questions": [],
+      "roles": [
+       {
+        "role": "supervisor",
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-asana-ticket",
+         "ccmas-supervisor",
+         "ccmas-work-assessment"
+        ],
+        "default_skill_ids": [
+         "ccmas-supervisor",
+         "ccmas-work-assessment"
+        ]
+       },
+       {
+        "role": "project_setup",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [],
+        "default_skill_ids": []
+       },
+       {
+        "role": "concept",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-asana-ticket",
+         "ccmas-concept-ticket",
+         "ccmas-obsidian-seite"
+        ],
+        "default_skill_ids": [
+         "ccmas-concept-ticket",
+         "ccmas-obsidian-seite"
+        ]
+       },
+       {
+        "role": "concept_reviewer",
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-concept-review"
+        ],
+        "default_skill_ids": [
+         "ccmas-concept-review"
+        ]
+       },
+       {
+        "role": "implementer",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "policy": "scoped_write",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-feature-parallel"
+        ],
+        "default_skill_ids": [
+         "ccmas-feature-parallel"
+        ]
+       },
+       {
+        "role": "reviewer",
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-code-review"
+        ],
+        "default_skill_ids": [
+         "ccmas-code-review"
+        ]
+       },
+       {
+        "role": "documentation",
+        "model": "claude-sonnet-5-5",
+        "effort": "medium",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-obsidian-seite",
+         "ccmas-regeln-pflegen"
+        ],
+        "default_skill_ids": [
+         "ccmas-obsidian-seite"
+        ]
+       },
+       {
+        "role": "completion",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-asana-ticket",
+         "ccmas-meilenstein-abschluss",
+         "ccmas-obsidian-seite"
+        ],
+        "default_skill_ids": [
+         "ccmas-meilenstein-abschluss"
+        ]
+       },
+       {
+        "role": "question_handler",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "policy": "readonly",
+        "allowed_models": [
+         "claude-haiku-5-5",
+         "claude-opus-5-5",
+         "claude-sonnet-5-5"
+        ],
+        "allowed_efforts": [
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "skill_ids": [
+         "ccmas-antworten-abholen",
+         "ccmas-asana-ticket",
+         "ccmas-obsidian-seite"
+        ],
+        "default_skill_ids": [
+         "ccmas-antworten-abholen"
+        ]
+       }
+      ],
+      "skills": [
+       {
+        "id": "ccmas-antworten-abholen",
+        "category": "questions",
+        "description": "Antworten des Projektinhabers auf offene Fragen einsammeln, der richtigen blockierten Arbeit zuordnen und kontrolliert weitergeben – in CCMAS aus der Zentrale (primärer Antwortort, ergänzend Asana), in der Entwicklungssitzung aus Asana (abgehakte oder kommentierte Aufgaben Entscheidung, Freigabe, Zuarbeit und neue Kommentare). Zuordnung bestätigen, veraltete oder widersprüchliche Antworten nicht stillschweigend übernehmen, keine Antwort ist keine Freigabe, gesetzten PR-/Auto-Modus nie erweitern. Verwenden beim Sitzungsstart, wenn der Nutzer sagt „ich hab geantwortet“, „schau mal in Asana“ oder „was ist offen von mir“, und für die Fragenbearbeitung in CCMAS.",
+        "roles": [
+         "question_handler"
+        ]
+       },
+       {
+        "id": "ccmas-asana-ticket",
+        "category": "tracking",
+        "description": "Asana-Tickets in einem Projekt mit Agent-Workflow anlegen, ändern, verschieben, kommentieren und abschließen, inklusive Aufgaben an den Projektinhaber (Entscheidung, Freigabe, Zuarbeit) mit Label, Abhängigkeit und Terminen. Immer verwenden, wenn im Asana-Projekt eines Vorhabens geschrieben wird – Ticket anlegen, Status ändern, Rückfrage stellen, Folge-Tickets erzeugen, Kommentar setzen –, auch wenn der Nutzer nur „leg das in Asana an“ oder „frag mich das im Ticket“ sagt.",
+        "roles": [
+         "supervisor",
+         "concept",
+         "completion",
+         "question_handler"
+        ]
+       },
+       {
+        "id": "ccmas-code-review",
+        "category": "review",
+        "description": "Einen eindeutig bestimmten Änderungsstand (Worktree, Commit, Basis develop, Konzeptversion, Akzeptanzkriterien) unabhängig und nur lesend prüfen und als Bericht mit Urteil FREIGEGEBEN oder BEFUNDE liefern – Diff lesen, Prüfungen selbst ausführen, Kriterien mit Beleg abgleichen, Tests auf Aussagekraft beurteilen, Befunde mit Schwere, Ort und erwarteter Korrektur melden. Verwenden für das Review vor jedem Push, immer in einer frischen Ausführung, die an der Umsetzung nicht beteiligt war.",
+        "roles": [
+         "reviewer"
+        ]
+       },
+       {
+        "id": "ccmas-concept-review",
+        "category": "review",
+        "description": "Eine bestimmte Konzeptversion unabhängig prüfen – gegen Ziel, Abnahmekriterien, Regeln und frühere Entscheidungen –, als routine oder strategisch einstufen und entweder für genau diese Version freigeben, mit konkreten Befunden zurückgeben oder dem Nutzer mit Optionen und Empfehlung vorlegen. Verwenden, wenn ein Konzept-Agent ein Konzept als „ready“ meldet, bevor davon abhängige Implementierung startet, immer in einer frischen Ausführung, die das Konzept nicht geschrieben hat.",
+        "roles": [
+         "concept_reviewer"
+        ]
+       },
+       {
+        "id": "ccmas-concept-ticket",
+        "category": "concept",
+        "description": "Ein Concept-Ticket (Analyse, Konzept, Datenmodell, Architektur- oder Technikentscheidung) von der Klärung bis zur Freigabe bearbeiten – Ticket und Vault-Kontext lesen, offene Punkte gebündelt mit Empfehlung klären, gegen echte Daten prüfen, Obsidian-Seite schreiben, verwandte Seiten konsistent halten, Selbstreview, Folge-Tickets anlegen, zur Abnahme vorlegen. Verwenden, wenn der Nutzer ein Konzept-, Recherche- oder Planungsticket angehen will („lass uns SC-8 machen“, „konzipier das Datenmodell“, „bereite M16 vor“), auch wenn das Wort „Concept“ nicht fällt.",
+        "roles": [
+         "concept"
+        ]
+       },
+       {
+        "id": "ccmas-feature-parallel",
+        "category": "delivery",
+        "description": "Ein Feature im zugewiesenen Worktree auf einem Branch von develop umsetzen – Tests mit isolierten Ressourcen, Prüfungen mit echtem Ergebnis, lokaler Commit, ehrlicher Bericht – und Parallelität nur über Delegationsanträge an die zentrale Steuerung, nie über eigene Agenten oder Worktrees. Push und PR folgen erst nach einem unabhängigen Review (ccmas-code-review) mit FREIGEGEBEN für genau den Commit. Verwenden, wenn ein Implementierer ein Feature oder einen Befund-Auftrag umsetzt oder wenn mehrere Features parallel entwickelt werden sollen.",
+        "roles": [
+         "implementer"
+        ]
+       },
+       {
+        "id": "ccmas-meilenstein-abschluss",
+        "category": "completion",
+        "description": "Ein Feature oder einen Meilenstein belegt abschließen – Kriterien Punkt für Punkt mit Beleg abgleichen, bestätigte Integration (Merge), Review-, Test- und CI-Nachweise sowie nachgezogenen Asana- und Wissensstand verlangen; offener PR ist ein Wartezustand, kein Abschluss. Meilensteine gibt es nur in Asana, die Abnahme läuft über eine Freigabe-Unteraufgabe am Meilenstein-Task, ohne GitHub-Milestones, Termine oder Verschieben. Der gesetzte PR-/Auto-Modus wird berücksichtigt und nie erweitert. Verwenden, wenn ein Feature oder Meilenstein fertig wirkt, abgenommen wurde oder der Nutzer fragt „ist M09 durch?“ oder „schließ den Meilenstein“.",
+        "roles": [
+         "completion"
+        ]
+       },
+       {
+        "id": "ccmas-obsidian-seite",
+        "category": "knowledge",
+        "description": "Seiten im Obsidian-Vault eines Projekts sicher lesen, anlegen und ändern – Zugriff je Umgebung (claude.ai mit verbundenem Rechner, Claude Code lokal, Cloud), Ersetzen mit Prüfung, YAML-Properties, Wikilinks mit Abschnitts-Ankern, Index-Seite, Link-Prüfung. Immer verwenden, wenn Konzept-, Plan- oder Regelseiten im Vault geschrieben oder umgebaut werden, auch bei kleinen Ergänzungen wie „trag das im Konzept nach“ oder „verlinke das im Projektplan“.",
+        "roles": [
+         "concept",
+         "documentation",
+         "completion",
+         "question_handler"
+        ]
+       },
+       {
+        "id": "ccmas-regeln-pflegen",
+        "category": "rules",
+        "description": "Die Arbeitsregeln eines Agent-Projekts (CLAUDE.md im Obsidian-Vault) ändern und alle Kopien und Verweise synchron halten – Projektdokument im Claude-Projekt, Systemanweisung und Projektbeschreibung, Repo-CLAUDE.md, Skills, Änderungsnotiz in Asana. Immer verwenden, wenn eine Arbeitsweise, Konvention, Zuständigkeit, Ressource (GID, Pfad, Zugang) oder Workflow-Entscheidung festgeschrieben werden soll, auch bei Formulierungen wie „halte das fest“, „ab jetzt so“ oder „nimm das in die Regeln auf“.",
+        "roles": [
+         "documentation"
+        ]
+       },
+       {
+        "id": "ccmas-supervisor",
+        "category": "planning",
+        "description": "Den nächsten Planungsschritt für ein beauftragtes Ziel (Ticket, Feature, Milestone) bestimmen – Ziel und Konzeptreife beurteilen, Risiko und Aufwand abwägen, Abhängigkeiten und freie Kapazität berücksichtigen, nächste Aufträge mit Rolle, Skills, Modell und Effort wählen, Ergebnisse bewerten, auf Befunde und Ablehnungen der Plattform reagieren, bei fehlender Entscheidungsgrundlage den Nutzer fragen – und als Planungsergebnis (DecisionBatch) ausgeben. Verwenden für jede Planung des Supervisors.",
+        "roles": [
+         "supervisor"
+        ]
+       },
+       {
+        "id": "ccmas-work-assessment",
+        "category": "planning",
+        "description": "Arbeit bewerten und das passende Profil wählen – Aufwandsschätzung (Größe, Komplexität, Unsicherheit) getrennt vom Modell-Effort festhalten, Modell und Effort nach Qualität wählen (stärker bei unsicherer Architektur oder kritischem Review, schlanker bei gut beschriebener Arbeit), Pflichtprüfungen nie streichen. Verwenden bei jeder Beauftragung durch den Supervisor.",
+        "roles": [
+         "supervisor"
+        ]
+       }
+      ]
+     },
+     "snapshot_sha256": "91c28c5f49ea049584e32729f39f13e6adcf6969e7e81e44526b088ba8ae3a32",
+     "snapshot_revision": 12,
+     "context_bytes": 11150,
+     "context_reductions": [],
+     "validation_snapshot_sha256": "91c28c5f49ea049584e32729f39f13e6adcf6969e7e81e44526b088ba8ae3a32",
+     "validation_revision": 12,
+     "stale": false,
+     "prompt_sha256": "f1cc68bfbc3cf8f7b8da958390b53f408ba01a8c286d7a9867d4f20c84fa597d",
+     "prompt_bytes": 29207,
+     "system_prompt_sha256": "7f8972d0c24337e9a5c895a7be933e1a214735fd2b2ceed800508f61326f8629",
+     "system_prompt_bytes": 2533,
+     "output_schema_sha256": "025ee0898c85b0f3278091a941c2c20dc0c87316e777979485e777c40cd7d6b5",
+     "replan": false,
+     "skill_snapshot_id": "sha256:7dc0e1f1a72709fc275802f2822eb8dd25eed71c4bdda27a92f1b6e1db354193",
+     "skills": [
+      {
+       "id": "ccmas-supervisor",
+       "version": 2,
+       "tree_sha256": "08359406ca7f6ce0676ddb3b1eaa6016f57e0e08205cdf8c965cc5aa40b000fc",
+       "in_prompt": true
+      },
+      {
+       "id": "ccmas-work-assessment",
+       "version": 1,
+       "tree_sha256": "22b15830962cdb7457b63bbb74742b02882268719f7584be04ba7d25b1260926",
+       "in_prompt": true
+      }
+     ],
+     "loaded_skill_snapshot_id": "sha256:7dc0e1f1a72709fc275802f2822eb8dd25eed71c4bdda27a92f1b6e1db354193",
+     "loaded_skills": [
+      "ccmas-supervisor",
+      "ccmas-work-assessment"
+     ],
+     "profile": {
+      "profile_id": "supervisor",
+      "version": 1,
+      "role": "supervisor",
+      "runtime": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "skill_ids": [
+       "ccmas-supervisor",
+       "ccmas-work-assessment"
+      ],
+      "policy_profile": "readonly",
+      "requested_model": "claude-opus-5-5",
+      "requested_effort": "high",
+      "value_sources": {
+       "model": "role",
+       "effort": "role",
+       "skill_ids": "role"
+      }
+     },
+     "effective_model": "claude-opus-5-5",
+     "effort_effective": "nicht gemessen (das SDK meldet den wirksamen Effort nicht; angefordert: high)",
+     "sdk_version": "0.2.180",
+     "cli_version": "2.1.311",
+     "session_id": "d9272048-f22e-452e-a3d5-7ce01a143c35",
+     "execution_id": "plan-97b89411a9323099",
+     "duration_ms": 11868,
+     "raw_output": {
+      "goal": {
+       "kind": "milestone",
+       "id": "ms-1"
+      },
+      "rationale": "sc1-a und sc1-b haben ein freigegebenes Routine-Konzept (1.0), keine Abhängigkeiten und keine offenen Fragen. Deshalb starten beide parallel auf 2 der 3 freien Plätze. sc1-c hängt von sc1-a ab und wartet, bis sc1-a abgeschlossen und gemergt ist.",
+      "decisions": [
+       {
+        "decision_id": "dec-1",
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-a"
+        },
+        "action": "implementation",
+        "preconditions": [
+         {
+          "kind": "concept_version_approved",
+          "ref": "1.0"
+         },
+         {
+          "kind": "capacity_available"
+         }
+        ],
+        "rationale": "Konzept 1.0 ist als Routine eingestuft und vom concept_reviewer freigegeben, es gibt keine Abhängigkeiten. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+        "selection": {
+         "role": "implementer",
+         "skill_ids": [
+          "ccmas-feature-parallel"
+         ],
+         "model": "claude-sonnet-5-5",
+         "effort": "high"
+        },
+        "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+        "estimate": {
+         "size": "m",
+         "complexity": "medium",
+         "uncertainty": "medium"
+        }
+       },
+       {
+        "decision_id": "dec-2",
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-b"
+        },
+        "action": "implementation",
+        "preconditions": [
+         {
+          "kind": "concept_version_approved",
+          "ref": "1.0"
+         },
+         {
+          "kind": "capacity_available"
+         }
+        ],
+        "rationale": "Konzept 1.0 ist als Routine eingestuft und freigegeben, der Auftrag ist von sc1-a unabhängig und kann parallel laufen. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+        "selection": {
+         "role": "implementer",
+         "skill_ids": [
+          "ccmas-feature-parallel"
+         ],
+         "model": "claude-sonnet-5-5",
+         "effort": "high"
+        },
+        "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+        "estimate": {
+         "size": "m",
+         "complexity": "medium",
+         "uncertainty": "medium"
+        }
+       },
+       {
+        "decision_id": "dec-3",
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-c"
+        },
+        "action": "wait",
+        "preconditions": [
+         {
+          "kind": "work_order_completed",
+          "ref": "sc1-a"
+         }
+        ],
+        "rationale": "sc1-c hängt von sc1-a ab. sc1-a ist noch nicht completed, also noch nicht im PR-Modus gemergt."
+       }
+      ]
+     },
+     "stamped_batch": {
+      "schema_version": 1,
+      "batch_id": "plan-r12-v1",
+      "project_id": "ccmas",
+      "state_revision": 12,
+      "goal": {
+       "kind": "milestone",
+       "id": "ms-1"
+      },
+      "rationale": "sc1-a und sc1-b haben ein freigegebenes Routine-Konzept (1.0), keine Abhängigkeiten und keine offenen Fragen. Deshalb starten beide parallel auf 2 der 3 freien Plätze. sc1-c hängt von sc1-a ab und wartet, bis sc1-a abgeschlossen und gemergt ist.",
+      "decisions": [
+       {
+        "schema_version": 1,
+        "decision_id": "dec-1",
+        "project_id": "ccmas",
+        "state_revision": 12,
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-a"
+        },
+        "action": "implementation",
+        "preconditions": [
+         {
+          "kind": "concept_version_approved",
+          "ref": "1.0"
+         },
+         {
+          "kind": "capacity_available"
+         }
+        ],
+        "rationale": "Konzept 1.0 ist als Routine eingestuft und vom concept_reviewer freigegeben, es gibt keine Abhängigkeiten. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+        "selection": {
+         "role": "implementer",
+         "skill_ids": [
+          "ccmas-feature-parallel"
+         ],
+         "model": "claude-sonnet-5-5",
+         "effort": "high"
+        },
+        "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+        "estimate": {
+         "size": "m",
+         "complexity": "medium",
+         "uncertainty": "medium"
+        }
+       },
+       {
+        "schema_version": 1,
+        "decision_id": "dec-2",
+        "project_id": "ccmas",
+        "state_revision": 12,
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-b"
+        },
+        "action": "implementation",
+        "preconditions": [
+         {
+          "kind": "concept_version_approved",
+          "ref": "1.0"
+         },
+         {
+          "kind": "capacity_available"
+         }
+        ],
+        "rationale": "Konzept 1.0 ist als Routine eingestuft und freigegeben, der Auftrag ist von sc1-a unabhängig und kann parallel laufen. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+        "selection": {
+         "role": "implementer",
+         "skill_ids": [
+          "ccmas-feature-parallel"
+         ],
+         "model": "claude-sonnet-5-5",
+         "effort": "high"
+        },
+        "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+        "estimate": {
+         "size": "m",
+         "complexity": "medium",
+         "uncertainty": "medium"
+        }
+       },
+       {
+        "schema_version": 1,
+        "decision_id": "dec-3",
+        "project_id": "ccmas",
+        "state_revision": 12,
+        "target": {
+         "kind": "work_order",
+         "id": "sc1-c"
+        },
+        "action": "wait",
+        "preconditions": [
+         {
+          "kind": "work_order_completed",
+          "ref": "sc1-a"
+         }
+        ],
+        "rationale": "sc1-c hängt von sc1-a ab. sc1-a ist noch nicht completed, also noch nicht im PR-Modus gemergt."
+       }
+      ]
+     },
+     "verdict": "accepted",
+     "validation": {
+      "accepted": true,
+      "codes": [],
+      "rejections": []
+     }
+    }
+   ],
+   "accepted_batch": {
+    "schema_version": 1,
+    "batch_id": "plan-r12-v1",
+    "project_id": "ccmas",
+    "state_revision": 12,
+    "goal": {
+     "kind": "milestone",
+     "id": "ms-1"
+    },
+    "rationale": "sc1-a und sc1-b haben ein freigegebenes Routine-Konzept (1.0), keine Abhängigkeiten und keine offenen Fragen. Deshalb starten beide parallel auf 2 der 3 freien Plätze. sc1-c hängt von sc1-a ab und wartet, bis sc1-a abgeschlossen und gemergt ist.",
+    "decisions": [
+     {
+      "schema_version": 1,
+      "decision_id": "dec-1",
+      "project_id": "ccmas",
+      "state_revision": 12,
+      "target": {
+       "kind": "work_order",
+       "id": "sc1-a"
+      },
+      "action": "implementation",
+      "preconditions": [
+       {
+        "kind": "concept_version_approved",
+        "ref": "1.0"
+       },
+       {
+        "kind": "capacity_available"
+       }
+      ],
+      "rationale": "Konzept 1.0 ist als Routine eingestuft und vom concept_reviewer freigegeben, es gibt keine Abhängigkeiten. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+      "selection": {
+       "role": "implementer",
+       "skill_ids": [
+        "ccmas-feature-parallel"
+       ],
+       "model": "claude-sonnet-5-5",
+       "effort": "high"
+      },
+      "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+      "estimate": {
+       "size": "m",
+       "complexity": "medium",
+       "uncertainty": "medium"
+      }
+     },
+     {
+      "schema_version": 1,
+      "decision_id": "dec-2",
+      "project_id": "ccmas",
+      "state_revision": 12,
+      "target": {
+       "kind": "work_order",
+       "id": "sc1-b"
+      },
+      "action": "implementation",
+      "preconditions": [
+       {
+        "kind": "concept_version_approved",
+        "ref": "1.0"
+       },
+       {
+        "kind": "capacity_available"
+       }
+      ],
+      "rationale": "Konzept 1.0 ist als Routine eingestuft und freigegeben, der Auftrag ist von sc1-a unabhängig und kann parallel laufen. Weil am Auftrag keine Abnahmekriterien stehen, ist die Unsicherheit mittel. Deshalb gilt das Standardprofil der Rolle.",
+      "selection": {
+       "role": "implementer",
+       "skill_ids": [
+        "ccmas-feature-parallel"
+       ],
+       "model": "claude-sonnet-5-5",
+       "effort": "high"
+      },
+      "expected_outcome": "Lokaler Commit auf dem Auftragsbranch, der Konzept 1.0 umsetzt, mit Tests und echtem Prüfergebnis im Bericht; bereit für ein unabhängiges Review.",
+      "estimate": {
+       "size": "m",
+       "complexity": "medium",
+       "uncertainty": "medium"
+      }
+     },
+     {
+      "schema_version": 1,
+      "decision_id": "dec-3",
+      "project_id": "ccmas",
+      "state_revision": 12,
+      "target": {
+       "kind": "work_order",
+       "id": "sc1-c"
+      },
+      "action": "wait",
+      "preconditions": [
+       {
+        "kind": "work_order_completed",
+        "ref": "sc1-a"
+       }
+      ],
+      "rationale": "sc1-c hängt von sc1-a ab. sc1-a ist noch nicht completed, also noch nicht im PR-Modus gemergt."
+     }
+    ]
+   },
+   "predicates": [
+    {
+     "name": "delegations_complete",
+     "statement": "Jede Beauftragung nennt Rolle, Skills, Modell und Effort aus dem Angebot der Rolle, ein erwartetes Ergebnis, eine vollständige Aufwandsschätzung (getrennt vom Effort) und eine Begründung",
+     "met": true,
+     "violations": []
+    },
+    {
+     "name": "independent_orders_in_parallel",
+     "statement": "Die unabhängigen, startbaren Aufträge sc1-a und sc1-b werden beide implementiert",
+     "met": true,
+     "violations": []
+    },
+    {
+     "name": "dependent_order_waits",
+     "statement": "Der abhängige Auftrag sc1-c wird nicht implementiert, bevor sc1-a abgeschlossen ist",
+     "met": true,
+     "violations": []
+    }
+   ],
+   "predicates_met": true
+  }
+ ],
+ "final": {
+  "run": 1,
+  "outcome": "accepted",
+  "attempt_count": 1,
+  "sessions": 1,
+  "predicates_met": true
+ }
+}

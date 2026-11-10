@@ -76,13 +76,20 @@ type Attempt struct {
 	Violations       int      `json:"violations,omitempty"`    // verworfene Nachrichten des Runners
 
 	// Ergebnis und Urteil.
-	RawOutput       json.RawMessage `json:"raw_output,omitempty"` // rohe strukturierte Ausgabe
-	Verdict         Verdict         `json:"verdict"`
-	Stale           bool            `json:"stale"` // Zustandsrevision hatte sich geändert
-	CurrentRevision int64           `json:"current_revision,omitempty"`
-	RejectionCodes  []Code          `json:"rejection_codes,omitempty"`
-	RejectionText   string          `json:"rejection_text,omitempty"`
-	FailureDetail   string          `json:"failure_detail,omitempty"`
+	RawOutput json.RawMessage `json:"raw_output,omitempty"` // rohe strukturierte Ausgabe
+	// StampedBatch ist der gelesene Batch mit den von Go gesetzten Feldern (Schemaversion, Batch-ID, Projekt, Revision des
+	// Planungs-Snapshots): genau das, was der Validator geprüft hat. Fehlt, wenn die Ausgabe nicht lesbar war.
+	StampedBatch *domain.DecisionBatch `json:"stamped_batch,omitempty"`
+	// CurrentSnapshotSHA256 ist der Hash (kanonisch) des Zustands, gegen den der Validator geprüft hat; er weicht vom
+	// Planungs-Snapshot ab, wenn sich der Zustand seitdem geändert hat.
+	CurrentSnapshotSHA256 string      `json:"current_snapshot_sha256,omitempty"`
+	Verdict               Verdict     `json:"verdict"`
+	Stale                 bool        `json:"stale"` // Zustandsrevision hatte sich geändert
+	CurrentRevision       int64       `json:"current_revision,omitempty"`
+	RejectionCodes        []Code      `json:"rejection_codes,omitempty"`
+	RejectionText         string      `json:"rejection_text,omitempty"`
+	Rejections            []Rejection `json:"rejections,omitempty"` // dieselben Ablehnungen strukturiert (Code, Entscheidung, Begründung)
+	FailureDetail         string      `json:"failure_detail,omitempty"`
 }
 
 // SuspendReason nennt, warum die Planung ausgesetzt ist.

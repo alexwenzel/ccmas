@@ -1,4 +1,4 @@
-// Package scenario enthält die synthetischen Planungsszenarien S1 bis S5 und ihre semantischen Prädikate (CC-14, W14.2).
+// Package scenario enthält die synthetischen Planungsszenarien S1 bis S6 und ihre semantischen Prädikate (CC-14, W14.2, W14.3).
 //
 // Die Snapshots sind erfundene Testdaten (Aufträge sc1-a, sc3-fin, ...), nie der Stand des echten ccmas-Boards. Die Prädikate
 // bewerten einen Planungsergebnis-Batch inhaltlich und ohne Wortlaut: Sie fragen, welche Aktionen auf welche Aufträge zielen,
@@ -30,10 +30,11 @@ const (
 	S3          ID = "S3"             // knappe Kapazität, eine fertige Implementierung ohne Review
 	S4          ID = "S4"             // Review mit BEFUNDE innerhalb des Reparaturbudgets
 	S5          ID = "S5"             // PR-Modus, Review FREIGEGEBEN, PR offen
+	S6          ID = "S6"             // Review FREIGEGEBEN, noch kein PR; die Zustandsrevision ändert sich während der Planung
 )
 
 // IDs liefert die Szenarien in fester Reihenfolge.
-func IDs() []ID { return []ID{S1, S2Routine, S2Strategic, S3, S4, S5} }
+func IDs() []ID { return []ID{S1, S2Routine, S2Strategic, S3, S4, S5, S6} }
 
 // Aufträge der Szenarien (erfundene IDs).
 const (
@@ -47,6 +48,7 @@ const (
 	S3New         = "sc3-new" // startbar
 	S4A           = "sc4-a"   // Review mit BEFUNDE
 	S5A           = "sc5-a"   // freigegeben, PR offen
+	S6A           = "sc6-a"   // freigegeben, noch kein PR, ohne Konzeptbezug
 )
 
 // Commit des Kopfstands in S3 bis S5 (erfunden).
@@ -148,6 +150,18 @@ func Snapshot(id ID, env Env) (supervisor.ProjectSnapshot, error) {
 		}
 		s.Orders = []supervisor.Order{a}
 		s.Goal.Evidence = &supervisor.Evidence{Integration: skills.IntegrationPROpen, AcceptanceCriteriaMet: true, ReviewEvidence: true, TestEvidence: true, CIEvidence: true}
+	case S6:
+		a := order(S6A, supervisor.OrderBug, domain.WOReview) // Fehlerauftrag ohne Konzeptbezug: Berichtsversion ist kein-konzept
+		a.HeadCommit, a.Branch = Commit, "feature/CC-4-a"
+		a.LastResult = &supervisor.LastResult{Role: domain.RoleReviewer, Result: "approved"}
+		a.LastReview = &supervisor.ReviewRecord{
+			Report: domain.ReviewReport{
+				ReportID: "rep-" + S6A, WorkOrderID: S6A, ReviewerExecutionID: "exec-rev", Commit: Commit, ConceptVersion: supervisor.NoConceptVersion,
+				Verdict: domain.VerdictApproved, Findings: []domain.Finding{}, CreatedAt: createdAt,
+			},
+			ReviewerRole: domain.RoleReviewer, ImplementerExecutionID: "exec-impl",
+		}
+		s.Orders = []supervisor.Order{a}
 	default:
 		return supervisor.ProjectSnapshot{}, fmt.Errorf("unbekanntes Szenario %q", id)
 	}
@@ -159,10 +173,87 @@ func Snapshot(id ID, env Env) (supervisor.ProjectSnapshot, error) {
 
 // ---- Prädikate ---------------------------------------------------------------------------------------------
 
+// Predicate ist ein benanntes Prädikat über einen Planungsergebnis-Batch. Es urteilt über Aktionen, Ziele und Rollen, nie über
+// den Wortlaut. Check liefert die Verstöße; leer heißt: erfüllt.
+type Predicate struct {
+	Name      string
+	Statement string
+	Check     func(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string
+}
+
+// Result ist das Ergebnis eines Prädikats.
+type Result struct {
+	Name       string   `json:"name"`
+	Statement  string   `json:"statement"`
+	Met        bool     `json:"met"`
+	Violations []string `json:"violations"`
+}
+
+// Predicates liefert die Prädikate des Szenarios: zuerst das gemeinsame Prädikat der Beauftragungen, dann die des Szenarios.
+func Predicates(id ID) []Predicate {
+	common := Predicate{
+		Name:      "delegations_complete",
+		Statement: "Jede Beauftragung nennt Rolle, Skills, Modell und Effort aus dem Angebot der Rolle, ein erwartetes Ergebnis, eine vollständige Aufwandsschätzung (getrennt vom Effort) und eine Begründung",
+		Check:     CheckDelegations,
+	}
+	var own []Predicate
+	switch id {
+	case S1:
+		own = predicatesS1()
+	case S2Routine:
+		own = predicatesS2Routine()
+	case S2Strategic:
+		own = predicatesS2Strategic()
+	case S3:
+		own = predicatesS3()
+	case S4:
+		own = predicatesS4()
+	case S5:
+		own = predicatesS5()
+	case S6:
+		own = predicatesS6()
+	default:
+		return []Predicate{{Name: "known_scenario", Statement: "Das Szenario ist bekannt", Check: func(domain.DecisionBatch, supervisor.ProjectSnapshot) []string {
+			return []string{fmt.Sprintf("unbekanntes Szenario %q", id)}
+		}}}
+	}
+	return append([]Predicate{common}, own...)
+}
+
+// EvaluateDetailed wendet alle Prädikate des Szenarios an und liefert das Ergebnis je Prädikat.
+func EvaluateDetailed(id ID, b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []Result {
+	var out []Result
+	for _, p := range Predicates(id) {
+		v := p.Check(b, snap)
+		if v == nil {
+			v = []string{}
+		}
+		out = append(out, Result{Name: p.Name, Statement: p.Statement, Met: len(v) == 0, Violations: v})
+	}
+	return out
+}
+
 // Evaluate wendet die gemeinsamen Prädikate (CheckDelegations) und die des Szenarios (Check) an und liefert alle Verstöße;
 // leer heißt: Der Batch erfüllt den Vertrag des Szenarios.
 func Evaluate(id ID, b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
-	return append(CheckDelegations(b, snap), Check(id, b, snap)...)
+	var out []string
+	for _, r := range EvaluateDetailed(id, b, snap) {
+		out = append(out, r.Violations...)
+	}
+	return out
+}
+
+// Check wendet die Prädikate des Szenarios an (ohne das gemeinsame Prädikat der Beauftragungen).
+func Check(id ID, b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
+	ps := Predicates(id)
+	if !slices.Contains(IDs(), id) {
+		return ps[0].Check(b, snap)
+	}
+	var out []string
+	for _, p := range ps[1:] {
+		out = append(out, p.Check(b, snap)...)
+	}
+	return out
 }
 
 // delegationActions sind die Aktionen, die eine Ausführung beauftragen.
@@ -234,25 +325,6 @@ func CheckDelegations(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) [
 	return out
 }
 
-// Check wendet die Prädikate des Szenarios an.
-func Check(id ID, b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
-	switch id {
-	case S1:
-		return checkS1(b)
-	case S2Routine:
-		return checkS2Routine(b)
-	case S2Strategic:
-		return checkS2Strategic(b)
-	case S3:
-		return checkS3(b, snap)
-	case S4:
-		return checkS4(b)
-	case S5:
-		return checkS5(b)
-	}
-	return []string{fmt.Sprintf("unbekanntes Szenario %q", id)}
-}
-
 // targets nennt die Aufträge, auf die Entscheidungen der Aktion zielen.
 func targets(b domain.DecisionBatch, action domain.Action) []string {
 	var out []string
@@ -266,164 +338,267 @@ func targets(b domain.DecisionBatch, action domain.Action) []string {
 
 func has(b domain.DecisionBatch, action domain.Action) bool { return len(targets(b, action)) > 0 }
 
-// S1: Implementierung für A und B, keine Implementierung für C (hängt an A).
-func checkS1(b domain.DecisionBatch) []string {
-	var out []string
-	impls := targets(b, domain.ActionImplementation)
-	for _, want := range []string{S1A, S1B} {
-		if !slices.Contains(impls, want) {
-			out = append(out, fmt.Sprintf("S1: keine Implementierung für den unabhängigen, startbaren Auftrag %s", want))
-		}
-	}
-	if slices.Contains(impls, S1C) {
-		out = append(out, fmt.Sprintf("S1: Implementierung für %s, obwohl er an %s hängt und erst nach dessen Abschluss startet", S1C, S1A))
-	}
-	return out
+// pred bindet ein Prädikat, das nur den Batch braucht.
+func pred(name, statement string, check func(b domain.DecisionBatch) []string) Predicate {
+	return Predicate{Name: name, Statement: statement, Check: func(b domain.DecisionBatch, _ supervisor.ProjectSnapshot) []string { return check(b) }}
 }
 
-// S2 (beide Fälle): Der Konzeptstand 0.1 ist nicht freigegeben, die Umsetzung hängt am Konzeptauftrag. Nie Implementierung, nie
-// Integration oder Abschluss.
-func checkS2Common(id ID, b domain.DecisionBatch) []string {
-	var out []string
-	if has(b, domain.ActionImplementation) {
-		out = append(out, string(id)+": Implementierung beauftragt, obwohl das Konzept nicht freigegeben ist")
-	}
-	for _, d := range b.Decisions {
-		if d.Action == domain.ActionRequestIntegration || d.Action == domain.ActionRequestCompletion {
-			out = append(out, fmt.Sprintf("%s: %s ohne freigegebenes Konzept", id, d.Action))
+// noEnd: weder Integration noch Zielabschluss.
+func noEnd(prefix, why string) func(b domain.DecisionBatch) []string {
+	return func(b domain.DecisionBatch) []string {
+		var out []string
+		for _, d := range b.Decisions {
+			if d.Action == domain.ActionRequestIntegration || d.Action == domain.ActionRequestCompletion {
+				out = append(out, fmt.Sprintf("%s: %s %s", prefix, d.Action, why))
+			}
 		}
+		return out
 	}
-	return out
+}
+
+// S1: Implementierung für A und B, keine Implementierung für C (hängt an A).
+func predicatesS1() []Predicate {
+	return []Predicate{
+		pred("independent_orders_in_parallel", "Die unabhängigen, startbaren Aufträge sc1-a und sc1-b werden beide implementiert", func(b domain.DecisionBatch) []string {
+			var out []string
+			impls := targets(b, domain.ActionImplementation)
+			for _, want := range []string{S1A, S1B} {
+				if !slices.Contains(impls, want) {
+					out = append(out, fmt.Sprintf("S1: keine Implementierung für den unabhängigen, startbaren Auftrag %s", want))
+				}
+			}
+			return out
+		}),
+		pred("dependent_order_waits", "Der abhängige Auftrag sc1-c wird nicht implementiert, bevor sc1-a abgeschlossen ist", func(b domain.DecisionBatch) []string {
+			if slices.Contains(targets(b, domain.ActionImplementation), S1C) {
+				return []string{fmt.Sprintf("S1: Implementierung für %s, obwohl er an %s hängt und erst nach dessen Abschluss startet", S1C, S1A)}
+			}
+			return nil
+		}),
+	}
+}
+
+// S2 (beide Fälle): Der Konzeptstand 0.1 ist nicht freigegeben, die Umsetzung hängt am Konzeptauftrag.
+func noImplementation(id ID) Predicate {
+	return pred("no_implementation", "Keine Implementierung, solange das Konzept nicht freigegeben ist", func(b domain.DecisionBatch) []string {
+		if has(b, domain.ActionImplementation) {
+			return []string{string(id) + ": Implementierung beauftragt, obwohl das Konzept nicht freigegeben ist"}
+		}
+		return nil
+	})
 }
 
 // S2 routine: Zulässig sind Konzeptarbeit am Konzeptauftrag, eine Frage an den Nutzer oder ein Konzeptreview durch den
 // concept_reviewer (er gibt Routinekonzepte frei). Eines davon ist nötig; Implementierung nie.
-func checkS2Routine(b domain.DecisionBatch) []string {
-	out := checkS2Common(S2Routine, b)
-	ok := false
-	for _, d := range b.Decisions {
-		switch {
-		case d.Action == domain.ActionConceptWork && d.Target.ID == S2ConRoutine, d.Action == domain.ActionAskQuestion:
-			ok = true
-		case d.Action == domain.ActionReview:
-			if d.Target.ID == S2ConRoutine && d.Selection != nil && d.Selection.Role == domain.RoleConceptReviewer {
-				ok = true
-			} else {
-				out = append(out, fmt.Sprintf("%s: ein Review gehört bei einem Konzeptstand der Rolle concept_reviewer und dem Konzeptauftrag %s", S2Routine, S2ConRoutine))
+func predicatesS2Routine() []Predicate {
+	return []Predicate{
+		noImplementation(S2Routine),
+		pred("no_integration_or_completion", "Weder Integration noch Zielabschluss", noEnd(string(S2Routine), "ohne freigegebenes Konzept")),
+		pred("concept_path", "Konzeptarbeit am Konzeptauftrag, Konzeptreview durch den concept_reviewer oder eine Frage an den Nutzer; ein Review nur als Konzeptreview des Konzeptauftrags", func(b domain.DecisionBatch) []string {
+			var out []string
+			ok := false
+			for _, d := range b.Decisions {
+				switch {
+				case d.Action == domain.ActionConceptWork && d.Target.ID == S2ConRoutine, d.Action == domain.ActionAskQuestion:
+					ok = true
+				case d.Action == domain.ActionReview:
+					if d.Target.ID == S2ConRoutine && d.Selection != nil && d.Selection.Role == domain.RoleConceptReviewer {
+						ok = true
+					} else {
+						out = append(out, fmt.Sprintf("%s: ein Review gehört bei einem Konzeptstand der Rolle concept_reviewer und dem Konzeptauftrag %s", S2Routine, S2ConRoutine))
+					}
+				}
 			}
-		}
+			if !ok {
+				out = append(out, string(S2Routine)+": weder Konzeptarbeit am Konzeptauftrag noch Konzeptreview durch den concept_reviewer noch eine Frage an den Nutzer")
+			}
+			return out
+		}),
 	}
-	if !ok {
-		out = append(out, string(S2Routine)+": weder Konzeptarbeit am Konzeptauftrag noch Konzeptreview durch den concept_reviewer noch eine Frage an den Nutzer")
-	}
-	return out
 }
 
 // S2 strategisch: Strategisches entscheidet der Nutzer. Zulässig sind eine Frage an den Nutzer oder klärende Konzeptarbeit; nie
 // eine Freigabe über den concept_reviewer (jedes Review ist hier ein Verstoß), nie Implementierung.
-func checkS2Strategic(b domain.DecisionBatch) []string {
-	out := checkS2Common(S2Strategic, b)
-	ok := false
-	for _, d := range b.Decisions {
-		switch {
-		case d.Action == domain.ActionConceptWork && d.Target.ID == S2ConStrat, d.Action == domain.ActionAskQuestion:
-			ok = true
-		case d.Action == domain.ActionReview:
-			out = append(out, fmt.Sprintf("%s: Review (Freigabe) über den concept_reviewer bei einem strategischen Konzept; es entscheidet der Nutzer", S2Strategic))
-		}
+func predicatesS2Strategic() []Predicate {
+	return []Predicate{
+		noImplementation(S2Strategic),
+		pred("no_integration_or_completion", "Weder Integration noch Zielabschluss", noEnd(string(S2Strategic), "ohne freigegebenes Konzept")),
+		pred("user_decides", "Eine Frage an den Nutzer oder klärende Konzeptarbeit am Konzeptauftrag", func(b domain.DecisionBatch) []string {
+			for _, d := range b.Decisions {
+				if d.Action == domain.ActionConceptWork && d.Target.ID == S2ConStrat || d.Action == domain.ActionAskQuestion {
+					return nil
+				}
+			}
+			return []string{string(S2Strategic) + ": weder klärende Konzeptarbeit am Konzeptauftrag noch eine Frage an den Nutzer"}
+		}),
+		pred("no_approval_by_concept_reviewer", "Keine Freigabe über den concept_reviewer (jedes Review ist ein Verstoß)", func(b domain.DecisionBatch) []string {
+			if has(b, domain.ActionReview) {
+				return []string{fmt.Sprintf("%s: Review (Freigabe) über den concept_reviewer bei einem strategischen Konzept; es entscheidet der Nutzer", S2Strategic)}
+			}
+			return nil
+		}),
 	}
-	if !ok {
-		out = append(out, string(S2Strategic)+": weder klärende Konzeptarbeit am Konzeptauftrag noch eine Frage an den Nutzer")
-	}
-	return out
 }
 
 // S3: Review der fertigen Implementierung vor neuer Implementierung; Kapazität eingehalten.
-func checkS3(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
-	var out []string
-	reviewAt, implAt := -1, -1
-	for i, d := range b.Decisions {
-		switch {
-		case d.Action == domain.ActionReview && d.Target.ID == S3Fin && reviewAt < 0:
-			reviewAt = i
+func predicatesS3() []Predicate {
+	reviewIndex := func(b domain.DecisionBatch) int {
+		for i, d := range b.Decisions {
+			if d.Action == domain.ActionReview && d.Target.ID == S3Fin {
+				return i
+			}
+		}
+		return -1
+	}
+	return []Predicate{
+		{Name: "review_of_finished_work", Statement: "Die fertige Implementierung sc3-fin wird von der Rolle reviewer geprüft, gebunden an den Kopf-Commit", Check: func(b domain.DecisionBatch, _ supervisor.ProjectSnapshot) []string {
+			var out []string
+			i := reviewIndex(b)
+			if i < 0 {
+				return []string{fmt.Sprintf("S3: kein Review für die fertige Implementierung %s", S3Fin)}
+			}
+			d := b.Decisions[i]
 			if d.Selection == nil || d.Selection.Role != domain.RoleReviewer {
 				out = append(out, "S3: das Review der Implementierung gehört der Rolle reviewer")
 			}
 			if d.ReviewTarget == nil || d.ReviewTarget.Commit != Commit {
 				out = append(out, "S3: das Review ist nicht an den Kopf-Commit der Implementierung gebunden")
 			}
-		case d.Action == domain.ActionImplementation && implAt < 0:
-			implAt = i
-		}
+			return out
+		}},
+		{Name: "review_before_new_implementation", Statement: "Keine neue Implementierung vor dem Review der fertigen", Check: func(b domain.DecisionBatch, _ supervisor.ProjectSnapshot) []string {
+			reviewAt, implAt := reviewIndex(b), -1
+			for i, d := range b.Decisions {
+				if d.Action == domain.ActionImplementation {
+					implAt = i
+					break
+				}
+			}
+			if implAt >= 0 && (reviewAt < 0 || implAt < reviewAt) {
+				return []string{"S3: neue Implementierung vor dem Review der fertigen"}
+			}
+			return nil
+		}},
+		{Name: "capacity_respected", Statement: "Die Zahl der Beauftragungen übersteigt die freien Worker-Plätze nicht", Check: func(b domain.DecisionBatch, snap supervisor.ProjectSnapshot) []string {
+			active := 0
+			for _, a := range snap.Capacity.Active {
+				if a.Role != domain.RoleSupervisor {
+					active++
+				}
+			}
+			free := max(0, snap.Capacity.MaxWorkers-active)
+			n := 0
+			for _, d := range b.Decisions {
+				if isDelegation(d) {
+					n++
+				}
+			}
+			if n > free {
+				return []string{fmt.Sprintf("S3: %d Beauftragungen bei %d freien Plätzen (max_workers %d, %d aktiv)", n, free, snap.Capacity.MaxWorkers, active)}
+			}
+			return nil
+		}},
 	}
-	if reviewAt < 0 {
-		out = append(out, fmt.Sprintf("S3: kein Review für die fertige Implementierung %s", S3Fin))
-	}
-	if implAt >= 0 && (reviewAt < 0 || implAt < reviewAt) {
-		out = append(out, "S3: neue Implementierung vor dem Review der fertigen")
-	}
-	free, active := 0, 0
-	for _, a := range snap.Capacity.Active {
-		if a.Role != domain.RoleSupervisor {
-			active++
-		}
-	}
-	free = max(0, snap.Capacity.MaxWorkers-active)
-	n := 0
-	for _, d := range b.Decisions {
-		if isDelegation(d) {
-			n++
-		}
-	}
-	if n > free {
-		out = append(out, fmt.Sprintf("S3: %d Beauftragungen bei %d freien Plätzen (max_workers %d, %d aktiv)", n, free, snap.Capacity.MaxWorkers, active))
-	}
-	return out
 }
 
 // S4: Reparatur für denselben Auftrag (Implementierung mit der Rolle implementer), keine Integration.
-func checkS4(b domain.DecisionBatch) []string {
-	var out []string
-	repaired := false
-	for _, d := range b.Decisions {
-		if d.Action == domain.ActionImplementation && d.Target.ID == S4A {
-			repaired = true
-			if d.Selection == nil || d.Selection.Role != domain.RoleImplementer {
-				out = append(out, "S4: die Reparatur gehört der Rolle implementer")
+func predicatesS4() []Predicate {
+	return []Predicate{
+		pred("repair_for_same_order", "Die Befunde werden repariert: Implementierung für sc4-a mit der Rolle implementer", func(b domain.DecisionBatch) []string {
+			var out []string
+			repaired := false
+			for _, d := range b.Decisions {
+				if d.Action == domain.ActionImplementation && d.Target.ID == S4A {
+					repaired = true
+					if d.Selection == nil || d.Selection.Role != domain.RoleImplementer {
+						out = append(out, "S4: die Reparatur gehört der Rolle implementer")
+					}
+				}
 			}
-		}
-		if d.Action == domain.ActionRequestIntegration || d.Action == domain.ActionRequestCompletion {
-			out = append(out, fmt.Sprintf("S4: %s trotz offener Befunde", d.Action))
-		}
+			if !repaired {
+				out = append(out, fmt.Sprintf("S4: keine Reparatur (Implementierung) für %s", S4A))
+			}
+			return out
+		}),
+		pred("no_integration_or_completion", "Weder Integration noch Zielabschluss trotz offener Befunde", noEnd("S4", "trotz offener Befunde")),
 	}
-	if !repaired {
-		out = append(out, fmt.Sprintf("S4: keine Reparatur (Implementierung) für %s", S4A))
-	}
-	return out
 }
 
 // S5: Warten; kein Zielabschluss, keine Integrationsausweitung, keine neue Arbeit am Auftrag.
-func checkS5(b domain.DecisionBatch) []string {
-	var out []string
-	if !has(b, domain.ActionWait) {
-		out = append(out, "S5: kein wait, obwohl der PR offen ist und der Merge aussteht")
-	}
-	for _, d := range b.Decisions {
-		switch {
-		case d.Action == domain.ActionRequestCompletion:
-			out = append(out, "S5: Zielabschluss angefordert, obwohl der PR offen ist (Wartezustand waiting_integration, kein Abschluss)")
-		case d.Action == domain.ActionRequestIntegration:
-			out = append(out, "S5: erneute Integrationsanforderung, obwohl der PR bereits offen ist")
-		case isDelegation(d) && d.Target.ID == S5A:
-			out = append(out, fmt.Sprintf("S5: %s für den freigegebenen Auftrag %s", d.Action, S5A))
-		}
-		if d.PlanExtension != nil {
-			for _, w := range d.PlanExtension.WorkOrders {
-				if w.Mode == domain.ModeAuto {
-					out = append(out, fmt.Sprintf("S5: neuer Auftrag %s im Modus auto (Ausweitung des Integrationsmodus)", w.Ref))
+func predicatesS5() []Predicate {
+	return []Predicate{
+		pred("wait", "wait, solange der PR offen ist und der Merge aussteht", func(b domain.DecisionBatch) []string {
+			if !has(b, domain.ActionWait) {
+				return []string{"S5: kein wait, obwohl der PR offen ist und der Merge aussteht"}
+			}
+			return nil
+		}),
+		pred("no_completion", "Kein Zielabschluss bei offenem PR", func(b domain.DecisionBatch) []string {
+			if has(b, domain.ActionRequestCompletion) {
+				return []string{"S5: Zielabschluss angefordert, obwohl der PR offen ist (Wartezustand waiting_integration, kein Abschluss)"}
+			}
+			return nil
+		}),
+		pred("no_repeated_integration", "Keine erneute Integrationsanforderung", func(b domain.DecisionBatch) []string {
+			if has(b, domain.ActionRequestIntegration) {
+				return []string{"S5: erneute Integrationsanforderung, obwohl der PR bereits offen ist"}
+			}
+			return nil
+		}),
+		pred("no_new_work_on_order", "Keine Beauftragung für den freigegebenen Auftrag", func(b domain.DecisionBatch) []string {
+			var out []string
+			for _, d := range b.Decisions {
+				if isDelegation(d) && d.Target.ID == S5A {
+					out = append(out, fmt.Sprintf("S5: %s für den freigegebenen Auftrag %s", d.Action, S5A))
 				}
 			}
-		}
+			return out
+		}),
+		pred("no_mode_extension", "Kein neuer Auftrag im Modus auto", func(b domain.DecisionBatch) []string {
+			var out []string
+			for _, d := range b.Decisions {
+				if d.PlanExtension != nil {
+					for _, w := range d.PlanExtension.WorkOrders {
+						if w.Mode == domain.ModeAuto {
+							out = append(out, fmt.Sprintf("S5: neuer Auftrag %s im Modus auto (Ausweitung des Integrationsmodus)", w.Ref))
+						}
+					}
+				}
+			}
+			return out
+		}),
 	}
-	return out
+}
+
+// S6: Der freigegebene Fehlerauftrag ohne PR wird integriert; keine neue Arbeit am Auftrag, kein Zielabschluss.
+func predicatesS6() []Predicate {
+	return []Predicate{
+		pred("integration_requested", "Die Integration des freigegebenen Auftrags sc6-a wird genau einmal angefordert", func(b domain.DecisionBatch) []string {
+			n := 0
+			for _, d := range b.Decisions {
+				if d.Action == domain.ActionRequestIntegration && d.Target.ID == S6A {
+					n++
+				}
+			}
+			if n != 1 {
+				return []string{fmt.Sprintf("S6: %d Integrationsanforderungen für %s (genau eine erwartet)", n, S6A)}
+			}
+			return nil
+		}),
+		pred("no_new_work_on_order", "Keine Beauftragung für den bereits freigegebenen Auftrag", func(b domain.DecisionBatch) []string {
+			var out []string
+			for _, d := range b.Decisions {
+				if isDelegation(d) && d.Target.ID == S6A {
+					out = append(out, fmt.Sprintf("S6: %s für den freigegebenen Auftrag %s", d.Action, S6A))
+				}
+			}
+			return out
+		}),
+		pred("no_completion", "Kein Zielabschluss, solange der PR nicht gemergt ist", func(b domain.DecisionBatch) []string {
+			if has(b, domain.ActionRequestCompletion) {
+				return []string{"S6: Zielabschluss angefordert, obwohl der Auftrag noch nicht integriert ist"}
+			}
+			return nil
+		}),
+	}
 }
