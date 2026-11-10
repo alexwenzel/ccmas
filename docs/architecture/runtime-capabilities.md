@@ -1,6 +1,6 @@
-# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35)
+# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35, CC-46)
 
-Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu. Führend ist die Spezifikation
+Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46. Führend ist die Spezifikation
 „Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
 (Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
@@ -22,7 +22,8 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
 | Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
 | Fremde Quellen (Projektdateien, Connectors, Plugins, Skills) | Im Runner-Lauf (`setting_sources=[]`) laden weder Hook, Projekt-Skill noch Benutzer-Skills/-Plugins aus dem Konfigurationsverzeichnis; `mcp_servers` ist 0; Positivkontrolle mit Quelle `project` zeigt Hook und Skill (Belege `live-roundtrip.jsonl`, `live-structured-output.jsonl`, Abschnitt 5) | Wirkung von `disableClaudeAiConnectors` (Anzahl ist auch ohne die Einstellung 0), Nachladen von Connectors nach dem Init-Frame, Herkunft von 3 Plugins mit Pfad außerhalb des Konfigurationsverzeichnisses, `CLAUDE.md` (Positivkontrolle nicht deterministisch: Marker erschien in einem Positivlauf nicht, im Review-Lauf schon; Abschnitt 5) | – |
-| Skills in der Sitzung (CC-35) | Genau die Skills eines von Go geschriebenen, vom Runner nachgerechneten Snapshots sind geladen und aufrufbar (Plugin `ccmas`, `ccmas:<id>`); ein Skill außerhalb der Allowlist wird vom Skill-Werkzeug abgewiesen (Beleg `live-skill-snapshot.jsonl`, Abschnitt 9) | Ressourcen-Dateien neben `SKILL.md` (Lesezugriff nicht freigeschaltet), Sitzung ohne Snapshot live (nur mit Fake-Client belegt: `skills=[]`, kein `Skill`-Werkzeug), Lauf mit `scoped_write`, Agents und Task-Werkzeug | – |
+| Skills in der Sitzung (CC-35) | Genau die Skills eines von Go geschriebenen, vom Runner nachgerechneten Snapshots sind geladen und aufrufbar (Plugin `ccmas`, `ccmas:<id>`); ein Skill außerhalb der Allowlist wird vom Skill-Werkzeug abgewiesen (live nur für `code-review` belegt; Beleg `live-skill-snapshot.jsonl`, Abschnitt 9); Lauf mit Snapshot **über den Go-Adapter** mit der Standardausstattung der Rolle `concept` aus dem echten Katalog (Beleg `live-profile-verify.jsonl`, Abschnitt 10); Läufe **ohne** Snapshot live (`skills=[]`, Init-Frame-Prüfung bestanden, Abschnitt 10) | Ressourcen-Dateien neben `SKILL.md` (Lesezugriff nicht freigeschaltet), dass die CLI ohne Snapshot wirklich keinen Skill aufrufbar macht (kein Aufrufversuch), Lauf mit `scoped_write`, Agents und Task-Werkzeug, die übrigen mitgelieferten Skills einzeln | – |
+| Go-Adapter und Profile (CC-46) | `internal/workers/runner` startet den Runner je Ausführung (Allowlist-Umgebung, neutrales Arbeitsverzeichnis, eigene Prozessgruppe), führt den `ExecutionTracker`, setzt `RunSpec.skill_snapshot`; `ccmas profile verify --live` belegt je Startmodell Verfügbarkeit, Anmeldung (`claude_ai`) und wirksames Modell (Belege `live-profile-verify.jsonl`, Abschnitt 10) | wirksamer Effort (das SDK meldet ihn nicht), `stop` und Prozessgruppen-Beendigung mit dem echten Runner (nur mit Stub-Prozess getestet), Windows | – |
 | Isolation (Dateisystem) | Abschnitt 5: Sandbox plus Permission-Regeln über den Runner (Beleg `live-scope-probe.jsonl`) | Abschnitt 5: Git, Werkzeugkette, Netzwerk, Hooks/MCP, Prozesszählung, andere Plattformen, Lesen unter `~/.claude` | **Unbeaufsichtigter Modus:** nicht freigegeben (`scoped_write` ist ein Prüfprofil; Profil `autonomous` wird abgelehnt) |
 | Diagnosen ohne Konto | Abschnitt 6 (Tests ohne Konto-Zugriff) | Abo-Limit gegen die echte CLI (nur mit Fake-Client belegt) | – |
 | Remote Control | nur Dokumentation und `--help` gelesen (Abschnitt 7) | SDK-Sitzungen in Remote Control | – |
@@ -346,9 +347,11 @@ eingeschränkt: der Marker erschien in diesem Positivlauf nicht (siehe Einschrä
   lädt Claude Code nicht, wenn `--setting-sources` `user` auslässt. Die Messwerte oben stützen das (vorhandene
   synchronisierte Skills und Plugins wurden nicht geladen). Deshalb werden `syncClaudeAiSkills`/`syncClaudeAiPlugins` nicht
   auf `false` gesetzt, siehe oben.
-- **Mitgelieferte Skills/Agents/Commands** (19, 5, 55) stehen im Init-Frame. Skills: mit der Allowlist aus CC-35 nicht
-  über das Skill-Werkzeug aufrufbar (Abschnitt 9); Agents und das Task-Werkzeug sind weiterhin nicht geprüft (`tools` ist eine
-  Positivliste ohne `Task`).
+- **Mitgelieferte Skills/Agents/Commands** (19, 5, 55) stehen im Init-Frame. Skills: Die Abweisung durch die Allowlist aus
+  CC-35 ist live nur für `code-review` belegt (Abschnitt 9, Lauf b: „not in this session's skills allowlist“). Der Aufruf von
+  `verify` scheiterte dagegen an dessen `disable-model-invocation` und belegt die Allowlist nicht; die übrigen mitgelieferten
+  Skills sind nicht einzeln belegt. Agents und das Task-Werkzeug sind weiterhin nicht geprüft (`tools` ist eine Positivliste
+  ohne `Task`).
 
 ### Isolationsurteil
 
@@ -539,8 +542,9 @@ Test-Manifest berechnet das Python-Modul.
 
 Init-Frame in beiden Läufen: `mcp_servers` 0, `plugins` 4 (die 3 bekannten plus das Plugin des Snapshots), `skills` 20 (die 19
 mitgelieferten plus der Probe-Skill), `agents` 5, `slash_commands` 56, `plugins_in_config_dir` 0. Die mitgelieferten Skills stehen also
-weiter im Init-Frame, sind aber über das Skill-Werkzeug nicht aufrufbar, solange `skills` gesetzt ist; die Prüfung des Runners
-betrachtet deshalb nur `ccmas:`-Einträge. Das Plugin trägt im Init-Frame den Namen `ccmas` und den aufgelösten Pfad (sonst wäre die
+weiter im Init-Frame. Live belegt ist nur die Abweisung von `code-review` durch die Allowlist (Lauf b); `verify` scheiterte an seinem
+`disable-model-invocation` und belegt die Allowlist nicht, und für die übrigen mitgelieferten Skills ist nicht einzeln belegt, ob das
+Skill-Werkzeug sie aufruft, solange `skills` gesetzt ist. Die Prüfung des Runners betrachtet deshalb nur `ccmas:`-Einträge. Das Plugin trägt im Init-Frame den Namen `ccmas` und den aufgelösten Pfad (sonst wäre die
 Prüfung des Runners nicht bestanden). In CC-35 liefen insgesamt **4 echte Sitzungen**: zwei Entwicklungsläufe (a:
 `7bff06ea-2de2-4137-84a3-a771c09cf1ce`, b: `e267e18d-353a-4ee7-b6a3-8f38e1c6d438`, gleiches Ergebnis) und die beiden Abschlussläufe
 oben, deren Beleg eingecheckt ist.
@@ -551,12 +555,80 @@ oben, deren Beleg eingecheckt ist.
   `Read`/`Bash` lesen; die Lesegrenze (`blockReadsOutsideWorkingDirectories`, Sandbox) erlaubt das Snapshot-Verzeichnis nicht, und der
   Runner schaltet es nicht frei. Ob ein Skill mit Ressourcen so nutzbar ist, ist offen; ein Freischalten ändert die Berechtigungsgrenzen
   und braucht die Freigabe des Projektinhabers.
-- **Sitzung ohne Snapshot live:** `skills=[]` und das Fehlen des `Skill`-Werkzeugs sind nur mit Fake-Client belegt; dass die CLI dann
-  wirklich keinen Skill aufrufbar macht, wurde nicht live geprüft.
+- **Sitzung ohne Snapshot:** Live belegt (Abschnitt 10) sind nur die Init-Frame-Prüfung des Runners (kein Plugin `ccmas`, kein
+  `ccmas:`-Skill) und der erfolgreiche Lauf. Das Fehlen des `Skill`-Werkzeugs ist nur mit Fake-Client belegt; dass die CLI dann
+  wirklich keinen Skill aufrufbar macht, wurde nicht durch einen Aufrufversuch geprüft.
 - **Profil `scoped_write` mit Skills**, Wirkung der Allowlist auf Agents und das Task-Werkzeug: nicht geprüft.
 - **Veränderung nach der Prüfung:** Zwischen Prüfung und Lesen durch die CLI schützt nur das Schreibschutz-Layout des Snapshots.
 - **Herkunft der 3 weiteren Plugins** (M04, Punkt 1) bleibt offen; sie tragen nicht den Namen `ccmas` (sonst wäre die Prüfung
   fehlgeschlagen).
+
+## 10. Go-Adapter und Live-Läufe über die Startprofile (CC-46)
+
+Frage: Startet und überwacht Go den Runner so, wie es die Spezifikation („Go und SDK zusammenführen“, „Runner-Protokoll“) verlangt,
+und tragen die Startprofile (Modell-IDs der Beispielkonfiguration, Läufe ohne und mit Snapshot) in echten Läufen?
+
+**Adapter** (`internal/workers/runner`, minimal; M04 erweitert ihn um Fragen, Resume und Prozessmessung):
+
+- **Prozess:** je Ausführung ein Prozess, Standard `uv run --frozen --project <Softwareordner>/runners/claude_sdk python -m claude_sdk_runner
+  [--max-turns N]` (ersetzbar für Tests). Prozess-cwd ist ein neutrales, leeres Temp-Verzeichnis (weder Ziel-Worktree noch
+  Softwareordner); das Sitzungsverzeichnis steht in `RunSpec.cwd`. Eigene Prozessgruppe (Unix); Windows baut, ist aber nicht belegt.
+- **Umgebung:** nur `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `__CF_USER_TEXT_ENCODING` (wie `LIVE_ENV_ALLOWLIST` der
+  Python-Live-Tests) plus `CCMAS_CONTRACTS_DIR=<Softwareordner>/contracts`. Nichts sonst, insbesondere keine `ANTHROPIC_*`- und
+  `CLAUDE_CODE_*`-Variablen; ein Test mit gesetzten Variablen belegt das am Stub-Prozess. `CLAUDE_CONFIG_DIR` gehört nicht dazu (die Läufe
+  nutzen `~/.claude`).
+- **Protokoll:** `start` (Umschlag und `RunSpec` werden vor dem Senden mit `domain.EncodeRunCommand` gegen den Vertrag geprüft), stdin
+  bleibt offen für `stop` und `interrupt`; stdout wird zeilenweise mit der Grenze `MaxMessageBytes` gelesen und mit dem Parser
+  `from-runner` geprüft; der `ExecutionTracker` führt den Zustand. Ungültige, übergroße, verspätete (`stale`) und außerhalb der
+  Reihenfolge liegende Nachrichten (zweites terminales Ergebnis, Nachricht danach: `sequence`) werden als Verstoß im Datensatz
+  festgehalten und ändern den Zustand nicht. stderr wird auf die letzten 16 KiB begrenzt mitgeschnitten; der Prompt wird nie protokolliert.
+- **Datensatz** (`Execution`): Ausführungs-ID, Versuch, unveränderliche Kopie des `AgentProfile`, `RunSpec` ohne Prompt-Text (nur Länge und
+  SHA-256), Skill-Snapshot-ID, `session_started`, Ereignisse, terminales Ergebnis, Exit-Code und „Absturz“ bei Prozessende ohne
+  terminales Ergebnis, auch mit Exit-Code 0. Persistenz in SQLite folgt in M03; bis dahin ist der Wert als JSON schreibbar.
+- **Abbruch:** Ende des Kontexts oder `Stop` sendet `stop`; nach der Gnadenfrist (Standard 10 s) folgt SIGTERM an die Prozessgruppe, nach
+  3 s SIGKILL. Nach Abbruch oder Prozessende ohne Ergebnis wird die Gruppe vollständig beendet. Belegt mit einem Stub-Prozess, der `stop`
+  und SIGTERM ignoriert und einen Kindprozess in der Gruppe hält (kein Prozess bleibt übrig).
+- **RunSpec-Aufbau:** Modell, Effort, Rolle, Policy, `profile_id`, `profile_version` aus dem `AgentProfile`. Bei nicht leeren `skill_ids`
+  entsteht der Snapshot über `internal/skills` (`Resolve` plus `Write` in ein angegebenes Verzeichnis, kanonischer Pfad) und
+  `RunSpec.skill_snapshot` wird gesetzt; bei leeren `skill_ids` gibt es keinen Snapshot.
+- **Policy:** nur `readonly`; `scoped_write` nur mit der Option `AllowScopedWrite` für Prüfläufe (offener Punkt 9), sonst Fehler vor dem
+  Start und vor dem Schreiben eines Snapshots.
+- **Claude-Binary:** `--claude-binary`, dann `CCMAS_CLAUDE_BINARY`, dann `claude` im PATH, jeweils zum echten Pfad aufgelöst.
+
+**`ccmas profile verify`:** ohne `--live` kein Prozessstart und kein Kontingent (Konfiguration, Auflösbarkeit jeder Rolle und jedes
+Agenten, Runner-Projekt, `uv`, Claude-Binary; Stufen „vorhanden“ und „konfiguriert“, „funktional nachgewiesen“ bleibt „nicht geprüft“).
+Mit `--live` genau ein Minimallauf je eindeutigem Modell der aufgelösten Rollenprofile (readonly, ohne Skills, Prompt „Antworte mit genau
+einem Wort: ok“, `--max-turns 3`, niedrigster unterstützter Effort, hier `low`). Der Lauf belegt Verfügbarkeit, Anmeldung (`claude_ai`)
+und das wirksame Modell (`session_started.model` gegen das konfigurierte); ein Unterschied ist ein Befund (`model_mismatch`). Der Effort
+wird **nicht** geprüft. Abo-Limit, fehlende Anmeldung und weitere terminale Fehler des Runners erscheinen als Diagnose, ohne Fallback.
+
+**Live-Läufe am 2026-11-10** (`claude-agent-sdk` 0.2.180, Claude Code 2.1.311, Max-Anmeldung, Beleg `live-profile-verify.jsonl`; Aufruf
+`CCMAS_LIVE_TESTS=1 CCMAS_EVIDENCE_DIR=… go test ./internal/cli -run TestLive`). Es liefen **3 echte Sitzungen** (der Test ruft den
+echten Adapter und den echten Runner auf); dazu kam ein Lauf des Befehls mit `/usr/bin/true` als Binary, der in der Vorprüfung des
+Runners (`sdk_cli_incompatible`) endete und keinen Modellaufruf auslöste.
+
+| Lauf | Session | Ergebnis |
+| --- | --- | --- |
+| `profile verify --live`, Modell `claude-opus-5-5` (Rollen supervisor, concept_reviewer, reviewer), ohne Snapshot | `1e0309e6-3016-444e-b9b5-f21837b8d402` | `succeeded`, wirksames Modell `claude-opus-5-5`, `auth_source` `claude_ai`, Effort `low` angefordert |
+| `profile verify --live`, Modell `claude-sonnet-5-5` (übrige sechs Rollen), ohne Snapshot | `e8b019c8-536b-4cf8-aea7-2e590a3e6e05` | `succeeded`, wirksames Modell `claude-sonnet-5-5`, `auth_source` `claude_ai`, Effort `low` angefordert |
+| Go-Adapter mit Snapshot: Rolle `concept`, Standardausstattung des echten Katalogs (`ccmas-concept-ticket`, `ccmas-obsidian-seite`), Modell `claude-haiku-5-5` und Effort `low` als Auftragswerte, `readonly` | `2ff04988-7aff-4d98-9eaa-2d78741fe73b` | `succeeded`; `session_started.skills` entspricht der Auswahl, `session_started.skill_snapshot_id` = von Go geschriebene Snapshot-ID (`sha256:49dc46d1…531f`); wirksames Modell `claude-haiku-5-5` |
+
+Befunde:
+
+- **Modell-IDs bestätigt:** `claude-opus-5-5`, `claude-sonnet-5-5` und `claude-haiku-5-5` wurden unverändert als wirksames Modell gemeldet.
+  Die Beispielkonfiguration bleibt unverändert.
+- **Läufe ohne Snapshot** (neue Pflicht `skills=[]` plus Init-Frame-Prüfung aus CC-35 für alle Läufe) sind damit live belegt: kein
+  terminaler `skills_not_loaded`, Ergebnis `succeeded`. Belegt ist die Init-Frame-Prüfung (kein Plugin `ccmas`, kein `ccmas:`-Skill),
+  nicht ein Aufrufversuch.
+- **Belegzeilen und Sitzungs-Skills:** Die beiden Zeilen `verify_*` im eingecheckten Beleg tragen `"skills": []` als festen Wert des
+  Tests, nicht als gemessenen. Indirekt belegt sind leere Sitzungs-Skills dennoch: Status `ok` setzt voraus, dass `session_started.skills`
+  leer ist und keine `skill_snapshot_id` trägt (sonst Befund `skills_loaded`). Seit der Nachbesserung führt das Live-Ergebnis von
+  `profile verify` die Werte aus `session_started` als `session_skills` und `skill_snapshot_id`, und der Live-Test schreibt sie in
+  künftige Belegzeilen; der vorhandene Beleg wurde nicht neu erzeugt.
+- **Init-Zeile des Snapshot-Laufs** (nur im Testlog, nicht im Beleg): `mcp_servers=0 plugins=4 skills=21 agents=5 slash_commands=57
+  plugins_in_config_dir=0`; 21 Skills sind die 19 mitgelieferten plus die zwei des Snapshots.
+- **Nicht belegt:** der wirksame Effort (das SDK meldet ihn nicht), `scoped_write`, `stop` und die Prozessgruppen-Beendigung mit dem
+  echten Runner, ein echtes Abo-Limit, Windows.
 
 ## Offene Punkte für M04 (CC-40) und folgende
 
@@ -572,9 +644,10 @@ oben, deren Beleg eingecheckt ist.
    zu prüfen.
 4. **`CLAUDE.md` und mitgelieferte Skills/Agents (Abschnitt 5, „Fremde Quellen“):** Die Positivkontrolle für `CLAUDE.md` ist
    nicht deterministisch (Modellverhalten, siehe Einschränkungen); die Negativaussage im Runner-Lauf bleibt schwächer als
-   die für Hook und Skill. Mitgelieferte Skills (19) sind mit der Allowlist aus CC-35 über das Skill-Werkzeug nicht aufrufbar
-   (Abschnitt 9, Lauf b: `code-review` mit Allowlist-Meldung, `verify` mit `disable-model-invocation`); offen bleibt, ob die
-   mitgelieferten Agents (5) in einer Sitzung mit Positivliste in `tools` nutzbar sind.
+   die für Hook und Skill. Die Abweisung mitgelieferter Skills (19) durch die Allowlist aus CC-35 ist live nur für `code-review`
+   belegt (Abschnitt 9, Lauf b: Allowlist-Meldung); `verify` scheiterte an `disable-model-invocation` und belegt die Allowlist
+   nicht, die übrigen mitgelieferten Skills sind nicht einzeln belegt. Offen bleibt außerdem, ob die mitgelieferten Agents (5)
+   in einer Sitzung mit Positivliste in `tools` nutzbar sind.
 5. **`skill_names` in der Init-Zeile auf stderr (Abschnitt „Der Runner in diesem Stand“):** Würde je eine Benutzer- oder
    Projektquelle geladen, stünden persönliche Skill-Namen im Log, auch in Test-Fehlermeldungen über `proc.stderr`. Die
    Namen nur hinter einem Diagnose-Schalter ausgeben.
@@ -589,33 +662,46 @@ oben, deren Beleg eingecheckt ist.
 8. **Isolationslücken nach Entscheidung A plus Spike B vom 10.11.2026 (Abschnitt 5, „Isolationsurteil“):** Git-Schreibaktionen
    nur über Go, Toolchain-Caches je Ausführung im erlaubten Bereich, Netzwerk nur über eine Allowlist, Werkzeugkette in der
    Sandbox, Hooks/MCP, Spike B (äußeres `sandbox-exec`-Profil um Runner und CLI) und eine kontrollierte Umgebung per
-   Allowlist, bevor ein unbeaufsichtigter Modus ausgewiesen wird.
+   Allowlist, bevor ein unbeaufsichtigter Modus ausgewiesen wird. Die Allowlist-Umgebung für den **Runner-Prozess** setzt seit
+   CC-46 der Go-Adapter (Abschnitt 10); das Binary und die Bash-Kindprozesse der Sitzung erben davon nur diese Variablen. Die
+   übrigen Lücken sind unverändert offen.
 9. **`scoped_write` ist ein Prüfprofil, das in Go erzwungen werden muss (Abschnitt „Der Runner in diesem Stand“, Abschnitt 5):**
    Das Profil ist technisch für jedes Arbeitsverzeichnis startbar. Der Status „Prüfprofil“ ist in Go durchzusetzen, bis ein
-   unbeaufsichtigter Modus nach bestandener Scope-Probe freigegeben ist.
+   unbeaufsichtigter Modus nach bestandener Scope-Probe freigegeben ist. **Minimal umgesetzt seit CC-46:** Der Go-Adapter lässt
+   nur `readonly` zu; `scoped_write` nur mit der ausdrücklichen Option `Config.AllowScopedWrite` für Prüfläufe, sonst Fehler vor
+   dem Start (`autonomous` und Unbekanntes nie). Diese Option ist noch nicht an die CLI oder die Konfiguration gebunden; die
+   Durchsetzung für echte Worktrees und die Scope-Probe bleiben M04 (CC-40).
 10. **Laufzeitgrenze (Abschnitt „Der Runner in diesem Stand“, „Grenzen“):** Die Aufräumzeit eines abgebrochenen `connect()` im
     SDK (`disconnect()`) ist nicht vom Runner begrenzt (unbegrenzte SDK-Aufräumzeit); auf einem Rechner im Schlaf oder bei
-    hängendem CLI-Prozess bleibt die Prozessgruppen-Beendigung durch Go (M04) maßgeblich. Randfall: Läuft die Zeitgrenze ab,
+    hängendem CLI-Prozess bleibt die Prozessgruppen-Beendigung durch Go maßgeblich. Der Adapter aus CC-46 beendet nach `stop`
+    und Gnadenfrist die Prozessgruppe (Abschnitt 10); das ist nur mit einem Stub-Prozess belegt, nicht mit einem hängenden
+    echten Runner. Randfall: Läuft die Zeitgrenze ab,
     während ein `_Abort` (zum Beispiel `api_billing_detected`) den Interrupt auslöst, kann der Timeout die Ursache
     überdecken; das Ergebnis ist dann `max_runtime_exceeded` statt der eigentlichen Diagnose.
 11. **Systemprompt (Abschnitt „Der Runner in diesem Stand“):** Ohne `system_prompt` startet das SDK mit `--system-prompt ""`;
     ob Runner-Sitzungen einen eigenen Prompt oder den Standardprompt von Claude Code bekommen, ist in M02 zu wählen.
 12. **Live-Tests nur auf diesem Rechner:** `REAL_CLAUDE` in `tests/support.py` ist fest auf `/opt/homebrew/bin/claude`
     gesetzt. Die Live-Tests und der Test mit leerem `CLAUDE_CONFIG_DIR` laufen nur auf einem Rechner mit diesem Binary
-    (sonst werden sie übersprungen).
+    (sonst werden sie übersprungen). Der Go-Adapter und `profile verify` haben keinen festen Pfad: Binary aus `--claude-binary`,
+    `CCMAS_CLAUDE_BINARY` oder `claude` im PATH (Abschnitt 10); die Python-Live-Tests sind unverändert.
 13. **Interrupt-Race:** Ein Interrupt/Stop, der vor dem Senden der Anfrage eintrifft, wird vorgemerkt und direkt nach
     `client.query` angewendet (Test mit Fake-Client). Nicht live belegt: ob die CLI einen Interrupt unmittelbar nach dem
     Senden der Anfrage immer vor dem ersten Modellaufruf wirksam abbricht.
 14. **Abo-Wartezustand in Go:** Der Runner sendet einen nicht terminalen `error` (`kind: subscription_limit`) und danach
-    ein terminales `result` `controlled_failure`. Wie Go das als Wartezustand ohne Crash-Zählung behandelt, ist offen.
+    ein terminales `result` `controlled_failure`. `profile verify --live` meldet das seit CC-46 als Diagnose „Abo-Limit erreicht“
+    ohne Fallback (nur mit Test-Double belegt, nie live herbeigeführt). Wie Go das im Betrieb als Wartezustand ohne
+    Crash-Zählung behandelt, ist offen (M04).
 15. **EOF auf stdin** bedeutet „keine weiteren Kommandos“, der Lauf läuft weiter. Erkennung verwaister Runner und
-    Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04.
+    Beendigung ganzer Prozessgruppen (Schlaf, SIGTERM) gehören zu M04. Der Adapter aus CC-46 hält stdin bis zum Prozessende offen
+    (für `stop` und `interrupt`) und beendet die Prozessgruppe nach Abbruch oder Prozessende ohne Ergebnis; die Erkennung
+    verwaister Runner nach einem Absturz von Go selbst ist offen.
 16. **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
 17. **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
 18. **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
 19. **Skills (Abschnitt 9):** `skill_ids` werden aus einem geprüften Snapshot angewendet. Offen: Lesezugriff auf Ressourcen neben
-    `SKILL.md` (nicht freigeschaltet, Freigabe des Projektinhabers nötig), Live-Beleg für eine Sitzung ohne Snapshot, Lauf mit
-    `scoped_write`, der Go-Adapter, der `RunSpec.skill_snapshot` setzt (CC-46), und das Verhalten der Allowlist gegenüber Agents.
+    `SKILL.md` (nicht freigeschaltet, Freigabe des Projektinhabers nötig, Entscheidung in M04/CC-28), Lauf mit `scoped_write`
+    und das Verhalten der Allowlist gegenüber Agents. Erledigt in CC-46: Der Go-Adapter setzt `RunSpec.skill_snapshot`
+    (live belegt, Abschnitt 10); Läufe ohne Snapshot sind live belegt (Init-Frame-Prüfung), ein Aufrufversuch ohne Snapshot nicht.
 20. **Bedingungen:** Die Unschärfe aus Abschnitt 1 bleibt als Hintergrund dokumentiert; der Betrieb ist durch die Entscheidung
     des Projektinhabers vom 10.11.2026 angenommen und blockiert M02 bis M04 nicht. Zu beobachten bleibt die Aussage „for now“ der
     Support-Seite.

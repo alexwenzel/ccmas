@@ -250,3 +250,43 @@ def _annotations(node):
     elif isinstance(node, list):
         for item in node:
             yield from _annotations(item)
+
+
+# ---- AgentProfile: angefordert, Fallback, Herkunft (seit CC-46, v1-kompatibel) ------------
+
+
+def load_fixture(sub, name):
+    return json.loads((FIXTURES / sub / name).read_text(encoding="utf-8"))
+
+
+def test_agent_profile_without_new_fields_stays_valid():
+    # Jedes bisher gültige Profil bleibt gültig: die vier Felder sind optional.
+    profile = load_fixture("valid", "agent-profile--implementer.json")
+    for field in ("requested_model", "requested_effort", "fallback", "value_sources"):
+        assert field not in profile
+    contracts.validate("agent-profile", json.dumps(profile))
+
+
+def test_agent_profile_cc46_fields_are_accepted():
+    for name in ("agent-profile--resolved_with_sources.json", "agent-profile--effort_fallback.json"):
+        contracts.validate("agent-profile", json.dumps(load_fixture("valid", name)))
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate", "expected"),
+    [
+        ("Fallback ohne requested_effort", lambda p: p.pop("requested_effort"), "field"),
+        ("Fallback ohne Quelle", lambda p: p["fallback"].pop("source"), "field"),
+        ("Fallback-Art unbekannt", lambda p: p["fallback"].update(kind="model_swap"), "value"),
+        ("Fallback-Stufe unbekannt", lambda p: p["fallback"].update(to="mittel"), "effort"),
+        ("Fallback mit zusätzlichem Feld", lambda p: p["fallback"].update(extra=1), "unknown_field"),
+        ("Herkunft unbekannt", lambda p: p["value_sources"].update(effort="default"), "value"),
+        ("Herkunft unvollständig", lambda p: p["value_sources"].pop("skill_ids"), "field"),
+        ("angefordertes Modell mit Leerzeichen", lambda p: p.update(requested_model="a b"), "model"),
+        ("angeforderter Effort unbekannt", lambda p: p.update(requested_effort="ultra"), "effort"),
+    ],
+)
+def test_agent_profile_cc46_field_violations(label, mutate, expected):
+    profile = copy.deepcopy(load_fixture("valid", "agent-profile--effort_fallback.json"))
+    mutate(profile)
+    check("agent-profile", profile, expected)

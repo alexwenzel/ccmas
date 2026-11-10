@@ -130,6 +130,66 @@ func (c Catalog) CheckProfile(p AgentProfile) error {
 	if !c.Policies[p.PolicyProfile] {
 		return newError(CatValue, "/policy_profile", "Policy-Profil %q ist nicht bekannt", p.PolicyProfile)
 	}
+	if err := c.checkRequested(p); err != nil {
+		return err
+	}
+	return checkValueSources(p.ValueSources)
+}
+
+// effortRank ist die Position einer Stufe in Efforts() (aufsteigend); -1 für unbekannte Stufen.
+func effortRank(e Effort) int {
+	for i, v := range Efforts() {
+		if v == e {
+			return i
+		}
+	}
+	return -1
+}
+
+// checkRequested prüft die optionalen Felder requested_model, requested_effort und fallback
+// (seit CC-46) auf Widerspruchsfreiheit. Ein Modell wird nie ersetzt. Ein abweichender
+// Effort ist nur als sichtbare Reduktion zulässig: die angeforderte Stufe ist vom Modell
+// nicht unterstützt, die wirksame ist es und liegt darunter.
+func (c Catalog) checkRequested(p AgentProfile) error {
+	if p.RequestedModel != "" && p.RequestedModel != p.Model {
+		return newError(CatModel, "/requested_model", "angefordertes Modell %q weicht vom wirksamen %q ab; Modelle werden nicht ersetzt", p.RequestedModel, p.Model)
+	}
+	f := p.Fallback
+	if f == nil {
+		if p.RequestedEffort != "" && p.RequestedEffort != p.Effort {
+			return newError(CatEffort, "/requested_effort", "angeforderter Effort %q weicht vom wirksamen %q ab, ohne dass ein Fallback ausgewiesen ist", p.RequestedEffort, p.Effort)
+		}
+		return nil
+	}
+	switch {
+	case f.Kind != FallbackEffortReduction:
+		return newError(CatValue, "/fallback/kind", "unbekannte Fallback-Art %q", f.Kind)
+	case p.RequestedEffort == "":
+		return newError(CatEffort, "/requested_effort", "ein Fallback braucht den angeforderten Effort")
+	case f.From != p.RequestedEffort:
+		return newError(CatEffort, "/fallback/from", "Fallback beginnt bei %q, angefordert war %q", f.From, p.RequestedEffort)
+	case f.To != p.Effort:
+		return newError(CatEffort, "/fallback/to", "Fallback endet bei %q, wirksam ist %q", f.To, p.Effort)
+	case effortRank(f.From) <= effortRank(f.To):
+		return newError(CatEffort, "/fallback", "ein Fallback reduziert die Stufe: %q liegt nicht unter %q", f.To, f.From)
+	case contains(c.Models[p.Model], f.From):
+		return newError(CatEffort, "/fallback/from", "Modell %q unterstützt Effort %q; eine Reduktion ist nicht zulässig", p.Model, f.From)
+	}
+	return nil
+}
+
+func checkValueSources(v *ValueSources) error {
+	if v == nil {
+		return nil
+	}
+	for _, f := range []struct {
+		name   string
+		source ValueSource
+	}{{"model", v.Model}, {"effort", v.Effort}, {"skill_ids", v.SkillIDs}} {
+		if !f.source.Valid() {
+			return newError(CatValue, "/value_sources/"+f.name, "unbekannte Herkunft %q", f.source)
+		}
+	}
 	return nil
 }
 

@@ -41,7 +41,8 @@ func newRootCommand() *cobra.Command {
 		Use:   "ccmas",
 		Short: "Lokale Kommandozentrale für agentengestützte Softwareentwicklung",
 		Long: "ccmas ist die lokale Kommandozentrale für die agentengestützte Softwareentwicklung.\n\n" +
-			"Verfügbar sind derzeit version, skills (list, show, validate, snapshot) und help. Die übrigen\n" +
+			"Verfügbar sind derzeit version, skills (list, show, validate, snapshot), profile (init, list, show, set,\n" +
+			"resolve, verify), agent (list, show, set, unset) und help. Die übrigen\n" +
 			"Befehlsgruppen sind als geplant gekennzeichnet und noch nicht verfügbar; ihr Aufruf endet mit\nExit-Code 3.\n\n" +
 			"Exit-Codes: 0 Erfolg, 1 Laufzeitfehler, 2 Bedienfehler, 3 noch nicht verfügbar.",
 		Version:       Version,
@@ -63,7 +64,7 @@ func newRootCommand() *cobra.Command {
 	)
 	localize(root)
 
-	root.AddCommand(newVersionCommand(), newSkillsCommand())
+	root.AddCommand(newVersionCommand(), newSkillsCommand(), newProfileCommand(), newAgentCommand())
 	for _, g := range plannedCommandSpecs {
 		root.AddCommand(newPlannedCommand(g))
 	}

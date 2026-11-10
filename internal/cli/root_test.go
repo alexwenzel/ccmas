@@ -8,12 +8,16 @@ import (
 )
 
 // plannedGroups sind die Gruppen aus „Vollständige CLI-Steuerung“ der Spezifikation, die
-// noch nicht implementiert sind. skills ist seit CC-35 verfügbar (siehe skills_test.go).
+// noch nicht implementiert sind. skills ist seit CC-35 verfügbar (siehe skills_test.go),
+// profile und agent seit CC-46 (siehe profile_test.go).
 var plannedGroups = []string{
 	"init", "status", "start", "stop", "ui", "project", "rules",
-	"agent", "profile", "task", "feature", "milestone", "question", "review",
+	"task", "feature", "milestone", "question", "review",
 	"merge", "processes", "events", "remote",
 }
+
+// availableGroups sind die implementierten Befehle auf der obersten Ebene.
+var availableGroups = []string{"version", "skills", "profile", "agent"}
 
 // run führt die CLI mit den Argumenten aus und liefert Exit-Code, stdout und stderr.
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -34,7 +38,7 @@ func TestRootHelp(t *testing.T) {
 				t.Errorf("%v: Hilfe nennt Gruppe %q nicht:\n%s", args, g, out)
 			}
 		}
-		for _, name := range []string{"version", "skills"} {
+		for _, name := range availableGroups {
 			if !containsWord(out, name) {
 				t.Errorf("%v: Hilfe nennt %s nicht", args, name)
 			}
@@ -47,13 +51,13 @@ func TestRootHelpMarksPlannedGroups(t *testing.T) {
 	if !strings.Contains(out, "noch nicht verfügbar") {
 		t.Errorf("Hilfe kennzeichnet geplante Gruppen nicht:\n%s", out)
 	}
-	// version und skills sind implementiert und dürfen nicht als geplant gelten: sie stehen
-	// vor dem Abschnitt der geplanten Gruppen.
+	// version, skills, profile und agent sind implementiert und dürfen nicht als geplant gelten:
+	// sie stehen vor dem Abschnitt der geplanten Gruppen.
 	planned := strings.Index(out, "Geplante Befehlsgruppen")
 	if planned < 0 {
 		t.Fatalf("Abschnitt der geplanten Gruppen fehlt:\n%s", out)
 	}
-	for _, name := range []string{"version", "skills"} {
+	for _, name := range availableGroups {
 		i := strings.Index(out, "\n  "+name+" ")
 		if i < 0 || i > planned {
 			t.Errorf("%s steht nicht im Abschnitt der verfügbaren Befehle:\n%s", name, out)
