@@ -715,3 +715,89 @@ func TestProfileAndAgentHelp(t *testing.T) {
 		wantFail(t, code, errOut, ExitUsage, "gibtsnicht")
 	}
 }
+
+// ---- profile set prüft auch die Agenten der Rolle (Review-Befund zu W46.1) -----
+
+// modelsWithLimitedHaiku beschränkt Haiku auf low bis high.
+func modelsWithLimitedHaiku() string {
+	return `schema_version: 1
+revision: 1
+source: "Testquelle"
+checked_on: "2026-11-10"
+policies: [readonly, scoped_write]
+models:
+  claude-opus-5-5:
+    efforts: [low, medium, high, xhigh, max]
+  claude-sonnet-5-5:
+    efforts: [low, medium, high, xhigh, max]
+  claude-haiku-5-5:
+    efforts: [low, medium, high]
+`
+}
+
+func TestProfileSetChecksAgentsOfTheRole(t *testing.T) {
+	t.Run("Agent würde unauflösbar: abgelehnt, nichts geschrieben", func(t *testing.T) {
+		e := newProfileEnv(t).initialized()
+		e.write("models.yaml", modelsWithLimitedHaiku())
+		// a1 erbt das Modell der Rolle (Sonnet, dort max erlaubt), will aber max.
+		e.ok("agent", "set", "a1", "--role", "implementer", "--effort", "max")
+		// Ein Agent einer anderen Rolle bleibt unbeteiligt.
+		e.ok("agent", "set", "r1", "--role", "reviewer", "--effort", "max")
+		before := e.file("agents.yaml")
+		code, out, errOut := e.run("profile", "set", "implementer", "--model", "claude-haiku-5-5")
+		wantFail(t, code, errOut, ExitError, "[unsupported_effort]", "a1", "claude-haiku-5-5")
+		if out != "" {
+			t.Errorf("stdout %q", out)
+		}
+		if e.file("agents.yaml") != before {
+			t.Error("agents.yaml wurde trotz Fehler verändert")
+		}
+		// Das gespeicherte Profil bleibt auflösbar.
+		e.ok("profile", "resolve", "--role", "implementer", "--agent", "a1")
+	})
+	t.Run("Agenten bleiben auflösbar: gespeichert", func(t *testing.T) {
+		e := newProfileEnv(t).initialized()
+		e.write("models.yaml", modelsWithLimitedHaiku())
+		e.ok("agent", "set", "a2", "--role", "implementer", "--effort", "high")
+		e.ok("agent", "set", "a3", "--role", "implementer", "--model", "claude-opus-5-5", "--effort", "max")
+		e.ok("profile", "set", "implementer", "--model", "claude-haiku-5-5")
+		var p domain.AgentProfile
+		decode(t, e.ok("profile", "resolve", "--role", "implementer", "--agent", "a2", "--json"), &p)
+		if p.Model != "claude-haiku-5-5" || p.Effort != domain.EffortHigh {
+			t.Errorf("a2 = %+v", p)
+		}
+		decode(t, e.ok("profile", "resolve", "--role", "implementer", "--agent", "a3", "--json"), &p)
+		if p.Model != "claude-opus-5-5" {
+			t.Errorf("a3 = %+v", p)
+		}
+	})
+}
+
+func TestAgentSetDoesNotSilentlyChangeRole(t *testing.T) {
+	e := newProfileEnv(t).initialized()
+	e.ok("agent", "set", "a1", "--role", "reviewer", "--effort", "low")
+	before := e.file("agents.yaml")
+	code, out, errOut := e.run("agent", "set", "a1", "--role", "implementer")
+	wantFail(t, code, errOut, ExitError, "a1", "reviewer", "implementer", "--change-role")
+	if out != "" {
+		t.Errorf("stdout %q", out)
+	}
+	if e.file("agents.yaml") != before {
+		t.Error("agents.yaml wurde trotz Fehler verändert")
+	}
+	// Gleiche Rolle bleibt ohne Schalter erlaubt.
+	e.ok("agent", "set", "a1", "--role", "reviewer", "--effort", "medium")
+	// Mit ausdrücklichem Schalter wechselt die Rolle.
+	e.ok("agent", "set", "a1", "--role", "implementer", "--change-role")
+	var show struct {
+		Agent struct {
+			Role string `json:"role"`
+		} `json:"agent"`
+	}
+	decode(t, e.ok("agent", "show", "a1", "--json"), &show)
+	if show.Agent.Role != "implementer" {
+		t.Errorf("Rolle = %q", show.Agent.Role)
+	}
+	// --change-role bei einem neuen Agenten ist harmlos.
+	e.ok("agent", "set", "neu", "--role", "reviewer", "--change-role")
+}

@@ -110,6 +110,22 @@ func (s *profileSession) check(cfg profiles.Config, role domain.Role, agentID st
 	return p, codedProfileError(err)
 }
 
+// checkAgentsOfRole löst jeden vorhandenen Agenten der Rolle gegen die geänderte Konfiguration
+// auf: ein Rollenstandard, der einen erbenden Agenten unauflösbar macht (zum Beispiel ein anderes
+// Modell, das dessen Effort nicht unterstützt), darf nicht gespeichert werden. Der Fehler nennt
+// den Agenten.
+func (s *profileSession) checkAgentsOfRole(cfg profiles.Config, role domain.Role) error {
+	for _, id := range cfg.AgentIDs() {
+		if cfg.Agents[id].Role != role {
+			continue
+		}
+		if _, err := s.check(cfg, role, id); err != nil {
+			return fmt.Errorf("Agent %q der Rolle %s wäre danach nicht mehr auflösbar: %w", id, role, err)
+		}
+	}
+	return nil
+}
+
 // codedProfileError zeigt Fehler des Pakets profiles (und die des Skill-Pakets) mit ihrem
 // stabilen Code in eckigen Klammern; Exit-Code ExitError.
 func codedProfileError(err error) error {
@@ -375,7 +391,8 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 		Short: "Standardwerte eines Rollenprofils ändern",
 		Long: "Ändert Modell, Effort, Skills oder Policy-Profil einer Rolle. Vor dem Speichern wird das Ergebnis wie bei " +
 			"einer Ausführung aufgelöst und geprüft (bekanntes Modell, vom Modell unterstützter Effort oder genehmigter " +
-			"Fallback, freigegebene und für die Rolle erlaubte Skills, bekanntes Policy-Profil). Eine unzulässige " +
+			"Fallback, freigegebene und für die Rolle erlaubte Skills, bekanntes Policy-Profil); ebenso jeder vorhandene " +
+			"Agent dieser Rolle, der den geänderten Wert erbt (der Fehler nennt den Agenten). Eine unzulässige " +
 			"Kombination endet mit Exit-Code 1; es wird nichts geschrieben. --skill ersetzt die Skill-Liste " +
 			"(wiederholbar), --clear-skills stellt die Standardausstattung der Rolle aus dem Skill-Katalog wieder her. " +
 			"Laufende Ausführungen behalten ihr Profil; die neuen Werte gelten nur für neue Ausführungen.",
@@ -433,6 +450,9 @@ func newProfileSetCommand(opts *profileOpts) *cobra.Command {
 			next.Roles[role] = rp
 			resolved, err := s.check(next, role, "")
 			if err != nil {
+				return err
+			}
+			if err := s.checkAgentsOfRole(next, role); err != nil {
 				return err
 			}
 			saved, err := s.store.SaveConfig(next)

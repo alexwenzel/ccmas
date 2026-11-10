@@ -139,6 +139,7 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 	var (
 		role, model, effort string
 		skillIDs            []string
+		changeRole          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set <id> --role <rolle> [--model M] [--effort E] [--skill ID …]",
@@ -148,7 +149,8 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 			"Skill-Liste des Agenten (wiederholbar). Vor dem Speichern wird der Agent wie bei einer Ausführung aufgelöst " +
 			"und geprüft (Rollenerlaubnis, bekanntes Modell, unterstützter Effort oder genehmigter Fallback, freigegebene " +
 			"und für die Rolle erlaubte Skills). Eine unzulässige Kombination endet mit Exit-Code 1; es wird nichts " +
-			"geschrieben. Zum Entfernen einzelner Werte dient 'agent unset'.",
+			"geschrieben. Gehört ein vorhandener Agent zu einer anderen Rolle, wechselt die Rolle nur mit --change-role; " +
+			"sonst endet der Befehl mit Exit-Code 1. Zum Entfernen einzelner Werte dient 'agent unset'.",
 		Args: exactArgs(1, "eine Agenten-ID"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -179,7 +181,11 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 				return err
 			}
 			next := s.cfg.Clone()
-			a := next.Agents[id]
+			a, exists := next.Agents[id]
+			if exists && a.Role != r && !changeRole {
+				return codedProfileError(&profiles.Error{Code: profiles.CodeAgentRoleMismatch, Field: "role",
+					Message: fmt.Sprintf("Agent %q gehört zur Rolle %s, nicht zu %s; zum Wechseln der Rolle --change-role angeben", id, a.Role, r)})
+			}
 			a.Role = r
 			if f.Changed("model") {
 				a.Model = model
@@ -210,6 +216,7 @@ func newAgentSetCommand(opts *profileOpts) *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "Modell-ID (muss in models.yaml konfiguriert sein)")
 	cmd.Flags().StringVar(&effort, "effort", "", "Effort-Stufe: low, medium, high, xhigh oder max")
 	cmd.Flags().StringArrayVar(&skillIDs, "skill", nil, "Skill-ID (wiederholbar); ersetzt die bisherige Skill-Liste des Agenten")
+	cmd.Flags().BoolVar(&changeRole, "change-role", false, "die Rolle eines vorhandenen Agenten wechseln (sonst Fehler)")
 	return cmd
 }
 

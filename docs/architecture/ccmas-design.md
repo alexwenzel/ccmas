@@ -51,7 +51,7 @@ internal/orchestrator/ supervisor/ workers/ git/ integrations/
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
 config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
-prompts/ rules/ scripts/ tests/                                 geplant
+prompts/ rules/ scripts/ tests/                                         geplant
 .claude/skills/       Führender CCMAS-Skillbestand (ccmas-<name>)       vorhanden
                       samt manifest.yaml; der Platzhalter skills/ entfällt
 docs/architecture/    dieser Snapshot                                   vorhanden

@@ -144,6 +144,8 @@ Bis zur Persistenz in SQLite (M03) sind die beiden Dateien der Speicher (`profil
   Schreibversuch nennt sie und scheitert, sie ist nach Prüfung von Hand zu entfernen.
 - **`profile init` überschreibt nie.** Eine vorhandene Datei bleibt unangetastet (Anlage per Hardlink einer fertig
   geschriebenen Temp-Datei, der bei vorhandener Datei scheitert). Beide Beispiele werden vor dem ersten Schreiben geprüft.
+  Das Verfahren setzt ein Dateisystem mit Hardlink-Unterstützung voraus; ohne sie endet `init` mit einem Fehler
+  (`storage`), statt eine Datei zu überschreiben.
 - `profile list|show`, `agent list|show` lesen nur `agents.yaml`; `profile resolve`, `profile set` und `agent set|unset`
   brauchen zusätzlich `models.yaml` und den Skill-Katalog.
 
@@ -156,10 +158,10 @@ Fehler nennen den Code in eckigen Klammern. Lesende Befehle haben `--json`.
 | --- | --- |
 | `profile init` | Startprofile aus den Beispielen anlegen, nie überschreiben |
 | `profile list`, `profile show <rolle>` | gespeicherte Rollenprofile (`--json`) |
-| `profile set <rolle> [--model] [--effort] [--skill …] [--clear-skills] [--policy]` | Rollenstandard ändern; vor dem Speichern wie bei einer Ausführung aufgelöst |
+| `profile set <rolle> [--model] [--effort] [--skill …] [--clear-skills] [--policy]` | Rollenstandard ändern; vor dem Speichern wie bei einer Ausführung aufgelöst, ebenso jeder vorhandene Agent der Rolle (ein Agent, der danach unauflösbar wäre, bricht mit Exit 1 ab und wird genannt; nichts wird geschrieben) |
 | `profile resolve --role R [--agent A] [--model] [--effort] [--skill …]` | aufgelöstes Profil mit Herkunft und Reduktion; mit `--json` ein gültiges `AgentProfile`; schreibt nichts |
 | `agent list`, `agent show <id>` | individuelle Agenten (`--json`; leeres Feld erbt) |
-| `agent set <id> --role R [--model] [--effort] [--skill …]` | Agent anlegen oder nur die genannten Felder ändern |
+| `agent set <id> --role R [--model] [--effort] [--skill …] [--change-role]` | Agent anlegen oder nur die genannten Felder ändern; die Rolle eines vorhandenen Agenten wechselt nur mit `--change-role`, sonst Exit 1 (`agent_role_mismatch`) |
 | `agent unset <id> [--model] [--effort] [--skills] [--all]` | Werte entfernen (erben wieder) oder den Agenten löschen |
 
 Gemeinsame Optionen von `profile` und `agent`: `--config-dir`, `--root`. Nicht vorhanden: `profile verify` (W46.2).
