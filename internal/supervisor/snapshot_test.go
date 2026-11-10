@@ -220,6 +220,12 @@ func TestSnapshotProblems(t *testing.T) {
 		"Fragezustand":  {func(s *ProjectSnapshot) { s.OpenQuestions = []OpenQuestion{{QuestionID: "q", State: "x"}} }, "open_questions[0].state"},
 		"Rollenangebot": {func(s *ProjectSnapshot) { s.Roles = []RoleOffer{{Role: "x"}} }, "roles[0].role"},
 		"Skill-Angebot": {func(s *ProjectSnapshot) { s.Skills = []SkillOffer{{ID: ""}} }, "skills[0].id"},
+		"zwei Agenten derselben Rolle": {func(s *ProjectSnapshot) {
+			s.Roles = []RoleOffer{{Role: domain.RoleImplementer, AgentID: "a"}, {Role: domain.RoleImplementer, AgentID: "b"}}
+		}, "roles[1].role"},
+		"Rollenstandard und Agent derselben Rolle": {func(s *ProjectSnapshot) {
+			s.Roles = []RoleOffer{{Role: domain.RoleReviewer}, {Role: domain.RoleReviewer, AgentID: "r"}}
+		}, "roles[1].role"},
 		"Bericht ohne Urteil": {func(s *ProjectSnapshot) {
 			s.order(t, "wo-ready").LastReview.Report.Verdict = "x"
 		}, "orders[6].last_review.report"},

@@ -111,7 +111,7 @@ Ergebnisse je Rolle (Stand W33.1):
 
 | Rolle | Ergebnisse (→ Standardschritt) |
 | --- | --- |
-| `supervisor` | `plan_updated` (→ `implementation`; ferner `concept_work`, `review`, `documentation_work`, `request_integration`, `request_completion`, `plan_extend`, `wait`), `user_decision_needed` (→ `ask_question`), `goal_reached` (→ `request_completion`), `idle` (→ `wait`) |
+| `supervisor` | `plan_updated` (→ `implementation` mit `concept_version_approved`, danach `implementation` ohne Konzeptbezug; ferner `concept_work`, `review`, `documentation_work`, `request_integration`, `request_completion`, `plan_extend`, `wait`), `user_decision_needed` (→ `ask_question`), `goal_reached` (→ `request_completion`), `idle` (→ `wait`) |
 | `project_setup` | `project_connected` (→ `plan_extend`), `setup_blocked` (→ `ask_question`) |
 | `concept` | `concept_ready` (→ `review`/`concept_reviewer`, sonst `ask_question`), `concept_blocked` (→ `ask_question`) |
 | `concept_reviewer` | `concept_approved` (FREIGEGEBEN, → `plan_extend`), `concept_findings` (BEFUNDE, → `concept_work`), `needs_user_decision` (→ `ask_question`) |

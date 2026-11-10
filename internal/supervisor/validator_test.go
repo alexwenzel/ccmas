@@ -409,7 +409,11 @@ func TestRejectUnmetPreconditions(t *testing.T) {
 		{"abgebrochener Auftrag", func(s *ProjectSnapshot) {
 			s.order(t, "wo-a").State = domain.WOCancelled
 		}, implDecision("dec-1", "wo-a"), []string{"cancelled"}},
-		{"kein Konzept", func(s *ProjectSnapshot) { s.order(t, "wo-a").Concept = nil }, implDecision("dec-1", "wo-a"), []string{"Konzept"}},
+		{"Konzeptbezug über eine Abhängigkeit, aber kein Konzeptstand am Auftrag", func(s *ProjectSnapshot) {
+			s.order(t, "wo-con").State = domain.WOCompleted
+			a := s.order(t, "wo-a")
+			a.Concept, a.DependsOn = nil, []string{"wo-con"}
+		}, implDecision("dec-1", "wo-a"), []string{"wo-con", "Konzeptstand"}},
 		{"Konzept nicht freigegeben", func(s *ProjectSnapshot) { s.order(t, "wo-a").Concept.Approval = nil }, implDecision("dec-1", "wo-a"), []string{"Freigabe"}},
 		{"Freigabe gilt für eine ältere Version", func(s *ProjectSnapshot) {
 			s.order(t, "wo-a").Concept.Version = "1.1"
@@ -996,6 +1000,184 @@ func TestRejectStepNotCoveredByRoleRules(t *testing.T) {
 	})
 }
 
+// ---- Nachbesserung CC-14 (Review zu W14.1) -----------------------------------------------------------
+
+// noConcept macht wo-a zum Auftrag ohne jeden Konzeptbezug (kein Konzeptstand, keine Abhängigkeit auf einen Konzeptauftrag).
+func noConcept(t *testing.T, s *ProjectSnapshot, id string) *Order {
+	o := s.order(t, id)
+	o.Concept = nil
+	return o
+}
+
+func TestConceptApprovalIsRequiredOnlyWhereTheOrderHasAConceptReference(t *testing.T) {
+	e := newEnv(t)
+	t.Run("Fehlerauftrag ohne Konzeptbezug braucht keine Konzeptfreigabe", func(t *testing.T) {
+		s := baseSnapshot()
+		o := noConcept(t, &s, "wo-a")
+		o.Kind = OrderBug
+		d := implDecision("dec-1", "wo-a")
+		d.Preconditions = []domain.Precondition{} // concept_version_approved entfällt: es gibt nichts freizugeben
+		vb := e.mustAccept(batch(d), s)
+		if len(vb.Delegations()) != 1 {
+			t.Fatalf("validierter Batch = %+v", vb)
+		}
+	})
+	t.Run("auch Umsetzung ohne Konzeptbezug, mit und ohne deklarierte Voraussetzung", func(t *testing.T) {
+		s := baseSnapshot()
+		noConcept(t, &s, "wo-a")
+		d := implDecision("dec-1", "wo-a")
+		d.Preconditions = []domain.Precondition{}
+		e.mustAccept(batch(d), s)
+		e.mustAccept(batch(implDecision("dec-1", "wo-a")), s) // deklariert ohne Version: leere Behauptung, kein Verstoß
+	})
+	t.Run("eine genannte Konzeptversion ohne Konzeptstand ist falsch", func(t *testing.T) {
+		s := baseSnapshot()
+		noConcept(t, &s, "wo-a")
+		d := implDecision("dec-1", "wo-a")
+		d.Preconditions = []domain.Precondition{{Kind: domain.PrecConceptApproved, Ref: "1.0"}}
+		_, err := e.check(batch(d), s)
+		wantRejection(t, err, CodePreconditionUnmet, "dec-1", "1.0", "Konzeptstand")
+	})
+	t.Run("Konzeptstand am Auftrag: die Freigabe bleibt Pflicht", func(t *testing.T) {
+		s := baseSnapshot()
+		s.order(t, "wo-a").Concept.Approval = nil
+		_, err := e.check(batch(implDecision("dec-1", "wo-a")), s)
+		wantRejection(t, err, CodePreconditionUnmet, "dec-1", "Freigabe")
+		// Auch die Deckung durch die Rollenregeln verlangt dort die deklarierte Voraussetzung.
+		d := implDecision("dec-1", "wo-b")
+		d.Preconditions = []domain.Precondition{}
+		_, err = e.check(batch(d), baseSnapshot())
+		wantRejection(t, err, CodeStepNotCovered, "dec-1", "concept_version_approved")
+	})
+	t.Run("Abhängigkeit auf einen Konzeptauftrag: Konzeptstand und Freigabe bleiben Pflicht", func(t *testing.T) {
+		s := baseSnapshot()
+		s.order(t, "wo-con").State = domain.WOCompleted
+		a := noConcept(t, &s, "wo-a")
+		a.DependsOn = []string{"wo-con"}
+		d := implDecision("dec-1", "wo-a")
+		d.Preconditions = []domain.Precondition{}
+		_, err := e.check(batch(d), s)
+		wantRejection(t, err, CodePreconditionUnmet, "dec-1", "wo-con")
+		wantRejection(t, err, CodeStepNotCovered, "dec-1", "concept_version_approved")
+		// Mit freigegebenem Konzeptstand und deklarierter Voraussetzung ist es zulässig.
+		a.Concept = approvedConcept("1.0")
+		e.mustAccept(batch(implDecision("dec-1", "wo-a")), s)
+		// Strategisch bleibt Sache des Nutzers.
+		a.Concept.Class, a.Concept.Criteria = skills.ConceptStrategic, []string{"scope_change"}
+		_, err = e.check(batch(implDecision("dec-1", "wo-a")), s)
+		wantRejection(t, err, CodePreconditionUnmet, "dec-1", "Nutzer")
+	})
+	t.Run("Review und Integration ohne Konzeptbezug", func(t *testing.T) {
+		s := baseSnapshot()
+		noConcept(t, &s, "wo-review")
+		ready := noConcept(t, &s, "wo-ready")
+		// Ohne Konzeptversion ist die Bindung an den Commit die einzige; der Bericht nennt irgendeine Bezeichnung.
+		ready.LastReview.Report.ConceptVersion = "ohne-konzept"
+		e.mustAccept(batch(codeReviewDecision("dec-1", "wo-review", commitA, "ohne-konzept"), integrationDecision("dec-2", "wo-ready")), s)
+		// Die Bindung an den Commit bleibt: ein Bericht für einen anderen Commit trägt die Integration nicht.
+		ready.LastReview.Report.Commit = commitA
+		_, err := e.check(batch(integrationDecision("dec-1", "wo-ready")), s)
+		wantRejection(t, err, CodeIntegrationNotApproved, "dec-1")
+	})
+}
+
+func TestDuplicateStartAppliesOnlyToStartingActions(t *testing.T) {
+	e := newEnv(t)
+	t.Run("wait und ask_question für denselben Auftrag sind zusammen zulässig", func(t *testing.T) {
+		vb := e.mustAccept(batch(waitDecision("dec-1", "wo-c"), questionDecision("dec-2", "wo-c")), baseSnapshot())
+		if len(vb.Decisions) != 2 || len(vb.Delegations()) != 0 {
+			t.Fatalf("validierter Batch = %+v", vb)
+		}
+	})
+	t.Run("wait neben einer Beauftragung desselben Auftrags ist kein Doppelstart", func(t *testing.T) {
+		_, err := e.check(batch(waitDecision("dec-1", "wo-a"), implDecision("dec-2", "wo-a")), baseSnapshot())
+		if err != nil {
+			if re, ok := AsRejection(err); ok && re.Has(CodeDuplicateStart) {
+				t.Fatalf("wait zählt nicht als Start:\n%v", err)
+			}
+		}
+	})
+	t.Run("Beauftragung und Integrationsanforderung desselben Auftrags bleiben ein Doppelstart", func(t *testing.T) {
+		_, err := e.check(batch(integrationDecision("dec-1", "wo-ready"), docDecision("dec-2", "wo-ready")), baseSnapshot())
+		wantRejection(t, err, CodeDuplicateStart, "dec-2", "dec-1")
+		_, err = e.check(batch(docDecision("dec-1", "wo-ready"), integrationDecision("dec-2", "wo-ready")), baseSnapshot())
+		wantRejection(t, err, CodeDuplicateStart, "dec-2", "dec-1")
+	})
+	t.Run("zwei Beauftragungen bleiben ein Doppelstart", func(t *testing.T) {
+		_, err := e.check(batch(implDecision("dec-1", "wo-a"), implDecision("dec-2", "wo-a")), baseSnapshot())
+		wantRejection(t, err, CodeDuplicateStart, "dec-2", "dec-1")
+	})
+}
+
+func TestCapacityCountsOnlyDelegationsThatCouldStart(t *testing.T) {
+	e := newEnv(t)
+	free := func() ProjectSnapshot { // max_workers 3, zwei aktiv: ein Platz frei
+		s := baseSnapshot()
+		s.activate(domain.RoleImplementer, "exec-1", "wo-block")
+		s.activate(domain.RoleImplementer, "exec-2", "wo-done")
+		return s
+	}
+	t.Run("aus anderem Grund abgelehnte Delegation belegt keinen Platz (Sondenfall)", func(t *testing.T) {
+		// dec-1: offene Abhängigkeit (wo-c hängt an wo-a). dec-2 passt in den freien Platz.
+		_, err := e.check(batch(implDecision("dec-1", "wo-c"), implDecision("dec-2", "wo-b")), free())
+		wantRejection(t, err, CodePreconditionUnmet, "dec-1", "wo-a")
+		onlyCodes(t, err, CodePreconditionUnmet)
+	})
+	t.Run("zwei startbare Delegationen: die zweite passt nicht", func(t *testing.T) {
+		_, err := e.check(batch(implDecision("dec-1", "wo-a"), implDecision("dec-2", "wo-b")), free())
+		wantRejection(t, err, CodeCapacityExceeded, "dec-2")
+		onlyCodes(t, err, CodeCapacityExceeded)
+	})
+	t.Run("drei Delegationen, die abgelehnte dazwischen zählt nicht", func(t *testing.T) {
+		_, err := e.check(batch(implDecision("dec-1", "wo-a"), implDecision("dec-2", "wo-c"), implDecision("dec-3", "wo-b")), free())
+		wantRejection(t, err, CodePreconditionUnmet, "dec-2")
+		wantRejection(t, err, CodeCapacityExceeded, "dec-3")
+		for _, r := range rejected(t, err).Rejections {
+			if r.Code == CodeCapacityExceeded && r.DecisionID != "dec-3" {
+				t.Errorf("capacity_exceeded bei %s", r.DecisionID)
+			}
+		}
+	})
+	t.Run("ein Doppelstart belegt keinen zweiten Platz", func(t *testing.T) {
+		s := free()
+		_, err := e.check(batch(implDecision("dec-1", "wo-a"), docDecision("dec-2", "wo-a")), s)
+		wantRejection(t, err, CodeDuplicateStart, "dec-2")
+		onlyCodes(t, err, CodeDuplicateStart)
+	})
+}
+
+func TestNewOrderWithoutModeInheritsTheOrderedMode(t *testing.T) {
+	e := newEnv(t)
+	auto := planned("wo-n2")
+	auto.Mode = domain.ModeAuto
+	pr := planned("wo-n3")
+	pr.Mode = domain.ModePR
+
+	s := baseSnapshot() // Ziel im Modus pr
+	vb := e.mustAccept(batch(planDecision("dec-1", planned("wo-n1"), pr)), s)
+	modes := vb.Decisions[0].NewOrderModes
+	if modes["wo-n1"] != domain.ModePR || modes["wo-n3"] != domain.ModePR || len(modes) != 2 {
+		t.Fatalf("Modi der neuen Aufträge = %v", modes)
+	}
+
+	s.IntegrationMode = domain.ModeAuto // Ziel ausdrücklich im Modus auto: erben heißt auto, enger (pr) ist zulässig
+	vb = e.mustAccept(batch(planDecision("dec-1", planned("wo-n1"), auto, pr)), s)
+	modes = vb.Decisions[0].NewOrderModes
+	if modes["wo-n1"] != domain.ModeAuto || modes["wo-n2"] != domain.ModeAuto || modes["wo-n3"] != domain.ModePR {
+		t.Fatalf("Modi der neuen Aufträge = %v", modes)
+	}
+
+	// Aufweiten bleibt abgelehnt, auch bei ausdrücklicher Angabe.
+	_, err := e.check(batch(planDecision("dec-1", auto)), baseSnapshot())
+	wantRejection(t, err, CodeModeExtension, "dec-1")
+
+	// Entscheidungen ohne Plan-Ergänzung tragen keine Modi.
+	vb = e.mustAccept(batch(waitDecision("dec-1", "wo-c")), baseSnapshot())
+	if vb.Decisions[0].NewOrderModes != nil {
+		t.Errorf("Modi bei wait: %v", vb.Decisions[0].NewOrderModes)
+	}
+}
+
 // ---- Sammeln, Format, Policy, Snapshot ---------------------------------------------------------------------------
 
 func TestMultipleViolationsAreCollected(t *testing.T) {
@@ -1031,8 +1213,14 @@ func TestMultipleViolationsAreCollected(t *testing.T) {
 	wantRejection(t, err, CodeModeExtension, "dec-6")
 	wantRejection(t, err, CodeDependencyCycle, "dec-6")
 	wantRejection(t, err, CodePrematureCompletion, "dec-7")
-	wantRejection(t, err, CodeCapacityExceeded, "dec-5") // max 2, eine Ausführung aktiv: ein Platz frei, jede Delegation zählt
-	if len(re.Rejections) < 9 {
+	// max 2, eine Ausführung aktiv: ein Platz frei. Keine der Delegationen ist grundsätzlich startbar (alle aus anderem
+	// Grund abgelehnt), also zählt keine, und capacity_exceeded wäre eine falsche Rückmeldung.
+	for _, r := range re.Rejections {
+		if r.Code == CodeCapacityExceeded {
+			t.Errorf("capacity_exceeded für eine aus anderem Grund abgelehnte Delegation: %v", r)
+		}
+	}
+	if len(re.Rejections) < 8 {
 		t.Fatalf("zu wenige Ablehnungen (%d):\n%s", len(re.Rejections), re.Error())
 	}
 

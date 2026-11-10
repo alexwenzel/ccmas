@@ -556,10 +556,18 @@ func (s ProjectSnapshot) Problems() []SnapshotProblem {
 	}
 
 	// Rollenprofile und Skills.
+	seenRole := map[domain.Role]int{}
 	for i, r := range s.Roles {
 		p := fmt.Sprintf("roles[%d]", i)
 		if !r.Role.Valid() {
 			bad(p+".role", "unbekannte Rolle %q", r.Role)
+		}
+		// Höchstens ein Profilangebot (und damit höchstens ein Agent) je Rolle: der Supervisor sieht die Auswahl, Go
+		// wählt unter mehreren Agenten nicht still aus.
+		if first, dup := seenRole[r.Role]; dup {
+			bad(p+".role", "Rolle %s hat mehrere Profilangebote (roles[%d] und roles[%d]); höchstens ein Agent je Rolle", r.Role, first, i)
+		} else {
+			seenRole[r.Role] = i
 		}
 		if r.AgentID != "" {
 			id(p+".agent_id", r.AgentID)

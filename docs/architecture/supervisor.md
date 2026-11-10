@@ -55,7 +55,7 @@ auf einer Kopie und gibt nie `null` aus, sodass gleiche Inhalte byte-gleich sind
 | `skills` | freigegebene Skills mit Kategorie, Beschreibung, Rollen |
 
 `Problems()` nennt alle Verstöße gegen die Invarianten (gültige IDs, eindeutige Aufträge, bekannte Zustände und Arten,
-bekannte Abhängigkeiten, `max_workers` 1–16, aktive Ausführungen mit laufendem Zustand, aktive Ausführung eines Auftrags in der Liste der
+bekannte Abhängigkeiten, höchstens ein Profilangebot (und damit höchstens ein Agent) je Rolle, `max_workers` 1–16, aktive Ausführungen mit laufendem Zustand, aktive Ausführung eines Auftrags in der Liste der
 aktiven Ausführungen, vollständige Commit-Hashes, PR- und CI-Stand, konsistente Berichte). Ein ungültiger Snapshot ist keine
 Grundlage: der Validator lehnt jeden Batch mit `invalid_snapshot` ab. Eine fehlende Reviewer-Rolle gilt als „unbekannt“ und ist
 gültig; sie führt später zu `integration_not_approved`.
@@ -119,9 +119,9 @@ laufen unabhängig voneinander und werden gesammelt.
 | `duplicate_decision_id` | eine Entscheidungs-ID kommt im Batch mehrfach vor | Vergleich |
 | `duplicate_reference` | eine neue Ref ist schon vergeben (Auftrag, Ziel, Umfang oder zweimal im Batch) | Snapshot |
 | `dependency_cycle` | Abhängigkeitsgraph aus vorhandenen Abhängigkeiten plus `plan_extension` hat einen Zyklus (auch Selbstabhängigkeit); gemeldet bei den Entscheidungen, die Beteiligte anlegen oder beauftragen | Graph (starke Zusammenhangskomponenten) |
-| `precondition_unmet` | Auftrag blockiert, abgebrochen oder abgeschlossen (und andere nicht startbare Zustände); offene Abhängigkeit; Konzept fehlt, nicht freigegeben oder Freigabe für andere Version; Konzeptprüfer gibt Strategisches frei (dann entscheidet der Nutzer, nur `ask_question`); offene Frage; Review ohne abgeschlossene Implementierung, mit anderem Commit oder anderer Konzeptversion; nicht erfüllte deklarierte Voraussetzung | `ConceptApprover`, `ConceptApprovalValid`, Snapshot |
-| `capacity_exceeded` | neue Ausführungen (`concept_work`, `implementation`, `review`, `documentation_work`) plus aktive (ohne Supervisor) > `max_workers`; Reviewer zählen mit | Zählung |
-| `duplicate_start` | zwei Entscheidungen für denselben Auftrag, oder ein Auftrag mit aktiver Ausführung | Snapshot |
+| `precondition_unmet` | Auftrag blockiert, abgebrochen oder abgeschlossen (und andere nicht startbare Zustände); offene Abhängigkeit; bei Konzeptbezug des Auftrags (Konzeptstand am Auftrag oder Abhängigkeit auf einen Konzeptauftrag) Konzeptstand fehlt, Konzept nicht freigegeben oder Freigabe für andere Version; Konzeptprüfer gibt Strategisches frei (dann entscheidet der Nutzer, nur `ask_question`); offene Frage; Review ohne abgeschlossene Implementierung, mit anderem Commit oder anderer Konzeptversion; nicht erfüllte deklarierte Voraussetzung | `ConceptApprover`, `ConceptApprovalValid`, Snapshot |
+| `capacity_exceeded` | grundsätzlich startbare neue Ausführungen (`concept_work`, `implementation`, `review`, `documentation_work`; aus anderem Grund abgelehnte zählen nicht) plus aktive (ohne Supervisor) > `max_workers`; Reviewer zählen mit | Zählung |
+| `duplicate_start` | zwei startende Entscheidungen (Beauftragung oder `request_integration`) für denselben Auftrag, oder ein Auftrag mit aktiver Ausführung; `wait` und `ask_question` starten nichts | Snapshot |
 | `scope_extension` | Ziel oder Abhängigkeit außerhalb des beauftragten Umfangs (`out_of_scope`), neue Ref, die ein nicht beauftragtes Ticket übernimmt | Snapshot |
 | `mode_extension` | Modus eines neuen Auftrags (`plan_extension[].mode`) oder eines Auftrags bei `request_integration` weitet den beauftragten Modus auf | `IntegrationModeAllowed` |
 | `integration_not_approved` | `request_integration` ohne gültiges, unabhängiges Review | `PushAllowed` (Rolle und Ausführungs-IDs aus dem Snapshot) |
@@ -144,16 +144,29 @@ Diese Festlegungen sind Entscheidungen dieses Stands und stehen hier, damit sie 
   Ergebnis des Auftrags (`last_result`) folgt; die in `requires` genannten Voraussetzungen müssen in der Entscheidung stehen.
   Die Prüfung einer Konzeptversion durch den Konzeptprüfer (`review` mit Rolle `concept_reviewer`) ist deshalb nur nach einem
   Konzeptergebnis zulässig.
-- **Konzeptfreigabe für jede Implementierung.** Ein Auftrag ohne Konzeptstand wird nicht implementiert. Ausnahmen für kleine
-  Fehleraufträge sind eine Produktentscheidung und nicht von Go zu treffen.
-- **Kapazität.** Jede beauftragende Entscheidung des Batches zählt, auch wenn sie aus anderem Grund abgelehnt wird; die
-  Entscheidungen, die nicht mehr hineinpassen, werden einzeln abgelehnt.
-- **Doppelstart.** Zwei Entscheidungen mit Auftragsziel für denselben Auftrag sind unabhängig von der Aktion ein Doppelstart; die
-  zweite und jede weitere wird abgelehnt.
+- **Konzeptfreigabe nur bei Konzeptbezug.** Die Spezifikation („Concept-Tickets in Asana“) verlangt die Freigabe für abhängige
+  Implementation-Tickets; `Bug` und `Organisation` bleiben nutzbar. Der Validator verlangt sie deshalb nur, wo der Snapshot einen
+  Konzeptbezug führt: ein Konzeptstand am Auftrag oder eine Abhängigkeit auf einen Konzeptauftrag. Dann gelten `ConceptApprover`
+  und `ConceptApprovalValid` wie bisher (strategisch oder nicht einstufbar: nur die Frage an den Nutzer). Ein Konzeptbezug über
+  eine Abhängigkeit ohne Konzeptstand am Auftrag wird abgelehnt (fail-safe); ohne Konzeptbezug gibt es nichts freizugeben, eine
+  deklarierte Voraussetzung `concept_version_approved` ohne Version ist dort leer und kein Verstoß, mit Version falsch. Die
+  Rollenregeln führen dafür zwei Schritte (`implementation` mit und ohne `concept_version_approved`); bei Konzeptbezug ergänzt
+  die Deckung die Voraussetzung auch für den Schritt ohne sie. Ohne Konzeptstand gibt es keine Konzeptversion, an die ein Review
+  zu binden wäre: die Integration bindet dann nur an Auftrag, Commit, Urteil und unabhängige Ausführung.
+- **Kapazität.** Es zählen nur grundsätzlich startbare Delegationen des Batches; eine aus anderem Grund abgelehnte (offene
+  Abhängigkeit, Profil, Doppelstart, …) belegt keinen Platz und löst kein `capacity_exceeded` aus. Die Entscheidungen, die nicht
+  mehr hineinpassen, werden einzeln abgelehnt.
+- **Doppelstart.** Nur startende Entscheidungen zählen: die vier Beauftragungen und `request_integration`. Zwei davon für denselben
+  Auftrag sind ein Doppelstart; die zweite und jede weitere wird abgelehnt. `wait` und `ask_question` zum selben Auftrag stehen
+  nebeneinander zulässig.
 - **Plan-Ergänzung.** Neue Aufträge tragen `kind` (`partial`, `correction`, `repair`): neue Milestones oder Features sind so nicht
   ausdrückbar. Abhängigkeiten dürfen vorhandene Aufträge, Elemente des Umfangs und andere neue Refs nennen.
 - **Moduserweiterung.** Die Entscheidung trägt keinen Modus. Aufgeweitet werden kann er nur durch einen neuen Auftrag
-  (`plan_extension[].mode`) oder durch einen Auftrag, dessen Modus im Snapshot weiter ist als der des Ziels.
+  (`plan_extension[].mode`) oder durch einen Auftrag, dessen Modus im Snapshot weiter ist als der des Ziels. Ohne
+  `plan_extension[].mode` erbt der neue Auftrag den beauftragten Modus des Ziels; der wirksame Modus je neuer Ref steht im
+  validierten Batch (`ValidatedDecision.NewOrderModes`).
+- **Profilangebot je Rolle.** Der Snapshot führt je Rolle höchstens ein Angebot (`roles[]`), also höchstens einen Agenten
+  (`ProjectSnapshot.Problems`). Der Validator wählt nicht unter mehreren Agenten aus; dessen Werte haben Vorrang vor der Wahl des Supervisors.
 - **Reparaturrunde.** Eine Runde zählt nur, wenn das letzte Review `BEFUNDE` hat: von der Rolle `concept_reviewer` für die
   Konzeptschleife, sonst für die Code-Schleife; die nächste Runde ist die Zahl der bisherigen plus eins.
 

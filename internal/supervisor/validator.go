@@ -33,6 +33,8 @@ type Delegation struct {
 type ValidatedDecision struct {
 	Decision   domain.Decision
 	Delegation *Delegation
+	// NewOrderModes nennt bei einer Plan-Ergänzung je neuer Ref den wirksamen Modus.
+	NewOrderModes map[string]domain.IntegrationMode
 }
 
 // ValidatedBatch ist ein vollständig zulässiger Batch. Er ist die einzige Form, in der der Orchestrator eine Planung
@@ -270,6 +272,17 @@ func (r *run) result() ValidatedBatch {
 		vd := ValidatedDecision{Decision: d}
 		if p, ok := r.profiles[i]; ok {
 			vd.Delegation = &Delegation{OrderID: d.Target.ID, Profile: p}
+		}
+		if d.PlanExtension != nil {
+			// Ohne eigenen Modus erbt der neue Auftrag den beauftragten Modus des Ziels; er wird nie aufgeweitet.
+			vd.NewOrderModes = make(map[string]domain.IntegrationMode, len(d.PlanExtension.WorkOrders))
+			for _, w := range d.PlanExtension.WorkOrders {
+				mode := w.Mode
+				if mode == "" {
+					mode = r.snap.IntegrationMode
+				}
+				vd.NewOrderModes[w.Ref] = mode
+			}
 		}
 		out.Decisions[i] = vd
 	}
@@ -543,6 +556,11 @@ func (r *run) integration(i int, d domain.Decision, o *Order) {
 		rep := o.LastReview.Report
 		report, reviewerRole, implementerExec = &rep, o.LastReview.ReviewerRole, o.LastReview.ImplementerExecutionID
 		req.ReviewReportID = rep.ReportID
+		if o.Concept == nil {
+			// Ohne Konzeptstand gibt es keine Konzeptversion, an die der Bericht zu binden wäre; die Bindung an Auftrag,
+			// Commit, Urteil und die unabhängige Ausführung bleibt unverändert.
+			req.ConceptVersion = rep.ConceptVersion
+		}
 	}
 	if err := r.pol.Rules.PushAllowed(req, report, implementerExec, reviewerRole); err != nil {
 		r.reject(i, CodeIntegrationNotApproved, "Die Integration von %s hat keine gültige, unabhängige Review-Freigabe: %v (Regelcode %s). Ohne Review mit Urteil FREIGEGEBEN für genau diesen Commit und diese Konzeptversion wird nicht gepusht.", o.ID, err, skills.CodeOf(err))
@@ -609,11 +627,33 @@ func (c ConceptState) assessment() skills.ConceptAssessment {
 	return skills.ConceptAssessment{Class: c.Class, Criteria: slices.Clone(c.Criteria)}
 }
 
-// conceptProblem prüft die Konzeptfreigabe eines Auftrags und liefert die Begründung, wenn sie nicht gilt.
+// conceptDependencies nennt die Abhängigkeiten eines Auftrags, die Konzeptaufträge sind.
+func (r *run) conceptDependencies(o *Order) []string {
+	var out []string
+	for _, dep := range o.DependsOn {
+		if do := r.orders[dep]; do != nil && do.Kind == OrderConcept {
+			out = append(out, dep)
+		}
+	}
+	return out
+}
+
+// conceptRelated meldet, ob der Snapshot einen Konzeptbezug des Auftrags führt: ein Konzeptstand am Auftrag oder eine
+// Abhängigkeit auf einen Konzeptauftrag. Nur dann wird die Konzeptfreigabe verlangt (Spezifikation „Concept-Tickets in
+// Asana“: abhängige Implementation-Tickets starten erst nach erfüllter Konzeptfreigabe; Bug und Organisation bleiben nutzbar).
+func (r *run) conceptRelated(o *Order) bool {
+	return o != nil && (o.Concept != nil || len(r.conceptDependencies(o)) > 0)
+}
+
+// conceptProblem prüft die Konzeptfreigabe eines Auftrags und liefert die Begründung, wenn sie nicht gilt. Ohne
+// Konzeptbezug (conceptRelated) gibt es nichts freizugeben und keine Beanstandung.
 func (r *run) conceptProblem(o *Order) string {
 	c := o.Concept
 	if c == nil {
-		return fmt.Sprintf("Der Auftrag %s hat keinen Konzeptstand: ohne gültige Konzeptfreigabe wird nicht implementiert.", o.ID)
+		if deps := r.conceptDependencies(o); len(deps) > 0 {
+			return fmt.Sprintf("Der Auftrag %s hängt vom Konzeptauftrag %s ab, führt aber keinen Konzeptstand: ohne freigegebenen Konzeptstand wird nicht implementiert.", o.ID, strings.Join(deps, ", "))
+		}
+		return ""
 	}
 	route := r.pol.Rules.ConceptApprover(c.assessment())
 	hint := fmt.Sprintf("Freigabe durch den unabhängigen Konzeptprüfer (Aktion %s)", route.Action)
@@ -692,7 +732,9 @@ func (r *run) declared(i int, d domain.Decision, o *Order) {
 			switch {
 			case o == nil:
 				r.reject(i, CodePreconditionUnmet, "Die Voraussetzung %s braucht einen Auftragsbezug.", p.Kind)
-			case p.Ref != "" && o.Concept != nil && p.Ref != o.Concept.Version:
+			case p.Ref != "" && o.Concept == nil:
+				r.reject(i, CodePreconditionUnmet, "Die Voraussetzung %s nennt die Konzeptversion %q, der Auftrag %s hat aber keinen Konzeptstand.", p.Kind, p.Ref, o.ID)
+			case p.Ref != "" && p.Ref != o.Concept.Version:
 				r.reject(i, CodePreconditionUnmet, "Die Voraussetzung %s nennt die Konzeptversion %q, aktuell ist %q; eine Freigabe gilt nur für eine bestimmte Version.", p.Kind, p.Ref, o.Concept.Version)
 			case d.Action != domain.ActionImplementation && d.Action != domain.ActionReview: // dort ist die Prüfung Teil der Aktion
 				if msg := r.conceptProblem(o); msg != "" {
@@ -763,8 +805,14 @@ func (r *run) coverage(i int, d domain.Decision, o *Order) {
 		if st.Action != d.Action || st.Role != role {
 			continue
 		}
+		requires := st.Requires
+		// Mit Konzeptbezug ist die Konzeptfreigabe die Mindestvoraussetzung jeder Implementierung, auch über einen
+		// Schritt der Rollenregeln, der sie nicht nennt (Schritt „ohne Konzeptbezug“).
+		if d.Action == domain.ActionImplementation && r.conceptRelated(o) && !slices.Contains(requires, domain.PrecConceptApproved) {
+			requires = append(slices.Clone(requires), domain.PrecConceptApproved)
+		}
 		var missing []domain.PreconditionKind
-		for _, need := range st.Requires {
+		for _, need := range requires {
 			if !declared[need] {
 				missing = append(missing, need)
 			}
@@ -813,10 +861,13 @@ func stepName(a domain.Action, role domain.Role) string {
 // dem Vorrang des individuellen Agenten der Rolle, falls der Snapshot einen nennt.
 func (r *run) resolveProfile(i int, d domain.Decision) {
 	sel := d.Selection
+	// Der Snapshot führt je Rolle höchstens ein Profilangebot (ProjectSnapshot.Problems); es gibt keine Auswahl unter
+	// mehreren Agenten.
 	agent := ""
 	for _, offer := range r.snap.Roles {
-		if offer.Role == sel.Role && offer.AgentID != "" && (agent == "" || offer.AgentID < agent) {
+		if offer.Role == sel.Role {
 			agent = offer.AgentID
+			break
 		}
 	}
 	ov := profiles.Overrides{Supervisor: profiles.Selection{Model: sel.Model, Effort: sel.Effort, SkillIDs: slices.Clone(sel.SkillIDs)}}
@@ -1016,13 +1067,15 @@ func cyclePath(comp []string, deps map[string][]string) string {
 // ---- Doppelstart und Kapazität ---------------------------------------------------------------------------------
 
 func (r *run) startChecks() {
+	// Doppelstart gilt nur für Aktionen, die etwas starten: Beauftragungen und die Integrationsanforderung. wait und
+	// ask_question starten nichts und dürfen zum selben Auftrag nebeneinander stehen.
 	first := map[string]string{}
 	for i, d := range r.b.Decisions {
-		if d.Target.Kind != domain.KindWorkOrder {
+		if d.Target.Kind != domain.KindWorkOrder || !(isDelegation(d.Action) || d.Action == domain.ActionRequestIntegration) {
 			continue
 		}
 		if prev, dup := first[d.Target.ID]; dup {
-			r.reject(i, CodeDuplicateStart, "Für den Auftrag %s liegt bereits die Entscheidung %s in diesem Batch vor; zwei Entscheidungen für denselben Auftrag sind ein Doppelstart.", d.Target.ID, prev)
+			r.reject(i, CodeDuplicateStart, "Für den Auftrag %s liegt bereits die Entscheidung %s in diesem Batch vor; zwei startende Entscheidungen (Beauftragung oder Integration) für denselben Auftrag sind ein Doppelstart.", d.Target.ID, prev)
 		} else {
 			first[d.Target.ID] = d.DecisionID
 		}
@@ -1033,17 +1086,18 @@ func (r *run) startChecks() {
 		}
 	}
 
-	// Kapazität: jede beauftragte Ausführung (concept_work, implementation, review, documentation_work) belegt einen
-	// Platz, Reviewer eingeschlossen. Der Supervisor zählt nicht mit. Eine Entscheidung, die nicht mehr hineinpasst,
-	// wird einzeln abgelehnt (der Batch ist ohnehin atomar).
+	// Kapazität: jede grundsätzlich startbare Ausführung (concept_work, implementation, review, documentation_work)
+	// belegt einen Platz, Reviewer eingeschlossen. Der Supervisor zählt nicht mit. Eine aus anderem Grund abgelehnte
+	// Delegation zählt nicht mit, damit die Rückmeldung an das Modell stimmt (sie würde ohnehin nicht starten). Eine
+	// Entscheidung, die nicht mehr hineinpasst, wird einzeln abgelehnt (der Batch ist ohnehin atomar).
 	free, n := r.freeSlots(), 0
 	for i, d := range r.b.Decisions {
-		if !isDelegation(d.Action) {
+		if !isDelegation(d.Action) || r.rc.rejected(i) {
 			continue
 		}
 		n++
 		if n > free {
-			r.reject(i, CodeCapacityExceeded, "Kapazität überschritten: max_workers=%d, aktive Ausführungen=%d (der Supervisor zählt nicht mit), es sind höchstens %d neue möglich; diese Entscheidung ist die %d. beauftragte Ausführung des Batches. Weniger beauftragen oder warten.", r.snap.Capacity.MaxWorkers, r.activeN, free, n)
+			r.reject(i, CodeCapacityExceeded, "Kapazität überschritten: max_workers=%d, aktive Ausführungen=%d (der Supervisor zählt nicht mit), es sind höchstens %d neue möglich; diese Entscheidung ist die %d. startbare Ausführung des Batches. Weniger beauftragen oder warten.", r.snap.Capacity.MaxWorkers, r.activeN, free, n)
 		}
 	}
 }

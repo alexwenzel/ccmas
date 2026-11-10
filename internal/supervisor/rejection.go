@@ -39,7 +39,8 @@ const (
 	CodePreconditionUnmet Code = "precondition_unmet"
 	// CodeCapacityExceeded: Die neuen Ausführungen passen nicht in max_workers.
 	CodeCapacityExceeded Code = "capacity_exceeded"
-	// CodeDuplicateStart: Zwei Entscheidungen für denselben Auftrag oder ein Auftrag mit aktiver Ausführung.
+	// CodeDuplicateStart: Zwei startende Entscheidungen (Beauftragung oder Integration) für denselben Auftrag oder ein
+	// Auftrag mit aktiver Ausführung. wait und ask_question starten nichts.
 	CodeDuplicateStart Code = "duplicate_start"
 	// CodeScopeExtension: Das Ziel liegt außerhalb des beauftragten Umfangs.
 	CodeScopeExtension Code = "scope_extension"
@@ -171,6 +172,11 @@ func (c *collector) add(idx int, decisionID string, code Code, format string, ar
 }
 
 func (c *collector) any() bool { return len(c.items) > 0 }
+
+// rejected meldet, ob die Entscheidung an Position idx bereits abgelehnt wurde.
+func (c *collector) rejected(idx int) bool {
+	return slices.ContainsFunc(c.items, func(it collected) bool { return it.idx == idx })
+}
 
 func (c *collector) err() error {
 	if len(c.items) == 0 {
