@@ -1,6 +1,6 @@
-# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35, CC-46)
+# CCMAS – Runtime-Fähigkeiten und technische Nachweise (CC-17, CC-35, CC-46, CC-14)
 
-Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46. Führend ist die Spezifikation
+Stand: Ticket CC-17 (Meilenstein M01), Recherche und Läufe am **2026-11-10**; Abschnitt 9 (Skills in der Sitzung) kam mit CC-35 hinzu, Abschnitt 10 (Go-Adapter und Live-Läufe über die Startprofile) mit CC-46 und Abschnitt 11 (Systemprompt und strukturierte Ausgabe im Runner) mit CC-14, Teil W14.2. Führend ist die Spezifikation
 „Multi Agent Setup“ (Version 1.4.0), Abschnitte „Go und SDK zusammenführen“, „Runner-Protokoll“, „Anmeldung und
 Abonnement“ (beide Entscheidungen des Projektinhabers vom 10.11.2026), „Berechtigungen und technische Isolation“
 (Entscheidung „Isolationsarchitektur für M04“), „Technische Nachweise und Freigabepunkte“ und „Remote Control, mobile
@@ -17,7 +17,8 @@ Eingesetzte Versionen bei allen Läufen: `claude-agent-sdk` 0.2.180 (gepinnt), l
 | Start mit lokalem Binary und eigener Anmeldung | Echte Sitzung über `python -m claude_sdk_runner` und `ClaudeSDKClient`, `cli_path` = lokales Binary, `apiKeySource: none`, Anmeldeart claude.ai (Beleg `live-roundtrip.jsonl`) | andere CLI-Versionen, auch die im SDK gebündelte 2.1.321 | – |
 | Ereignisstrom | `session_started`, `activity`, `tool_event` (started, finished, failed), genau ein `result` (Belege) | Teilnachrichten-Streaming (`include_partial_messages`) – M04 | – |
 | Wirksame Konfiguration | Modell, Berechtigungsmodus, CLI-Pfad und -Version, Anmeldeart kommen aus dem Init-Frame der CLI beziehungsweise der Vorprüfung | **Wirksames Effort:** der Init-Frame enthält kein Effort-Feld, der Runner meldet nur den übergebenen Wert | – |
-| Strukturierte Ausgabe (SDK-Fähigkeit für M02) | `output_format` (JSON-Schema) liefert `ResultMessage.structured_output` (Beleg `live-structured-output.jsonl`, Abschnitt 8) | Anbindung im Runner und im Protokoll (**M02**), größere Schemata, Verhalten bei Schemaverstoß | – |
+| Strukturierte Ausgabe | `output_format` (JSON-Schema) liefert `ResultMessage.structured_output` (Beleg `live-structured-output.jsonl`, Abschnitt 8). **Im Runner angebunden seit CC-14:** `start.output_schema` → `output_format`, `result.structured_output`, eigene Fehlercodes; mit Fake-Client getestet, live ein Rauchlauf des Planers durch den echten Runner (Beleg `live-supervisor-planner.jsonl`, Abschnitt 11) | `error_max_structured_output_retries` und ein Schemaverstoß der Ausgabe nur mit Fake-Client, nicht live; größere Schemata als das Planungsschema (rund 3,6 KiB); Zusammenspiel mit Schreibprofilen | – |
+| Systemprompt | Eigener Systemprompt je Auftrag (`start.system_prompt`) erreicht das Modell: live gezeigt mit einer Kennung im Prompt, die in der Ausgabe erscheint (Abschnitt 11). Ohne Angabe `--system-prompt ""` (am SDK-Quelltext belegt) | wirksamer Prompt der CLI selbst (nicht gemessen, nur über das Verhalten des Modells belegt) | – |
 | Interrupt/Stop | Interrupt über das Protokoll während eines laufenden Bash-Prozesses: Prozess beendet, genau ein terminales `result` mit `cancelled` (Beleg `live-interrupt.jsonl`) | Stop als eigener Sitzungsabschluss (der Runner behandelt `stop` wie `interrupt`); Prozessbaum bei Schlaf/Absturz | – |
 | Fragen/Antworten | – | `answer` wird mit nicht terminalem `error` `answer_unsupported` beantwortet; Fragen aus der Sitzung (`AskUserQuestion`, `can_use_tool`) sind nicht angebunden (M04, CC-40) | – |
 | Resume | `resume_session_id` wird an das SDK durchgereicht | Wiederaufnahme wurde nicht ausgeführt | – |
@@ -85,8 +86,16 @@ seit CC-35). Tests: `runners/claude_sdk/tests/`
   zusammen 400 Zeichen (danach `…(+N)`); Namen von MCP-Servern, Connectors, Plugins und Agents erscheinen nie. Die
   Belege enthalten daraus nur Anzahlen.
 - **Systemprompt:** Ohne `system_prompt` startet das SDK die CLI mit `--system-prompt ""` (SDK-Quelltext 0.2.180,
-  `_build_command`). Runner-Sitzungen laufen damit ohne den Standardprompt von Claude Code; ob und wie ein eigener Prompt
-  gesetzt wird, ist eine Wahl für **M02**. Der wirksame Prompt wurde nicht geprüft.
+  `_build_command`; ein Test belegt es am Transport). Runner-Sitzungen laufen damit ohne den Standardprompt von Claude Code.
+  Seit CC-14 setzt `RunSpec.system_prompt` (höchstens 32 000 Zeichen, geht als Kommandozeilenargument) den Prompt der
+  Sitzung; für die Rolle supervisor ist das `prompts/supervisor.md` (Abschnitt 11). Der von der CLI tatsächlich wirksam
+  gesetzte Prompt wurde nicht gemessen.
+- **Strukturierte Ausgabe (seit CC-14):** `start.output_schema` (Draft-07, vorab mit dem Metaschema geprüft: `output_schema_invalid`)
+  wird zu `output_format={"type":"json_schema","schema":…}`. Ein erfolgreicher Versuch endet dann mit `result.structured_output`
+  (nach eigener Prüfung gegen das Schema), sonst mit `structured_output_failed` (Untertyp `error_max_structured_output_retries`),
+  `structured_output_missing` (Erfolg ohne Ausgabe), `structured_output_invalid` oder `structured_output_too_large`. Die Werkzeugaufrufe
+  `StructuredOutput` meldet der Runner nicht als `tool_event`, zählt sie aber (Log `structured_output: aufrufe=N abgelehnt=M`).
+  Felder, Grenzen und Codes: [`contracts.md`](contracts.md).
 - **Wirksame Konfiguration:** `session_started` trägt die optionalen Felder `permission_mode`, `claude_binary`,
   `auth_source` (Vertragserweiterung in CC-17) sowie bei einem Skill-Snapshot `skill_snapshot_id` und `skills`
   (CC-35, siehe `contracts.md`).
@@ -500,6 +509,10 @@ Nachweis lief über ein test-eigenes Probe-Skript (`tests/probe_sources.py`), ni
 sind außerdem komplexe Schemata, das Verhalten bei Schemaverstoß oder Abbruch und das Zusammenspiel mit Schreibprofilen.
 **Anbindung in M02** (Vertragsänderung dort entscheiden, zum Beispiel für `review_report`).
 
+**Angebunden seit CC-14 (W14.2):** Vertrag, Runner und Go-Adapter tragen `output_schema` und `structured_output` ([`contracts.md`](contracts.md), Abschnitt „Systemprompt
+und strukturierte Ausgabe im Protokoll“; Abschnitt 11). Nachweis der Anbindung über den echten Runner: ein Rauchlauf des Planers (Abschnitt 11). Die Fehlerfälle
+(`error_max_structured_output_retries`, Erfolg ohne Ausgabe, Ausgabe außerhalb des Schemas) sind nur mit Fake-Client belegt.
+
 ## 9. Skills in der Sitzung (CC-35)
 
 Frage: Gelangen genau die freigegebenen Skills einer Ausführung, und keine anderen, in die SDK-Sitzung des Runners? Der
@@ -630,6 +643,28 @@ Befunde:
 - **Nicht belegt:** der wirksame Effort (das SDK meldet ihn nicht), `scoped_write`, `stop` und die Prozessgruppen-Beendigung mit dem
   echten Runner, ein echtes Abo-Limit, Windows.
 
+## 11. Systemprompt und strukturierte Ausgabe im Runner (CC-14, W14.2)
+
+Frage: Erreichen Systemprompt, Skill-Snapshot und das Ausgabeschema die Sitzung, und kommt eine strukturierte Ausgabe als gültig lesbarer `DecisionBatch` zurück, wenn der Planer
+(`internal/supervisor`) den echten Go-Adapter und den echten Runner verwendet?
+
+**Aufbau.** Der Planer ([`supervisor.md`](supervisor.md)) übergibt `system_prompt` (`prompts/supervisor.md`, hier mit einer Kennung ergänzt), `skill_snapshot` (Standardausstattung der Rolle supervisor aus dem
+echten Katalog) und `output_schema` (`ModelOutputSchema()`); Policy `readonly`, neutrales temporäres Verzeichnis, `--max-turns 8`. Das Modell kommt aus ausdrücklichen Auftragswerten
+(`Overrides.Order`: haiku, Effort low), **nicht** aus dem Supervisorprofil (opus/high). Snapshot: ein synthetischer Auftrag. Test: `CCMAS_LIVE_TESTS=1 go test ./internal/supervisor -run TestLivePlanner -count=1 -v`.
+
+**Lauf am 2026-11-10** (`claude-agent-sdk` 0.2.180, Claude Code 2.1.311, Max-Anmeldung, Beleg `live-supervisor-planner.jsonl`): **1 echte Sitzung**, Session `3ed0c0fc-3133-4698-839f-3feb88bfdbf3`.
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| wirksames Modell | `claude-haiku-5-5`, Herkunft `order` (angefordert gleich wirksam); Effort `low` angefordert, nicht gemessen |
+| Skill-Snapshot | `session_started.skills` = `ccmas-supervisor`, `ccmas-work-assessment`; `skill_snapshot_id` gleich der von Go geschriebenen Kennung; der Inhalt der beiden Skills stand zusätzlich im Prompt |
+| Systemprompt | die Kennung `CCMAS-PROBE-7Q4` aus dem Prompt steht in der Begründung der Ausgabe: der Prompt hat das Modell erreicht |
+| strukturierte Ausgabe | `result.structured_output` gültig lesbar, nach Ergänzung von Projekt und Revision ein gültiger `DecisionBatch` (`domain.ParseDecisionBatch`); der Validator nahm den Plan an (1 Entscheidung, `implementation` mit Auswahl, Schätzung und erwartetem Ergebnis) |
+| Dauer | rund 9 s |
+
+**Grenzen.** Das ist ein Rauchlauf der Durchleitung, kein Szenariobeleg und kein Beleg für die Planungsqualität (die Szenarien folgen in W14.3). Eine Sitzung genügt nicht, um das Verhalten bei Schemaverstoß oder
+erschöpften Nachbesserungen live zu zeigen. Dass der Prompt das Modell erreicht, folgt aus dem Verhalten des Modells (Kennung in der Ausgabe), nicht aus einer Messung der CLI.
+
 ## Offene Punkte für M04 (CC-40) und folgende
 
 1. **Plugins unbekannter Herkunft (Abschnitt 5, „Fremde Quellen“):** Der Init-Frame nennt 3 Plugins mit Pfad außerhalb des
@@ -678,8 +713,9 @@ Befunde:
     echten Runner. Randfall: Läuft die Zeitgrenze ab,
     während ein `_Abort` (zum Beispiel `api_billing_detected`) den Interrupt auslöst, kann der Timeout die Ursache
     überdecken; das Ergebnis ist dann `max_runtime_exceeded` statt der eigentlichen Diagnose.
-11. **Systemprompt (Abschnitt „Der Runner in diesem Stand“):** Ohne `system_prompt` startet das SDK mit `--system-prompt ""`;
-    ob Runner-Sitzungen einen eigenen Prompt oder den Standardprompt von Claude Code bekommen, ist in M02 zu wählen.
+11. **Systemprompt (Abschnitt „Der Runner in diesem Stand“, Abschnitt 11):** **Entschieden für die Rolle supervisor (CC-14, W14.2):** Sie bekommt einen eigenen Prompt
+    (`prompts/supervisor.md`, `RunSpec.system_prompt`) statt `--system-prompt ""`. Für die übrigen Rollen gilt bis zu eigenen Prompts unter `prompts/` die bisherige Voreinstellung (ohne
+    Standardprompt von Claude Code); ob sie einen bekommen, entscheidet das Ticket der jeweiligen Rolle.
 12. **Live-Tests nur auf diesem Rechner:** `REAL_CLAUDE` in `tests/support.py` ist fest auf `/opt/homebrew/bin/claude`
     gesetzt. Die Live-Tests und der Test mit leerem `CLAUDE_CONFIG_DIR` laufen nur auf einem Rechner mit diesem Binary
     (sonst werden sie übersprungen). Der Go-Adapter und `profile verify` haben keinen festen Pfad: Binary aus `--claude-binary`,
@@ -696,7 +732,8 @@ Befunde:
     (für `stop` und `interrupt`) und beendet die Prozessgruppe nach Abbruch oder Prozessende ohne Ergebnis; die Erkennung
     verwaister Runner nach einem Absturz von Go selbst ist offen.
 16. **Fragen/Antworten, Teilnachrichten-Streaming, Resume** sind nicht angebunden beziehungsweise nicht ausgeführt.
-17. **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung in M02.
+17. **Strukturierte Ausgabe:** SDK-Fähigkeit nachgewiesen (Abschnitt 8); Vertrag und Anbindung seit CC-14 (Abschnitt 11). Offen: Verhalten live bei Schemaverstoß und erschöpften Nachbesserungen,
+    größere Schemata, Zusammenspiel mit Schreibprofilen; für `review_report` (Rolle reviewer) ist die Anbindung noch nicht entschieden.
 18. **Policy-Profile** sind bis zur Einführung des Katalogs in Go (M03) im Runner festgelegt (`policy.py`).
 19. **Skills (Abschnitt 9):** `skill_ids` werden aus einem geprüften Snapshot angewendet. Offen: Lesezugriff auf Ressourcen neben
     `SKILL.md` (nicht freigeschaltet, Freigabe des Projektinhabers nötig, Entscheidung in M04/CC-28), Lauf mit `scoped_write`

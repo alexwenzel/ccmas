@@ -1,6 +1,6 @@
 # CCMAS – Daten- und Nachrichtenverträge (v1)
 
-Stand: Ticket CC-24 (Meilenstein M01), ergänzt um CC-14 (W14.1: Planungsergebnis, Aufwand, Dokumentationsarbeit). **Führend ist die Spezifikation** „Multi Agent Setup“
+Stand: Ticket CC-24 (Meilenstein M01), ergänzt um CC-14 (W14.1: Planungsergebnis, Aufwand, Dokumentationsarbeit; W14.2: Systemprompt und strukturierte Ausgabe im Runner-Protokoll). **Führend ist die Spezifikation** „Multi Agent Setup“
 (Version 1.2.0), Abschnitte „Verbindliche Ausführungsverträge“, „Intelligente Arbeitsverteilung“,
 „Prozessübersicht“, „Unabhängiges Review vor dem Push“ und „Kommunikation und Persistenz“. Diese
 Datei hält fest, wie das Repository diese Verträge umsetzt, und ist keine Kopie der Spezifikation.
@@ -68,7 +68,9 @@ von dort) und als Go-Konstante `MaxMessageBytes` (ein Test hält beide gleich). 
 dieser Länge ist gültig, ein Byte mehr ist ein Größenfehler. Der Größenfehler wird vor dem Parsen gemeldet.
 Ein getrenntes Payload-Limit wäre in Go und Python nicht byte-identisch messbar; das Zeilenlimit begrenzt die
 Payload mit. Zusätzlich begrenzen `maxLength`/`maxItems` im Schema die einzelnen Felder (ebenfalls
-Größenfehler). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
+Größenfehler). Eine Ausnahme sind die zwei freien Objekte `start.output_schema` und `result.structured_output` (seit CC-14, siehe
+unten): Ihre Größe steht als `x-max-bytes` im Schema und wird in Go und Python nach der Schema-Prüfung an der kanonischen Form
+gemessen (sortierte Schlüssel, kompakt, UTF-8, Nicht-ASCII unmaskiert). Ausgabegröße, Pufferung und Rückstau des Runners sind Sache der Runtime (M04).
 
 ### Nachrichtentypen
 
@@ -78,14 +80,14 @@ Go → Python: `start`, `answer`, `interrupt`, `stop`. Python → Go: `session_s
 
 | Typ | Payload (Go-Typ) | Felder (Pflicht fett) |
 | --- | --- | --- |
-| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id, skill_snapshot (ab CC-35, siehe unten) |
+| `start` | `RunSpec` | **work_order_id, role, runtime, model, effort, skill_ids, policy_profile, cwd, claude_binary, prompt, max_runtime_seconds**; profile_id, profile_version, resume_session_id, skill_snapshot (ab CC-35, siehe unten), system_prompt, output_schema (ab CC-14, siehe unten) |
 | `answer` | `Answer` | **answer_id, question_id, text, created_at**; delivery_confirmed_at (wird nie mitgesendet; Go lehnt es beim Senden ab) |
 | `interrupt`, `stop` | `InterruptPayload`, `StopPayload` | **reason** (`user_request`, `timeout`, `shutdown`, `superseded`) |
-| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); skill_snapshot_id, skills (ab CC-35, optional, siehe unten); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
+| `session_started` | `SessionStarted` | **session_id, model, effort, claude_version**; permission_mode, claude_binary, auth_source (ab CC-17, optional); skill_snapshot_id, skills (ab CC-35, optional, siehe unten); sdk_version (ab CC-14, optional); model und permission_mode sind die von der CLI gemeldeten Werte, effort ist der übergebene Wert (die CLI meldet das wirksame Effort nicht); `auth_source` ist nur die Art der Anmeldung (`claude_ai`, `api_key`, `other`), nie Kontodaten |
 | `activity` | `Activity` | **kind** (`assistant_text`, `thinking`, `waiting`, `idle`), **summary** (≤ 512 Zeichen); keine Fortschrittsprozente |
 | `tool_event` | `ToolEvent` | **tool_use_id, tool, phase** (`started`, `finished`, `failed`); summary |
 | `question` | `QuestionPayload` | **question_id, question, context**; recommendation |
-| `result` | `Result` | **outcome** (`succeeded`, `controlled_failure`, `cancelled`), **summary**; review_report |
+| `result` | `Result` | **outcome** (`succeeded`, `controlled_failure`, `cancelled`), **summary**; review_report; structured_output (ab CC-14, optional, siehe unten) |
 | `error` | `ErrorPayload` | **code, message, kind** (`runtime`, `subscription_limit`, `protocol`, `internal`), **terminal** |
 
 `RunSpec` und `RunEvent`/`RunCommand` sind die Go-Namen für den Start-Payload beziehungsweise die validierten
@@ -281,6 +283,37 @@ dieselben Skills. Bei leeren `skill_ids` fehlt das Feld (kein Snapshot). Der Ada
 Meldungen sind deutsch, nennen Skill und Pfad **innerhalb** des Snapshots (`skills/<id>/<datei>`) und enthalten nie
 Dateiinhalte oder Hashwerte. Ablauf in der Sitzung: [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt „Skills in der Sitzung (CC-35)“.
 
+### Systemprompt und strukturierte Ausgabe im Protokoll (ab CC-14, v1-kompatibel)
+
+Vier neue **optionale** Felder; kein bisher gültiges Dokument wird ungültig, es gibt keine neuen Pflichtfelder.
+
+| Nachricht | Feld | Inhalt |
+| --- | --- | --- |
+| `start` | `system_prompt` | Systemprompt der Sitzung (1–32 000 Zeichen). Er geht als Kommandozeilenargument an die CLI (`--system-prompt`), daher die Obergrenze. **Ohne Angabe** bleibt das Verhalten wie zuvor: das SDK startet die CLI mit `--system-prompt ""`, also ohne den Standardprompt von Claude Code (CC-17; am SDK-Quelltext durch einen Test belegt). Mit Angabe ersetzt der Text den Systemprompt vollständig. Rollenbezogene Prompts liegen unter `prompts/` ([`supervisor.md`](supervisor.md)) |
+| `start` | `output_schema` | JSON-Schema (Objekt) für `output_format` des SDK. Das SDK validiert nach **Draft-07**. Der Vertrag lässt nur ein Objekt zu, höchstens 32 Schlüssel auf oberster Ebene, `$schema` nur als `http://json-schema.org/draft-07/schema#`, keines der Schlüsselwörter von Draft 2020-12 auf oberster Ebene (`$defs`, `prefixItems`, `unevaluatedProperties`, `unevaluatedItems`, `dependentSchemas`, `dependentRequired`, `$anchor`, `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `minContains`, `maxContains`) und höchstens 32 768 Bytes (kanonische Form). Die tieferen Ebenen prüft Go vor dem Start (`domain.CheckOutputSchema`, Metaschema Draft-07, keine Verweise auf fremde Dokumente) und der Runner in der Vorprüfung (`jsonschema.Draft7Validator.check_schema`) |
+| `session_started` | `sdk_version` | Version des Claude Agent SDK, mit dem der Runner läuft (gepinnt; der Runner bricht bei Abweichung ab) |
+| `result` | `structured_output` | `ResultMessage.structured_output` als Objekt (höchstens 64 Schlüssel auf oberster Ebene, höchstens 262 144 Bytes in kanonischer Form), nur wenn der Auftrag `output_schema` trug und die Ausgabe dessen Schema erfüllt |
+
+Verhalten des Runners bei gesetztem `output_schema` (alle Fehler sind **terminale** `error`, Art `runtime`, ohne weiteres `result`):
+
+| Code | Auslöser |
+| --- | --- |
+| `output_schema_invalid` | das Schema ist kein gültiges Draft-07-Schema (Vorprüfung, kein Prozess, kein Modellaufruf) |
+| `structured_output_failed` | `ResultMessage.subtype` ist `error_max_structured_output_retries`: auch nach den Nachbesserungen des SDK keine gültige Ausgabe (die `errors` des SDK stehen gekürzt in der Meldung) |
+| `structured_output_missing` | Untertyp `success`, aber ohne `structured_output` |
+| `structured_output_invalid` | die Ausgabe ist kein Objekt oder verletzt das Schema (der Runner prüft sie zusätzlich selbst gegen Draft-07; die Meldung nennt Ort und Schlüsselwort, nie Werte) |
+| `structured_output_too_large` | die Ausgabe überschreitet die Größengrenze |
+
+Andere Enden (Abo-Limit, Abbruch, `error_max_turns`) behalten ihr bisheriges Ergebnis ohne `structured_output`. Ohne `output_schema` wird
+ein `structured_output` des SDK nicht gemeldet. Die Werkzeugaufrufe `StructuredOutput` (der Mechanismus der CLI; ein abgelehnter Aufruf wird vom
+SDK wiederholt) meldet der Runner **nicht** als `tool_event`; er zählt sie und schreibt `structured_output: aufrufe=N abgelehnt=M` ins Log
+(stderr). Ohne `system_prompt` und `output_schema` ist jede Nachricht byte-gleich zu vor CC-14.
+
+**Go (seit CC-14):** `RunSpec.SystemPrompt` (`string`) und `RunSpec.OutputSchema` (`json.RawMessage`), `SessionStarted.SDKVersion`, `Result.StructuredOutput`
+(`json.RawMessage`: roh gehalten, den Inhalt prüft der Aufrufer fachlich). Der Adapter (`runner.Request`) nimmt `SystemPrompt`, `OutputSchema`,
+`MaxTurns` je Ausführung und `SkillSnapshot` (einen bereits geschriebenen Snapshot) entgegen; der Datensatz (`SpecRecord`) hält von Systemprompt und
+Schema nur Länge und SHA-256, `Execution.StructuredOutput()` liefert die Ausgabe. Das Beispiel des Planers: [`supervisor.md`](supervisor.md).
+
 ## Zustandsmodell (Akzeptanzkriterium 3)
 
 Vier Ebenen mit je **eigenem Go-Typ** (kein gemeinsames String-Alias): `AgentAvailability`,
@@ -349,6 +382,8 @@ von 2^53 sind durch `maximum` ausgeschlossen.
 | ID-Format, Pfadform (absolut, kanonisch, ohne `..`), Zeitstempel, Commit-Format | ja (Muster) | über das Schema; zusätzlich `CheckID`, `CheckCanonicalPath`, `CheckRelativePath` für direkt gebaute Werte | über das Schema |
 | Bedingte Pflichtfelder (zum Beispiel `review` verlangt `review_target`), Urteil ↔ Befunde | ja (`if`/`then`) | über das Schema | über das Schema |
 | Nachrichtengröße 1 MiB, strikter JSON-Parser (Duplikate, Kommazahlen, UTF-8, Folgedaten) | nur der Grenzwert `x-max-message-bytes` | ja | ja |
+| Größe der freien Objekte `output_schema` und `structured_output` (kanonische Form) | Annotation `x-max-bytes` | ja (`checkPayloadLimits`) | ja (`contracts._check_byte_limits`) |
+| Ausgabeschema ist Draft-07 (alle Ebenen); Ausgabe erfüllt das Schema | nur oberste Ebene | ja (`domain.CheckOutputSchema`, vor dem Start) | ja (`runtime.check_output_schema`, `Session._structured_result`) |
 | Richtung der Nachrichtentypen | ja (zwei Umschläge) | ja | ja |
 | Typisiertes Dekodieren ohne unbekannte Felder (Schutz vor Drift zwischen Schema und Typ) | – | ja | – |
 | Modell bekannt, Effort vom Modell unterstützt, Skills/Policies bekannt; Profil: angefordert/Fallback/Herkunft widerspruchsfrei | – (nur Format und Aufzählungen) | ja (`Catalog`, `CheckProfile`) | – |

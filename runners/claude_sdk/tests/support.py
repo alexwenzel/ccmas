@@ -294,11 +294,12 @@ def init_message(*, api_key_source: str = "none", version: str = "2.1.311", capa
 
 
 def result_message(*, subtype: str = "success", is_error: bool = False, terminal_reason: str | None = "completed",
-                   result: str | None = "fertig", api_error_status: int | None = None) -> ResultMessage:
+                   result: str | None = "fertig", api_error_status: int | None = None, structured_output: Any = None,
+                   errors: list[str] | None = None) -> ResultMessage:
     return ResultMessage(
         subtype=subtype, duration_ms=1, duration_api_ms=1, is_error=is_error, num_turns=1,
         session_id="11111111-2222-3333-4444-555555555555", result=result, terminal_reason=terminal_reason,
-        api_error_status=api_error_status,
+        api_error_status=api_error_status, structured_output=structured_output, errors=errors,
     )
 
 

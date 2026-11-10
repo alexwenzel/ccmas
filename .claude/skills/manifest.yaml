@@ -99,7 +99,7 @@ skills:
   - id: ccmas-neue-aufgabe-nehmen
     version: 1
     status: pending_adaptation
-    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    adaptation: "Zuordnung offen: in CC-14 nicht benötigt, der Supervisor-Planer nutzt diesen Skill nicht (interaktiver Vorbereitungslauf über Asana, Vault und Git); bleibt unangepasst, bis ein Ticket ihn zuordnet"
     category: planning
     roles: [supervisor]
     default_for: []
@@ -116,7 +116,7 @@ skills:
   - id: ccmas-morgen-briefing
     version: 1
     status: pending_adaptation
-    adaptation: "CC-14: Anpassung an die Supervisor-Planung"
+    adaptation: "Zuordnung offen: in CC-14 nicht benötigt, der Supervisor-Planer nutzt diesen Skill nicht (Tagesbriefing über Asana, Vault und Git); bleibt unangepasst, bis ein Ticket ihn zuordnet"
     category: planning
     roles: [supervisor]
     default_for: []
@@ -220,3 +220,35 @@ skills:
       package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       derived: "2026-11-10"
       changes: "Neu in CC-33, ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Unabhängiges Review vor dem Push, Ablauf nach .claude/agents/ccmas-reviewer.md und der Spezifikation (Unabhängiges Review vor dem Push)."
+  - id: ccmas-supervisor
+    version: 1
+    status: approved
+    category: planning
+    roles: [supervisor]
+    default_for: [supervisor]
+    external_writes: []
+    tree_sha256: a06927ccbef5136757b1f0fb3ce9c4626ece2f35dc4068aa50ec5b835094e09d
+    files:
+      - path: SKILL.md
+        sha256: 5c01139a103154df69697d89d62ba76a29385d1d069991977969c5d0228a7040
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-14 (W14.2), ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Führender Supervisor-Skill nach der Spezifikation (Intelligente Arbeitsverteilung als Herzstück, Supervisor-Entscheidungen): Entscheidungsablauf für Zielverständnis, Konzeptreife, Risiko und Aufwand, Abhängigkeiten, nächste Arbeit, Parallelität im Kapazitätsrahmen, Ergebnisbewertung und Reaktion auf Ablehnungen der Plattform; Ausgabe als DecisionBatch. Kein Workflow-Skill, daher ohne contract.yaml."
+  - id: ccmas-work-assessment
+    version: 1
+    status: approved
+    category: planning
+    roles: [supervisor]
+    default_for: [supervisor]
+    external_writes: []
+    tree_sha256: 22b15830962cdb7457b63bbb74742b02882268719f7584be04ba7d25b1260926
+    files:
+      - path: SKILL.md
+        sha256: 97d349c09e1198de13d49fc83c3dec5a3f019afb4d3d10f0296c77cee6a0244f
+    source:
+      package: none
+      package_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      derived: "2026-11-10"
+      changes: "Neu in CC-14 (W14.2), ohne Originalpaket (package none, Prüfsumme aus Nullen als Kennzeichnung). Arbeitsbewertung nach der Spezifikation (Aufwand, Modell und Effort): Aufwandsschätzung getrennt vom Modell-Effort, Profilwahl nach Qualität, Pflichtprüfungen entfallen nie. Kein Workflow-Skill, daher ohne contract.yaml."

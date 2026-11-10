@@ -47,14 +47,15 @@ internal/domain/      Gemeinsame Verträge, Zustände, Prüflogik          vorha
 internal/skills/      Skill-Katalog, Manifest, Snapshots (CC-35)        vorhanden
 internal/profiles/    Rollenprofile, Agenten, Modell/Effort (CC-46)     vorhanden
 internal/workers/     Adapter zum Python-Runner: runner/ (CC-46)        vorhanden (minimal)
-internal/supervisor/  ProjectSnapshot, Validator, Policy (CC-14)       vorhanden (Validator-Teil)
+internal/supervisor/  ProjectSnapshot, Validator, Policy, Planer (CC-14) vorhanden
 internal/orchestrator/ git/ integrations/
          monitoring/ persistence/ api/ tui/                             geplant
 runners/claude_sdk/   Python-Paket claude_sdk_runner (src-Layout)       vorhanden (Runner-Einstieg, Nachweise)
 contracts/            JSON-Schemas und gemeinsame Fixtures              vorhanden
 config/               Beispielkonfigurationen models/agents (CC-46)     vorhanden
 rules/                Rollenregeln roles.yaml (CC-33)                   vorhanden
-prompts/ scripts/ tests/                                                geplant
+prompts/             Systemprompts der Rollen (supervisor.md, CC-14)   vorhanden (nur supervisor)
+scripts/ tests/                                                         geplant
 .claude/skills/       Führender CCMAS-Skillbestand (ccmas-<name>)       vorhanden
                       samt manifest.yaml; der Platzhalter skills/ entfällt
 docs/architecture/    dieser Snapshot                                   vorhanden
@@ -67,7 +68,9 @@ Die Auswerter der Rollenregeln (`PushAllowed`, `ConceptApprover`, `RepairStep`, 
 `NextSteps`, …) sind **Bausteine des Orchestrators** ([`workflow-rules.md`](workflow-rules.md)). Seit CC-14 ruft sie für
 Planungsergebnisse des Supervisors der Validator in `internal/supervisor` auf ([`supervisor.md`](supervisor.md)); den Validator
 ruft erst der Orchestrator (M03, geplant) vor jeder Ausführung auf. `internal/supervisor` enthält nur Zulässigkeitsregeln, keine
-Planung; die Planung macht der Claude-Supervisor (Skills und Planer folgen in W14.2/W14.3).
+Planung; die Planung macht der Claude-Supervisor: Der Planer (`internal/supervisor/planner.go`, W14.2) ruft ihn mit Systemprompt (`prompts/supervisor.md`), Skills
+und strukturierter Ausgabe auf; die Live-Szenarien folgen in W14.3. Die Systemprompts der Rollen liegen unter `prompts/` (Go-Paket `prompts`, eingebettet),
+bleiben kurz (Rolle, Grenzen, Ausgabepflicht) und enthalten keine Fachlogik: die steht in den Skills.
 
 Der Skill-Bestand (Manifest, Statusbedeutung, Hash-Definitionen, Snapshot-Layout, Ablauf bei Änderungen) ist in
 [`skill-migration.md`](skill-migration.md) beschrieben. Rollenprofile, individuelle Agenten, Rangfolge, Fallback-Regel

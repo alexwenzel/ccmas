@@ -272,7 +272,8 @@ Berechtigungsmodell. `external_writes` im Manifest bleibt dazu das Inventar der 
   Code-Repositorys (Stand `develop` zum Prüfzeitpunkt, Hilfslösung) und **keine Freigabe von Code**. `PushAllowed`
   verlangt dafür die Rolle `reviewer` der Ausführung (siehe oben). Offen: eine eigene Berichtsart für Konzeptprüfungen oder ein
   optionaler `commit` im Schema; beides ist eine Vertragsänderung (`contracts/`, `internal/domain`, Folgeticket).
-- **Supervisor-Skills:** Die Verträge von `ccmas-supervisor` und `ccmas-work-assessment` entstehen in W14.2/W14.3 (CC-14). Die
+- **Supervisor-Skills:** `ccmas-supervisor` und `ccmas-work-assessment` (CC-14, W14.2) sind Hilfsskills der Kategorie `planning` und haben bewusst keinen Vertrag
+  (Verträge gibt es nur für die Workflow-Kategorien; ihr Ergebnisformat ist das Planungsergebnis `decision-batch`, geprüft vom Validator). Die
   Rolle `documentation` ist seit W14.1 über die Aktion `documentation_work` erreichbar; ein Workflow-Skill für sie gibt es nicht,
   sie arbeitet mit `ccmas-obsidian-seite` und bei beauftragter Regelpflege `ccmas-regeln-pflegen`.
 - **Anbindung an Profile und Decision:** `AgentProfile.skill_ids` und `Decision.selection.skill_ids` sowie die

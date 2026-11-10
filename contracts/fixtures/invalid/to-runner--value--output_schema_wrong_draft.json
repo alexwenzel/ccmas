@@ -1,0 +1,50 @@
+{
+  "protocol_version": "1",
+  "project_id": "proj-1",
+  "execution_id": "exec-1",
+  "attempt": 1,
+  "correlation_id": "corr-1",
+  "type": "start",
+  "timestamp": "2026-11-10T12:00:00Z",
+  "payload": {
+    "work_order_id": "ms-1",
+    "profile_id": "supervisor",
+    "profile_version": 2,
+    "role": "supervisor",
+    "runtime": "claude",
+    "model": "model-a",
+    "effort": "high",
+    "skill_ids": [
+      "ccmas-demo-know"
+    ],
+    "policy_profile": "readonly",
+    "cwd": "/work/exec/plan",
+    "claude_binary": "/usr/local/bin/claude",
+    "prompt": "Plane den nächsten Schritt.",
+    "system_prompt": "Du bist der Supervisor. Antworte ausschließlich mit der strukturierten Ausgabe.",
+    "output_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "answer",
+        "count"
+      ],
+      "additionalProperties": false,
+      "definitions": {
+        "unused": {
+          "type": "string"
+        }
+      }
+    },
+    "max_runtime_seconds": 600
+  }
+}

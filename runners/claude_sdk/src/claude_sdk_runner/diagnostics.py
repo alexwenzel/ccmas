@@ -27,6 +27,11 @@ SKILL_SNAPSHOT_MISSING = "skill_snapshot_missing"
 SKILL_SNAPSHOT_INVALID = "skill_snapshot_invalid"
 SKILL_SNAPSHOT_MISMATCH = "skill_snapshot_mismatch"
 SKILLS_NOT_LOADED = "skills_not_loaded"
+OUTPUT_SCHEMA_INVALID = "output_schema_invalid"
+STRUCTURED_OUTPUT_FAILED = "structured_output_failed"
+STRUCTURED_OUTPUT_MISSING = "structured_output_missing"
+STRUCTURED_OUTPUT_INVALID = "structured_output_invalid"
+STRUCTURED_OUTPUT_TOO_LARGE = "structured_output_too_large"
 
 
 class RuntimeDiagnostic(Exception):

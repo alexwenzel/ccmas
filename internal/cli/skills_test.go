@@ -22,7 +22,7 @@ const repoRoot = "../.."
 var allSkillIDs = []string{
 	"ccmas-antworten-abholen", "ccmas-asana-ticket", "ccmas-code-review", "ccmas-concept-review", "ccmas-concept-ticket",
 	"ccmas-feature-parallel", "ccmas-meilenstein-abschluss", "ccmas-morgen-briefing", "ccmas-neue-aufgabe-nehmen",
-	"ccmas-obsidian-seite", "ccmas-projekt-anlegen", "ccmas-regeln-pflegen",
+	"ccmas-obsidian-seite", "ccmas-projekt-anlegen", "ccmas-regeln-pflegen", "ccmas-supervisor", "ccmas-work-assessment",
 }
 
 // isolate sorgt dafür, dass weder die Umgebung noch der Ort des Test-Binaries die
@@ -198,7 +198,7 @@ func TestSkillsValidate(t *testing.T) {
 	t.Run("gültiger Bestand", func(t *testing.T) {
 		root := copyCatalog(t)
 		code, out, errOut := runSkills(t, root, "validate")
-		if code != ExitOK || errOut != "" || !strings.Contains(out, "12 Skills") || !strings.Contains(out, "9 approved") ||
+		if code != ExitOK || errOut != "" || !strings.Contains(out, "14 Skills") || !strings.Contains(out, "11 approved") ||
 			!strings.Contains(out, "6 Workflow-Verträge") {
 			t.Errorf("Exit-Code %d, stdout %q, stderr %q", code, out, errOut)
 		}
@@ -214,7 +214,7 @@ func TestSkillsValidate(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &rep); err != nil {
 			t.Fatalf("kein JSON: %v\n%s", err, out)
 		}
-		if code != ExitOK || !rep.OK || rep.Skills != 12 || rep.Approved != 9 || rep.Pending != 3 || rep.Contract != 6 || rep.Findings == nil || len(rep.Findings) != 0 {
+		if code != ExitOK || !rep.OK || rep.Skills != 14 || rep.Approved != 11 || rep.Pending != 3 || rep.Contract != 6 || rep.Findings == nil || len(rep.Findings) != 0 {
 			t.Errorf("Exit-Code %d, Bericht %+v", code, rep)
 		}
 	})

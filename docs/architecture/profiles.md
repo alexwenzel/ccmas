@@ -183,6 +183,11 @@ Adapter akzeptiert nur `readonly`; `scoped_write` (Startprofil `implementer`) nu
 Fehler vor dem Start. Der Ausführungsdatensatz hält das Profil als unveränderliche Kopie. Aufbau und Verhalten:
 [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 10.
 
+Seit CC-14 (W14.2) kann die Anfrage zusätzlich `SystemPrompt`, `OutputSchema` (strukturierte Ausgabe), `MaxTurns` je Ausführung und einen bereits
+geschriebenen `SkillSnapshot` tragen ([`contracts.md`](contracts.md)). Das Profil der **Rolle supervisor** löst der Planer mit demselben Resolver auf
+(Rollenstandard, individueller Agent des Rollenangebots, ausdrückliche Auftragswerte nur für Prüfläufe; [`supervisor.md`](supervisor.md)); die „Wahl des Supervisors“
+(`Overrides.Supervisor`) gilt für die Profile der Rollen, die er beauftragt, nicht für sein eigenes.
+
 ## Prüfung mit `profile verify`
 
 ```bash

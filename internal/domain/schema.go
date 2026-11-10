@@ -144,6 +144,9 @@ func validate(t Target, raw []byte) (any, error) {
 		}
 		return nil, newError(CatValue, "", "schema-prüfung: %v", err)
 	}
+	if cerr := e.checkPayloadLimits(t, inst); cerr != nil {
+		return nil, cerr
+	}
 	return inst, nil
 }
 

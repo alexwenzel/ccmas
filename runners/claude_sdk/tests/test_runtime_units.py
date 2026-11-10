@@ -227,7 +227,8 @@ def test_roundtrip_with_fake_client_maps_events_and_effective_config(tmp_path: P
     started = events[0]["payload"]
     assert started == {
         "session_id": "11111111-2222-3333-4444-555555555555", "model": "claude-haiku-5-5", "effort": "low",
-        "claude_version": "2.1.311", "permission_mode": "dontAsk", "claude_binary": binary, "auth_source": "claude_ai",
+        "claude_version": "2.1.311", "sdk_version": claude_agent_sdk.__version__, "permission_mode": "dontAsk",
+        "claude_binary": binary, "auth_source": "claude_ai",
     }
     tools = [(e["payload"]["tool_use_id"], e["payload"]["phase"]) for e in events if e["type"] == "tool_event"]
     assert tools == [("toolu_01", "started"), ("toolu_01", "finished"), ("toolu_02", "started"), ("toolu_02", "failed")]

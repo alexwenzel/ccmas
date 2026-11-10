@@ -289,3 +289,17 @@ func contains[T comparable](list []T, v T) bool {
 	}
 	return false
 }
+
+// PreconditionKinds liefert die Voraussetzungsarten einer Entscheidung (decision-v1: preconditions[].kind).
+func PreconditionKinds() []PreconditionKind {
+	return []PreconditionKind{PrecWorkOrderCompleted, PrecConceptApproved, PrecReviewApproved, PrecCIPassed, PrecCapacityAvailable}
+}
+
+// EstimateSizes liefert die Größen der Aufwandsschätzung (decision-v1: estimate.size), aufsteigend.
+func EstimateSizes() []EstimateSize { return []EstimateSize{SizeXS, SizeS, SizeM, SizeL, SizeXL} }
+
+// EstimateLevels liefert die Stufen für Komplexität und Unsicherheit der Aufwandsschätzung (decision-v1), aufsteigend.
+func EstimateLevels() []EstimateLevel { return []EstimateLevel{LevelLow, LevelMedium, LevelHigh} }
+
+// PlanKinds liefert die Arten neuer Aufträge einer Plan-Ergänzung (decision-v1: plan_extension.work_orders[].kind).
+func PlanKinds() []PlanKind { return []PlanKind{PlanPartial, PlanCorrection, PlanRepair} }

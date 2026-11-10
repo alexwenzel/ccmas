@@ -1,16 +1,17 @@
-# CCMAS – Supervisor: Snapshot und Validator
+# CCMAS – Supervisor: Snapshot, Validator und Planer
 
-Stand: Ticket CC-14, Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen). **Führend ist die
+Stand: Ticket CC-14, Teil W14.1 (Verträge, `ProjectSnapshot`, Validator, Plattformprüfungen) und Teil W14.2 (Supervisor-Skills, Planer, Systemprompt und strukturierte Ausgabe im Runner). **Führend ist die
 Spezifikation** „Multi Agent Setup“, Abschnitte „Intelligente Arbeitsverteilung als Herzstück“ (Aufgabe des Supervisors,
 Skill und tatsächliche Intelligenz, Aufwand/Modell/Effort, Planungszyklus), „Supervisor-Entscheidungen“, „Projekt, Profile und
 Arbeitsauftrag“, „Zustandsmodell“, „Tickets und Mehrfachauswahl“, „PR und Auto-Merge“, „Milestones starten“, „Fragen und
 Entscheidungen“, „Beziehungen und Abschluss“, „Unabhängiges Review vor dem Push“ und „Parameter und Profile“. Diese Datei hält
 fest, was das Repository umsetzt, und ist keine Kopie der Spezifikation.
 
-**Nicht Teil dieses Stands** (W14.2/W14.3): der Planer, der den Snapshot befüllt und das Modell aufruft, die Supervisor-Skills
-(`ccmas-supervisor`, `ccmas-work-assessment`, Anpassung von `neue-aufgabe-nehmen` und `morgen-briefing`), die Erweiterung des
-Runners um strukturierte Planungsausgabe und Live-Läufe. Es gibt noch keinen Aufrufer des Validators im Dienst: Der
-Orchestrator (M03) existiert nicht. Alles unten beschreibt Bausteine, die getestet sind, nicht einen laufenden Planungszyklus.
+**Nicht Teil dieses Stands** (W14.3): die Live-Szenarien S1 bis S6 mit echten Ausgaben des Supervisors und ihre Belege. Der
+Planer ruft das Modell auf, wird aber noch von keinem Dienst aufgerufen: Der Orchestrator (M03) existiert nicht, ebenso wenig
+die Befüllung des `ProjectSnapshot` aus dem führenden Zustand. Alles unten beschreibt Bausteine, die getestet sind, nicht einen
+laufenden Planungszyklus. Der Planer ist nur in einem kleinen Rauchlauf mit dem echten Runner belegt (Durchleitung, nicht
+Planungsqualität; Abschnitt „Planer“, Belege).
 
 ## Grundsatz: Go entscheidet Zulässigkeit, nicht Planung
 
@@ -34,6 +35,9 @@ Der Validator verändert weder Batch noch Snapshot noch Policy, startet nichts u
 | `policy.go` | `Policy` (`domain.Catalog`, `*skills.Rules`, `*profiles.Resolver`, `profiles.Capabilities`) und `NewPolicy` |
 | `validator.go` | `Validator` mit `Validate`, `Accept`, `AcceptJSON`; `ValidatedBatch`, `Delegation` |
 | `rejection.go` | `Code`, `Rejection`, `RejectionError`, `AsRejection` |
+| `planner.go`, `context.go`, `modelschema.go`, `attempt.go`, `snapshotdir.go` | `Planner` (Plan, PlanWithRecord), Planungszustand mit Kontextbudget, Modell-Ausgabeschema, Versuchsprotokoll und Wartezustand (seit W14.2) |
+| `scenario/` | synthetische Snapshots S1–S5 und semantische Prädikate als Auswertungswerkzeug, kein Teil der Planung (seit W14.2) |
+| `../../prompts/` | Systemprompt der Rolle supervisor (`supervisor.md`, Go-Paket `prompts`, eingebettet) |
 
 ## ProjectSnapshot
 
@@ -179,7 +183,8 @@ Deckung durch die Rollenregeln.
 **Go entscheidet nicht** Planung: welches Ziel als Nächstes, welche Aufgaben in welcher Reihenfolge, wie zerlegt wird, welches
 Profil fachlich passt, wie hoch der Aufwand ist (`estimate` und `expected_outcome` sind Angaben des Modells ohne Prüfung gegen eine
 Zahl) und ob ein Review fachlich genügt. Das Modell plant im Rahmen der Zulässigkeit; ist der Supervisor nicht verfügbar, wartet die
-Disposition sichtbar und kontrolliert (Spezifikation) — dafür ist der Orchestrator zuständig, nicht der Validator.
+Disposition sichtbar und kontrolliert (Spezifikation): Der Planer meldet das als `*SuspendedError` („Planung ausgesetzt“, Abschnitt „Planer“); die
+Disposition darauf ist Sache des Orchestrators, nicht des Validators.
 
 ## Schnittstelle zum Orchestrator und Grenzen
 
@@ -192,9 +197,113 @@ Disposition sichtbar und kontrolliert (Spezifikation) — dafür ist der Orchest
 - **Zeitpunkt.** Der Validator prüft gegen einen Snapshot. Zwischen Prüfung und Ausführung kann sich der Zustand ändern; die
   Revision im Batch und im Snapshot macht das sichtbar (`stale_revision`), die atomare Übernahme ist Sache des Orchestrators.
 
+## Planer (W14.2)
+
+`Planner.Plan(ctx, snapshot) (domain.DecisionBatch, error)` ist der Ticketvertrag; `PlanWithRecord` liefert zusätzlich den validierten Batch
+(Profil je Delegation) und das Protokoll aller Versuche. Der Planer **wählt nichts aus**: er stellt den Auftrag zusammen, lässt den Claude-Supervisor
+planen und lässt den Validator das Ergebnis prüfen. Ohne Supervisor oder ohne zulässigen Plan gibt er **keinen Ersatzplan**, sondern setzt sichtbar aus.
+
+**Abhängigkeiten als Schnittstellen** (`PlannerConfig`):
+
+| Schnittstelle | Aufgabe | Produktiv / Test |
+| --- | --- | --- |
+| `Runtime` | `Execute(ctx, runner.Request) (runner.Execution, error)` | `*runner.Runner` / Fake |
+| `SnapshotSource` | `CurrentSnapshot(ctx, projectID)`: aktueller Zustand zur Validierung und nach veralteter Revision | Orchestrator (M03) / Fake |
+| `ProfileResolver` | `ResolveProfile` der Rolle `supervisor`; Standard `Policy.Resolver` (`*profiles.Resolver`) | `profiles.Resolver` |
+| Skill-Katalog | `*skills.Catalog`, **muss** mit `skills.LoadChecked` geladen sein | `skills.LoadChecked` |
+
+**Ablauf je Versuch.**
+
+1. **Profil.** Das Profil der Rolle `supervisor` löst der Resolver auf (aus `agents.yaml`; Beispiel opus/high). Ein individueller Agent der Rolle
+   (aus dem Rollenangebot im Snapshot) hat Vorrang vor dem Rollenstandard, ausdrückliche Auftragswerte (`PlannerConfig.Overrides.Order`, nur für Prüfläufe) vor beiden.
+   Das Protokoll hält angefordert/wirksam und die Herkunft je Feld fest. Die Policy muss `readonly` sein; sonst läuft nichts.
+2. **Skill-Snapshot.** `Catalog.Resolve(supervisor, profile.SkillIDs)` und `Snapshot.Write` in `PlannerConfig.SnapshotDir` (inhaltsadressiert, wiederverwendet); der
+   Verweis geht als `RunSpec.skill_snapshot` an den Runner (`runner.Request.SkillSnapshot`), der ihn vor dem Start nachrechnet. Der Inhalt der **führenden Skills**
+   (Standardausstattung der Rolle, `default_for`, hier `ccmas-supervisor` und `ccmas-work-assessment`; ohne `ccmas-supervisor` plant der Planer nicht) stammt aus
+   demselben Snapshot, nicht aus einer zweiten Lesung des Katalogs, und steht, aufsteigend nach ID und ohne Frontmatter, im Prompt.
+3. **Planungszustand.** `BuildPlanningContext` serialisiert den Snapshot kanonisch (kompakt, sortiert) und hält ihn auf höchstens 64 KiB (siehe unten).
+4. **Prompt.** Kopf (Projekt, Revision, Ziel, Modus, freie Plätze), Entscheidungsabläufe, Zustand und bei einer Neuplanung die Rückmeldung; gleiche Eingaben ergeben
+   dieselben Bytes. Der Systemprompt ist `prompts/supervisor.md` (siehe unten).
+5. **Sitzung.** Policy `readonly`, neutrales leeres temporäres Verzeichnis als `cwd` (danach entfernt), höchstens 8 Runden (`DefaultMaxTurns`), Laufzeitgrenze
+   10 Minuten (`DefaultMaxRuntime`), `output_schema` = `ModelOutputSchema()`.
+6. **Auswertung.** Strukturierte Ausgabe → `DecisionBatch`. **`schema_version`, `batch_id`, `project_id` und `state_revision` setzt Go** (Batch und Entscheidungen) aus
+   dem Planungs-Snapshot; was das Modell dort angab, wird überschrieben. Dann der Zustand der `SnapshotSource` und `Validator.Accept(batch, aktueller Zustand, Policy)`.
+   Weil der Batch die Revision des Planungs-Snapshots trägt, zeigt jede Zustandsänderung seitdem `stale_revision`.
+
+**Neuplanung und Wartezustand.** Eine Ablehnung des Validators, ein veralteter Stand (`stale_revision`) und eine Sitzung ohne gültige strukturierte Ausgabe lösen
+höchstens **zwei Neuplanungen** aus (`DefaultMaxReplans`; insgesamt höchstens drei Versuche). Die Neuplanung läuft auf dem **frischen** Zustand der `SnapshotSource`;
+ein veralteter Stand zählt als Neuplanung. Der nächste Prompt enthält die vollständige Rückmeldung (`RejectionError.Error()` mit Code, Entscheidung und Grund) und den
+abgelehnten Vorschlag (gekürzt auf 16 KiB). Danach, und sofort bei fehlendem Supervisor, endet die Planung mit `*SuspendedError` (`errors.Is(err, ErrPlanningSuspended)`,
+„Planung ausgesetzt“) mit **allen Versuchen**:
+
+| Grund (`SuspendReason`) | Wann |
+| --- | --- |
+| `replan_budget_exhausted` | drei Versuche ohne zulässigen Plan (Ablehnung, veralteter Stand oder fehlende Ausgabe) |
+| `supervisor_unavailable` | die Runtime startet nicht, der Runner meldet einen terminalen Fehler (zum Beispiel `not_logged_in`, `max_runtime_exceeded`, `skills_not_loaded`), Absturz, Sitzung ohne Ergebnis, Profil oder Skills nicht auflösbar, Policy nicht `readonly`, führender Skill fehlt; keine Wiederholung |
+| `subscription_limit` | der Runner meldet das Abo-Limit (`kind: subscription_limit`); keine Wiederholung, kein Fallback |
+| `state_unavailable` | `SnapshotSource` liefert nichts, einen ungültigen Zustand oder ein anderes Projekt; auch ein ungültiger Planungs-Snapshot |
+| `context_too_large` | der Zustand passt auch nach den Reduktionsregeln nicht in das Budget (`errors.Is(err, ErrContextTooLarge)`); kein Modellaufruf |
+
+Ein Abbruch durch den Aufrufer (Kontext) ist kein Wartezustand; `Plan` gibt dann den Kontextfehler zurück.
+
+**Kontextbudget.** Der Zustand im Prompt ist auf `DefaultContextLimit` (64 KiB) begrenzt. Passt er nicht, greifen die Reduktionsregeln in dieser Reihenfolge, jede nur,
+solange das Budget überschritten ist: (1) `skill_descriptions_dropped`, (2) `closed_orders_compacted` (abgeschlossene und abgebrochene Aufträge bleiben als Kurzform: ID, Art, Titel,
+Zustand, Modus, Abhängigkeiten), (3) `finding_texts_shortened` (160 Zeichen), (4) `skill_list_dropped`, (5) `question_texts_shortened` (200 Zeichen). **Offene und blockierte Aufträge bleiben
+vollständig, kein Auftrag wird entfernt** (Abhängigkeiten verweisen auf sie); reicht es nicht, ist das `ContextError` und der Wartezustand `context_too_large`. Der Prompt weist auf eine Verkürzung hin; das
+Protokoll nennt die angewandten Regeln. Der Validator prüft immer gegen den vollständigen Zustand.
+
+**Systemprompt.** `prompts/supervisor.md` (Rolle, Grenzen, Ausgabepflicht; kurz, höchstens 4000 Zeichen, die Fachlogik steht in den Skills) wird als `RunSpec.system_prompt` übergeben.
+Damit ist der offene Punkt „Systemprompt“ aus CC-17 für den Supervisor entschieden: **eigener Prompt statt `--system-prompt ""`**. Für andere Rollen bleibt es bei der bisherigen Voreinstellung,
+bis sie einen Prompt bekommen. Der Hash des Prompts steht in jedem Versuchsprotokoll; er ist die Version des Stands.
+
+**Ausgabeschema.** `ModelOutputSchema()` ist ein flaches Draft-07-Schema (kein `$ref`, keine Bedingungen, kein `pattern`, keine Schlüsselwörter von 2020-12; rund 3,6 KiB) für das Planungsergebnis ohne die
+Felder, die Go setzt. Die Aufzählungen entstehen aus denselben Go-Aufzählungen wie die Prüfung in `internal/domain` (`DecisionActions`, `Roles`, `Efforts`, `PreconditionKinds`,
+`EstimateSizes`, `EstimateLevels`, `PlanKinds`, …); `TestModelSchemaEnumsMatchTheContracts` hält sie mit `decision-v1` und `plan-v1` gleich, `TestModelSchemaCoversTheContractFields` die Felder und
+Pflichtfelder. **Maßgeblich bleibt die Prüfung in Go**: das Schema hilft dem Modell, die Form zu treffen; Bedingungen (`selection` bei Beauftragungen), ID-Muster und Längen prüft `plan-v1`/`decision-v1`
+beim Validator, nicht das Modellschema.
+
+**Versuchsprotokoll** (`Attempt`, JSON-fähig, nie der Text des Prompts): Nummer und Ausführungs-ID, Dauer; Hash des Planungs-Snapshots (kanonisch, vollständig) und Revision; Bytes des Kontexts und angewandte Reduktionen;
+Hash und Länge von Prompt, Systemprompt und Ausgabeschema; Hash der Rückmeldung; Skill-Snapshot-ID und je Skill Version, `tree_sha256` und ob der Inhalt im Prompt steht; das wirksame Supervisor-Profil
+(`AgentProfile` mit angefordert/wirksam/Fallback/Herkunft, Agent, wirksames Modell laut `session_started`); Session-ID, CLI- und SDK-Version (`session_started.claude_version`/`sdk_version`) und die laut
+`session_started` geladenen Skills; die **rohe strukturierte Ausgabe**; Urteil (`accepted`, `rejected`, `no_structured_output`, `supervisor_failed`, `state_unavailable`), ob der Stand veraltet war, die aktuelle Revision, Ablehnungscodes und
+-text, Code des terminalen Fehlers. Es ist die Grundlage der Belege in W14.3.
+
+**Keine szenariospezifische Logik.** Der Planer enthält keine fest programmierte Auswahl von Aufgaben und keinen Ersatzplan; `TestPlannerAddsNothingOfItsOwn` hält fest, dass ein Plan mit einer Entscheidung eine Entscheidung bleibt.
+
+## Skills (W14.2)
+
+`ccmas-supervisor` (führend) beschreibt den Entscheidungsablauf: Zielverständnis, Konzeptreife, Risiko und Aufwand, Abhängigkeiten, nächste Arbeit (Fertiges vor Neuem, Reparatur bei Befunden, Integration nur nach Freigabe,
+Parallelität im Kapazitätsrahmen, belegter Abschluss), Ergebnisbewertung, die Felder jeder Entscheidung, wann eine Frage an den Nutzer statt Arbeit folgt, und die Reaktion auf jeden Ablehnungscode. `ccmas-work-assessment`
+trennt die Aufwandsschätzung (Größe, Komplexität, Unsicherheit) vom Modell-Effort und beschreibt die Profilwahl nach Qualität (Pflichtprüfungen entfallen nie). Beide sind Hilfsskills der Kategorie `planning` ohne
+`contract.yaml` (Workflow-Verträge gibt es nur für die Kategorien `concept`, `review`, `delivery`, `completion`, `questions`), Rolle `supervisor`, Standardausstattung der Rolle, Herkunft `package: none`
+([`skill-migration.md`](skill-migration.md)). `ccmas-neue-aufgabe-nehmen` und `ccmas-morgen-briefing` nutzt der Planer nicht; sie bleiben `pending_adaptation`, ihre Zuordnung zu einem Ticket ist offen.
+
+## Szenario-Prädikate (W14.2)
+
+`internal/supervisor/scenario` enthält die synthetischen Snapshots S1 bis S5 (erfundene Aufträge `sc1-a`, …; nie der Stand des echten Boards) und semantische Prädikate, die einen Batch ohne Rücksicht auf den Wortlaut bewerten
+(`Evaluate` = gemeinsame Prädikate `CheckDelegations` plus `Check` des Szenarios). `TestScenarioPlanContract` prüft handgeschriebene gute und schlechte Batches, jeweils auch gegen den Validator. W14.3 wendet
+dieselben Prädikate auf die echten Ausgaben an.
+
+| Szenario | Zustand | Prädikat |
+| --- | --- | --- |
+| S1 | A und B unabhängig startbar, C hängt an A | Implementierung für A und B; keine für C |
+| S2 | Konzept unreif, einmal Routine, einmal strategisch (Umsetzungen hängen an den Konzeptaufträgen) | keine Implementierung; Konzeptarbeit oder Frage; weder Integration noch Abschluss |
+| S3 | `max_workers` 2, eine Ausführung läuft, eine Implementierung fertig ohne Review, ein weiterer startbarer Auftrag | Review (Rolle `reviewer`, an den Kopf-Commit gebunden) vor jeder neuen Implementierung; Beauftragungen ≤ freie Plätze |
+| S4 | Review mit BEFUNDE, Reparaturrunde 1 von 3 | Implementierung (Rolle `implementer`) für denselben Auftrag; weder Integration noch Abschluss |
+| S5 | PR-Modus, Review FREIGEGEBEN, PR offen, CI bestanden | `wait`; kein Zielabschluss, keine erneute Integration, keine Beauftragung für den Auftrag, kein neuer Auftrag im Modus `auto` |
+
+Für jede Beauftragung (alle Szenarien) verlangt `CheckDelegations`: Auswahl mit Rolle, mindestens einem Skill, Modell und Effort aus dem Angebot der Rolle im Snapshot, ein erwartetes Ergebnis, eine vollständige
+Aufwandsschätzung (`estimate`: Größe, Komplexität, Unsicherheit; getrennt vom Effort) und eine Begründung. Die Prädikate urteilen über den Inhalt; ob der Validator einen Batch annimmt, ist davon unabhängig
+(zum Beispiel ist ein einzelnes `implementation` in S3 zulässig, aber inhaltlich schlecht).
+
+## Belege (W14.2)
+
+Ein einzelner Rauchlauf mit dem echten Runner (Durchleitung, nicht Planungsqualität): [`runtime-capabilities.md`](runtime-capabilities.md), Abschnitt 11, Beleg `evidence/live-supervisor-planner.jsonl`.
+Test: `CCMAS_LIVE_TESTS=1 go test ./internal/supervisor -run TestLivePlanner -count=1 -v`. Er läuft mit haiku/low über ausdrückliche Auftragswerte (`Overrides.Order`), nicht über das Supervisorprofil.
+
 ## Prüfbefehle
 
 ```bash
-go test ./internal/supervisor/... ./internal/domain/... ./internal/skills/... ./internal/profiles/... -count=1 -race
+go test ./internal/supervisor/... ./internal/domain/... ./internal/skills/... ./internal/profiles/... ./internal/workers/... ./prompts/... -count=1 -race
 make check
 ```

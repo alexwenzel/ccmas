@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,21 @@ type Request struct {
 	// profile verify); BuildSpec weist einen nur mit skills.Load geladenen Katalog ab (Catalog.Checked).
 	Catalog     *skills.Catalog
 	SnapshotDir string
+
+	// SkillSnapshot verweist auf einen bereits geschriebenen Snapshot (skills.Snapshot.Write) und ersetzt dann
+	// Catalog und SnapshotDir. Wer die Inhalte der Skills selbst braucht (zum Beispiel der Planer des Supervisors),
+	// löst den Snapshot einmal auf und gibt dieselbe Referenz weiter, statt den Katalog ein zweites Mal zu lesen. Der
+	// Runner prüft den Snapshot vor dem Start gegen seine snapshot.json und die Skill-IDs des Profils.
+	SkillSnapshot *domain.SkillSnapshotRef
+
+	// SystemPrompt ersetzt den Systemprompt der Sitzung (RunSpec.system_prompt). Leer: kein eigener Prompt; das SDK
+	// startet die CLI dann mit --system-prompt "" (kein Standardprompt von Claude Code).
+	SystemPrompt string
+	// OutputSchema ist das Draft-07-Schema der strukturierten Ausgabe (RunSpec.output_schema); BuildSpec prüft es mit
+	// domain.CheckOutputSchema. Mit Schema endet ein erfolgreicher Versuch nur mit Result.StructuredOutput.
+	OutputSchema json.RawMessage
+	// MaxTurns begrenzt die Runden dieser Ausführung (--max-turns) und geht vor Config.MaxTurns; 0: Config.MaxTurns.
+	MaxTurns int
 }
 
 // NewID liefert eine neue, zufällige ID im ID-Format der Verträge ("<prefix>-<16 Hexziffern>").
@@ -99,8 +115,23 @@ func (r *Runner) BuildSpec(req Request) (domain.RunSpec, error) {
 		Prompt:            req.Prompt,
 		ResumeSessionID:   req.ResumeSessionID,
 		MaxRuntimeSeconds: req.MaxRuntimeSeconds,
+		SystemPrompt:      req.SystemPrompt,
+	}
+	if len(req.OutputSchema) > 0 {
+		if err := domain.CheckOutputSchema(req.OutputSchema); err != nil {
+			return domain.RunSpec{}, fmt.Errorf("Ausgabeschema ungültig: %w", err)
+		}
+		spec.OutputSchema = append(json.RawMessage(nil), req.OutputSchema...)
 	}
 	if len(p.SkillIDs) == 0 {
+		if req.SkillSnapshot != nil {
+			return domain.RunSpec{}, errors.New("Skill-Snapshot angegeben, aber das Profil hat keine Skills")
+		}
+		return spec, nil
+	}
+	if req.SkillSnapshot != nil {
+		ref := *req.SkillSnapshot
+		spec.SkillSnapshot = &ref
 		return spec, nil
 	}
 	if req.Catalog == nil || req.SnapshotDir == "" {
@@ -145,6 +176,8 @@ func writeSnapshot(cat *skills.Catalog, role domain.Role, ids []string, dir stri
 
 func specRecord(spec domain.RunSpec) SpecRecord {
 	sum := sha256.Sum256([]byte(spec.Prompt))
+	sysSum := sha256.Sum256([]byte(spec.SystemPrompt))
+	schemaSum := sha256.Sum256(spec.OutputSchema)
 	rec := SpecRecord{
 		WorkOrderID: spec.WorkOrderID, ProfileID: spec.ProfileID, ProfileVersion: spec.ProfileVersion,
 		Role: spec.Role, Runtime: spec.Runtime, Model: spec.Model, Effort: spec.Effort,
@@ -152,6 +185,12 @@ func specRecord(spec domain.RunSpec) SpecRecord {
 		Cwd: spec.Cwd, ClaudeBinary: spec.ClaudeBinary,
 		PromptBytes: len(spec.Prompt), PromptSHA256: hex.EncodeToString(sum[:]),
 		ResumeSessionID: spec.ResumeSessionID, MaxRuntimeSeconds: spec.MaxRuntimeSeconds,
+	}
+	if spec.SystemPrompt != "" {
+		rec.SystemPromptBytes, rec.SystemPromptSHA256 = len(spec.SystemPrompt), hex.EncodeToString(sysSum[:])
+	}
+	if len(spec.OutputSchema) > 0 {
+		rec.OutputSchemaBytes, rec.OutputSchemaSHA256 = len(spec.OutputSchema), hex.EncodeToString(schemaSum[:])
 	}
 	if spec.SkillSnapshot != nil {
 		ref := *spec.SkillSnapshot

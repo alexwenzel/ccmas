@@ -356,6 +356,13 @@ type RunSpec struct {
 	// SkillSnapshot verweist auf den unveränderlichen Skill-Snapshot der Ausführung (CC-35). Pflicht
 	// für den Runner, sobald SkillIDs nicht leer ist; der Vertrag erzwingt das nicht (siehe contracts.md).
 	SkillSnapshot *SkillSnapshotRef `json:"skill_snapshot,omitempty"`
+	// SystemPrompt ersetzt den Systemprompt der Sitzung (CC-14, optional). Ohne Angabe startet das SDK die CLI mit
+	// --system-prompt "" (kein Standardprompt von Claude Code).
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	// OutputSchema ist das JSON-Schema (Draft-07) der strukturierten Ausgabe (CC-14, optional). Mit Angabe endet ein
+	// erfolgreicher Versuch mit Result.StructuredOutput oder einem eigenen Fehlercode. Roh gehalten: das Schema der
+	// Ausgabe ist der Auftrag, nicht dieser Vertrag (CheckOutputSchema prüft es gegen Draft-07).
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
 // SkillSnapshotRef benennt einen geschriebenen Skill-Snapshot: seine Kennung und das Verzeichnis
@@ -402,6 +409,8 @@ type SessionStarted struct {
 	// einem fehlenden Feld zusammen.
 	SkillSnapshotID string   `json:"skill_snapshot_id,omitempty"`
 	Skills          []string `json:"skills,omitempty"`
+	// SDKVersion ist die Version des Claude Agent SDK, mit dem der Runner läuft (CC-14, optional).
+	SDKVersion string `json:"sdk_version,omitempty"`
 }
 
 // Activity ist der Payload von activity.
@@ -432,6 +441,9 @@ type Result struct {
 	Outcome      Outcome       `json:"outcome"`
 	Summary      string        `json:"summary"`
 	ReviewReport *ReviewReport `json:"review_report,omitempty"`
+	// StructuredOutput ist die strukturierte Ausgabe der Sitzung (CC-14, optional): nur mit RunSpec.OutputSchema und nur,
+	// wenn sie dessen Schema erfüllt. Roh gehalten; den Inhalt prüft der Aufrufer (zum Beispiel gegen plan-v1).
+	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
 }
 
 // ErrorPayload ist der Payload von error. Terminal=true ist ein terminales Ergebnis.
