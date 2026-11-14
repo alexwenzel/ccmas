@@ -1,0 +1,18 @@
+{
+  "name": "ccmas",
+  "displayName": "CCMAS",
+  "version": "0.2.0",
+  "description": "Rollen und Abläufe, um ein Projektboard Ticket für Ticket abzuarbeiten: Supervisor, Planner, Worker, Reviewer und Merger mit ihren Skills.",
+  "author": {
+    "name": "Alexander Wenzel"
+  },
+  "repository": "https://github.com/alexwenzel/ccmas",
+  "keywords": [
+    "ccmas",
+    "agents",
+    "tickets",
+    "asana",
+    "review",
+    "merge"
+  ]
+}

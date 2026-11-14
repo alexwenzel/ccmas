@@ -1,23 +1,138 @@
-# ccmas
-claude code - multi agent setup
+# CCMAS
+
+CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projektboard Ticket für Ticket abarbeiten: Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code. Die Sitzungen führt Claude Code selbst oder ein Werkzeug wie Orchestrator oder Herdr.
+
+**Stand:** Plugin 0.2.0. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. In einer echten Sitzung mit Board ist das Plugin noch nicht erprobt.
+
+## Aufbau
+
+| Pfad | Inhalt |
+| --- | --- |
+| `claude-plugin/` | Das Plugin `ccmas`: fünf Agents, sieben Skills ([Inhalt](claude-plugin/README.md)) |
+| `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel` |
+| `README.md` | Diese Datei |
+
+Konzept und Spezifikation liegen nicht hier, sondern im Obsidian-Vault.
 
 ## Voraussetzungen
 
-- Go 1.27 (`go.mod`: `go 1.27.3`)
-- Python ≥ 3.12 und [uv](https://docs.astral.sh/uv/) (getestet mit uv 0.13.7)
-- make
+- Claude Code, angemeldet.
+- Die Kommandozeile `gh`, angemeldet.
+- In Claude Code eine Verbindung zum Ticketsystem (Asana).
+- Im Zielprojekt: ein Git-Repository mit dem Integrationsbranch `develop` und ein Board mit den Spalten Backlog, To Plan, To Do, In Progress, To Review, Done.
 
-## Prüfen und bauen
+## Plugin aktivieren und deaktivieren
+
+Das Plugin heißt `ccmas`, die Quelle `alexwenzel`. In den Befehlen steht deshalb `ccmas@alexwenzel`.
+
+### Einmalig: die Quelle bekannt machen
 
 ```bash
-make check     # alles: test, race, go vet, build, py-test
-make test      # go test ./...
-make race      # go test -race ./...
-go vet ./...
-make build     # baut bin/ccmas
-make py-test   # Python-Runner-Tests (uv run --frozen pytest)
+claude plugin marketplace add /Users/alex/Projekte/alexwenzel/ccmas
 ```
 
-Danach: `bin/ccmas --help` und `bin/ccmas version`. Die Python-Umgebung des Runners wird aus
-`runners/claude_sdk/uv.lock` hergestellt (`--frozen`). Architektur, CLI-Gruppen, Exit-Codes und
-Agenten-Einstieg: [`docs/architecture/ccmas-design.md`](docs/architecture/ccmas-design.md).
+Bei einem lokalen Pfad liest Claude Code das Plugin direkt aus diesem Ordner. Eine Änderung an den Dateien wirkt in der nächsten Sitzung, ohne neue Installation.
+
+### Wo es gilt
+
+| Geltung | Schalter | Gespeichert in |
+| --- | --- | --- |
+| Global: in jedem Verzeichnis | `--scope user` | `~/.claude/settings.json` |
+| Ein Verzeichnis, nur für dich | `--scope local` | `.claude/settings.local.json` im Verzeichnis |
+| Ein Verzeichnis, für alle im Repository | `--scope project` | `.claude/settings.json` im Verzeichnis, wird committet |
+
+### Global
+
+```bash
+claude plugin install   ccmas@alexwenzel --scope user   # aktivieren
+claude plugin disable   ccmas@alexwenzel --scope user   # deaktivieren, bleibt installiert
+claude plugin enable    ccmas@alexwenzel --scope user   # wieder aktivieren
+claude plugin uninstall ccmas@alexwenzel --scope user   # entfernen
+```
+
+### Nur in einem Verzeichnis
+
+Die Befehle im Verzeichnis des Projekts ausführen:
+
+```bash
+cd /pfad/zum/projekt
+claude plugin install   ccmas@alexwenzel --scope local   # aktivieren
+claude plugin disable   ccmas@alexwenzel --scope local   # deaktivieren
+claude plugin enable    ccmas@alexwenzel --scope local   # wieder aktivieren
+claude plugin uninstall ccmas@alexwenzel --scope local   # entfernen
+```
+
+In allen anderen Verzeichnissen bleibt das Plugin aus. Mit `--scope project` statt `--scope local` gilt die Einstellung für alle, die im Repository arbeiten; jeder muss die Quelle dann einmal selbst bekannt machen.
+
+### Global an, in einem Verzeichnis aus
+
+```bash
+cd /pfad/zum/projekt
+claude plugin disable ccmas@alexwenzel --scope local   # hier aus, überall sonst an
+claude plugin enable  ccmas@alexwenzel --scope local   # hier wieder an
+```
+
+### Nur für eine Sitzung, ohne Installation
+
+```bash
+claude --plugin-dir /Users/alex/Projekte/alexwenzel/ccmas/claude-plugin
+```
+
+### Prüfen
+
+```bash
+claude plugin list                       # Stand im aktuellen Verzeichnis: Geltung, an oder aus
+claude plugin details ccmas@alexwenzel   # Skills, Agents, Kosten im Kontext
+claude plugin validate claude-plugin     # Manifest und Dateien prüfen
+```
+
+In einer laufenden Sitzung zeigt `/plugin` dasselbe; `/reload-plugins` lädt geänderte Dateien neu. Eine laufende Sitzung merkt ein An- oder Abschalten erst danach oder nach einem Neustart.
+
+Ist das Plugin an, kostet es in jeder Sitzung rund 600 Tokens für die Namen und Beschreibungen. Der volle Text eines Skills oder Agents wird erst geladen, wenn er gebraucht wird.
+
+## Ein Projekt einrichten
+
+Im Hauptverzeichnis des Zielprojekts, auf dem Integrationsbranch:
+
+```bash
+claude "/ccmas:init <Name oder Link des Boards>"
+```
+
+Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees an, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
+
+## Rollen starten
+
+Direkt mit Claude Code. `R` steht für `--permission-mode bypassPermissions`: Die Sitzung fragt dann vor keinem Schritt nach.
+
+| Rolle | Start |
+| --- | --- |
+| Supervisor | `claude R --agent ccmas:supervisor "/ccmas:supervisor"` |
+| Planner | `claude R --agent ccmas:planner "/ccmas:task-planning <Ticket oder Beschreibung>"` |
+| Worker | `claude R --worktree <Ticket> --agent ccmas:worker "/ccmas:feature-parallel <Ticket>"` |
+| Reviewer | `claude R --worktree <Ticket> --agent ccmas:reviewer "/ccmas:code-review <Ticket>"` |
+| Merger | `claude R --worktree <Ticket> --agent ccmas:merger "/ccmas:merge <Ticket>"` |
+
+- `--worktree <Ticket>` legt einen Worktree unter `.claude/worktrees/<Ticket>` mit dem Branch `worktree-<Ticket>` an. Gibt es ihn schon, wird er wieder geöffnet. So arbeiten Worker, Reviewer und Merger im selben Worktree.
+- Der Worktree zweigt vom Stand des Hauptverzeichnisses ab, wenn `worktree.baseRef` auf `"head"` steht. Das setzt `/ccmas:init`. Das Hauptverzeichnis muss dafür auf dem Integrationsbranch stehen.
+- Der Supervisor nennt nach jeder Runde den nächsten Schritt als Rolle und Ticket.
+
+## Mit Orchestrator oder Herdr
+
+Beide Werkzeuge starten Claude Code selbst. Damit ihre Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`).
+
+- **Orchestrator:** Die Rolle steckt im ersten Auftrag der Sitzung, zum Beispiel `ao spawn --project <Projekt> --kind worker --prompt "/ccmas:feature-parallel <Ticket>"`. Worktree und Branch legt Orchestrator an.
+- **Herdr:** Noch nicht ausgearbeitet.
+
+## Noch nicht geprüft
+
+- Start mit `--agent ccmas:<rolle>` und einem Skill-Aufruf als erstem Auftrag.
+- Ob der Text eines Agents als Hauptsitzung ausreicht; er ersetzt dort den Standard-Systemprompt von Claude Code.
+- Ob der Skill `init` seine Vorlagen im Ordner des Plugins findet.
+- Lesen und Schreiben im Ticketsystem aus den Skills.
+- Das Zusammenspiel mit Orchestrator und mit Herdr.
+
+## Pflege
+
+- Dieses Repository ist die einzige Stelle, an der das Plugin gepflegt wird.
+- Bei jeder inhaltlichen Änderung die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöhen.
+- Vor einem Commit: `claude plugin validate claude-plugin` und `claude plugin validate .`.
