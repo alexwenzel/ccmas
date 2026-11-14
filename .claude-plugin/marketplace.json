@@ -1,0 +1,14 @@
+{
+  "name": "alexwenzel",
+  "description": "Plugins von Alexander Wenzel für Claude Code.",
+  "owner": {
+    "name": "Alexander Wenzel"
+  },
+  "plugins": [
+    {
+      "name": "ccmas",
+      "source": "./claude-plugin",
+      "description": "Rollen und Abläufe, um ein Projektboard Ticket für Ticket abzuarbeiten: Supervisor, Planner, Worker, Reviewer und Merger mit ihren Skills."
+    }
+  ]
+}
