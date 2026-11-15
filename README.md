@@ -9,6 +9,7 @@ CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Pro
 | Pfad | Inhalt |
 | --- | --- |
 | `claude-plugin/` | Das Plugin `ccmas`: fünf Agents, sieben Skills ([Inhalt](claude-plugin/README.md)) |
+| `orchestrator/` | Zwei Regeldateien, die das Plugin mit Orchestrator verbinden, und ihre Einrichtung ([Anleitung](orchestrator/README.md)) |
 | `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel` |
 | `README.md` | Diese Datei |
 
@@ -120,7 +121,7 @@ Direkt mit Claude Code. `R` steht für `--permission-mode bypassPermissions`: Di
 
 Beide Werkzeuge starten Claude Code selbst. Damit ihre Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`).
 
-- **Orchestrator:** Die Rolle steckt im ersten Auftrag der Sitzung, zum Beispiel `ao spawn --project <Projekt> --kind worker --prompt "/ccmas:feature-parallel <Ticket>"`. Worktree und Branch legt Orchestrator an.
+- **Orchestrator:** Zwei Regeldateien unter `orchestrator/` sagen den Sitzungen, wie sie mit dem Plugin arbeiten. Sie werden in den Projekteinstellungen von Orchestrator eingetragen; Einrichtung und Start stehen in der [Anleitung](orchestrator/README.md).
 - **Herdr:** Noch nicht ausgearbeitet.
 
 ## Noch nicht geprüft
@@ -129,7 +130,7 @@ Beide Werkzeuge starten Claude Code selbst. Damit ihre Sitzungen das Plugin lade
 - Ob der Text eines Agents als Hauptsitzung ausreicht; er ersetzt dort den Standard-Systemprompt von Claude Code.
 - Ob der Skill `init` seine Vorlagen im Ordner des Plugins findet.
 - Lesen und Schreiben im Ticketsystem aus den Skills.
-- Das Zusammenspiel mit Orchestrator und mit Herdr.
+- Das Zusammenspiel mit Orchestrator (Regeldateien unter `orchestrator/`) und mit Herdr.
 
 ## Pflege
 
