@@ -6,19 +6,29 @@ CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Pro
 
 ## So arbeitet CCMAS
 
+Die Planung eines Projekts:
+
 ```mermaid
-flowchart LR
+flowchart TD
     P[Projektbeschreibung] --> PP[Project Planner]
-    PP --> M[Milestones]
-    M --> FP[Feature Planner]
-    FP --> T[Tasks]
-    T --> S[Supervisor]
-    S --> PL[Planner]
-    PL --> W[Worker]
-    W --> RV[Reviewer]
+    PP -->|erstellt| M[Roadmap mit Milestones<br/>von klein nach groß geordnet]
+    M -->|je Milestone| FP[Feature Planner]
+    FP -->|erstellt| K[Konzept<br/>Tech-Setup und gewünschtes Verhalten]
+    FP -->|erstellt| T[Tasks<br/>mit Szenarien und Akzeptanzkriterien]
+```
+
+Das Abarbeiten eines Tasks:
+
+```mermaid
+flowchart TD
+    T[Tasks im Board] --> S[Supervisor<br/>nennt den nächsten Schritt]
+    S --> PL[Planner<br/>Plan für den vorhandenen Code]
+    PL --> W[Worker<br/>Tests zuerst, dann Code und PR]
+    W --> RV[Reviewer<br/>prüft den PR unabhängig]
     RV -->|Befunde| W
-    RV -->|freigegeben| MG[Merger]
-    MG --> S
+    RV -->|freigegeben| MG[Merger<br/>integriert nach Risikoklasse]
+    MG --> D[Task in Done]
+    D -->|nächste Runde| S
 ```
 
 Die vollständige Beschreibung steht in der [Spezifikation](docs/01-spezifikation/README.md). In Kurzform:
@@ -42,13 +52,13 @@ Die vollständige Beschreibung steht in der [Spezifikation](docs/01-spezifikatio
 
 ## Aufbau
 
-| Pfad | Inhalt |
-| --- | --- |
-| `claude-plugin/` | Das Plugin `ccmas`: sieben Agents, neun Skills ([Rollen, Start, Skills](claude-plugin/README.md)) |
-| `docs/01-spezifikation/` | Das Konzept, aufgeteilt in sieben Dateien ([Übersicht](docs/01-spezifikation/README.md)) |
-| `docs/02-orchestrator/` | CCMAS mit Orchestrator als Runner: [Konzept](docs/02-orchestrator/README.md) und [Einrichtung](docs/02-orchestrator/einrichtung.md) |
-| `orchestrator/` | Die zwei Regeldateien, die das Plugin mit Orchestrator verbinden |
-| `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel` |
+| Pfad                              | Inhalt                                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-plugin/`                  | Das Plugin `ccmas`: sieben Agents, neun Skills ([Rollen, Start, Skills](claude-plugin/README.md))                                   |
+| `docs/01-spezifikation/`          | Das Konzept, aufgeteilt in sieben Dateien ([Übersicht](docs/01-spezifikation/README.md))                                            |
+| `docs/02-orchestrator/`           | CCMAS mit Orchestrator als Runner: [Konzept](docs/02-orchestrator/README.md) und [Einrichtung](docs/02-orchestrator/einrichtung.md) |
+| `orchestrator/`                   | Die zwei Regeldateien, die das Plugin mit Orchestrator verbinden                                                                    |
+| `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel`                       |
 
 Spezifikation und Plugin liegen im selben Repository. Wer das Verhalten ändert, ändert beide im selben PR.
 
@@ -74,10 +84,10 @@ Bei einem lokalen Pfad liest Claude Code das Plugin direkt aus diesem Ordner. Ei
 
 ### Wo es gilt
 
-| Geltung | Schalter | Gespeichert in |
-| --- | --- | --- |
-| Global: in jedem Verzeichnis | `--scope user` | `~/.claude/settings.json` |
-| Ein Verzeichnis, nur für dich | `--scope local` | `.claude/settings.local.json` im Verzeichnis |
+| Geltung                                 | Schalter          | Gespeichert in                                         |
+| --------------------------------------- | ----------------- | ------------------------------------------------------ |
+| Global: in jedem Verzeichnis            | `--scope user`    | `~/.claude/settings.json`                              |
+| Ein Verzeichnis, nur für dich           | `--scope local`   | `.claude/settings.local.json` im Verzeichnis           |
 | Ein Verzeichnis, für alle im Repository | `--scope project` | `.claude/settings.json` im Verzeichnis, wird committet |
 
 ### Global
