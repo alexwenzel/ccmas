@@ -1,19 +1,56 @@
-# CCMAS
+# CCMAS - claude code multi agent setup
 
-CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code. Die Sitzungen führt Claude Code selbst oder ein Werkzeug wie Orchestrator oder Herdr.
+CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code und andere Tools. Die Sitzungen führt Claude Code selbst oder ein Runner wie Orchestrator.
 
-**Stand:** Plugin 0.3.0. Die Fassung 0.3.0 ist nach der Spezifikation 2.4.0 geschrieben und noch nicht mit `claude plugin validate` geprüft. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. In einer echten Sitzung mit Board ist das Plugin noch nicht erprobt.
+**Stand:** Plugin 0.3.0. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. Die Fassung 0.3.0 ist noch nicht mit `claude plugin validate` geprüft und in keiner echten Sitzung mit Board erprobt.
+
+## So arbeitet CCMAS
+
+```mermaid
+flowchart LR
+    P[Projektbeschreibung] --> PP[Project Planner]
+    PP --> M[Milestones]
+    M --> FP[Feature Planner]
+    FP --> T[Tasks]
+    T --> S[Supervisor]
+    S --> PL[Planner]
+    PL --> W[Worker]
+    W --> RV[Reviewer]
+    RV -->|Befunde| W
+    RV -->|freigegeben| MG[Merger]
+    MG --> S
+```
+
+Die vollständige Beschreibung steht in der [Spezifikation](docs/01-spezifikation/README.md). In Kurzform:
+
+- **Rollen.** Sieben Agents und der Mensch. Jede Rolle ist eine eigene Sitzung mit frischem Kontext und genau einem Auftrag: ein Ticket, ein Schritt. Keine Rolle startet eine andere. ([Rollen](docs/01-spezifikation/rollen.md))
+- **Der Stand liegt außerhalb der Agents.** Ticket, Repository und PR sind die einzige Übergabe. Jede Sitzung darf jederzeit enden. ([Grundsätze](docs/01-spezifikation/konzept.md#grundsätze))
+- **Planung in drei Stufen.** Der Project Planner zerlegt ein Projekt in Milestones, von klein nach groß: erst Grundlagen, dann einzelne Units, dann deren Zusammenführung. Der Feature Planner konzipiert einen Milestone, legt Tech-Setup und gewünschtes Verhalten fest und zerlegt ihn in Tasks. Der Planner plant einen Task für den vorhandenen Code aus. Entscheidungen fließen nur nach unten. ([Planung](docs/01-spezifikation/planung.md))
+- **Technik steht fest, bevor ein Worker beginnt.** Jeder Task enthält gewünschtes Verhalten, technische Vorgaben, Szenarien und Akzeptanzkriterien. Die Akzeptanzkriterien schreibt der Feature Planner, nicht die Rolle, die umsetzt.
+- **Test zuerst.** Der Worker macht aus den Szenarien des Tasks zuerst die Tests und schreibt danach den Code. Ein Task ist eine isolierte Logik.
+- **Board.** Sechs Spalten: Backlog, To Plan, To Do, In Progress, To Review, Done. Die Felder „Am Zug“ und „Ausgang“ sagen, wer als Nächstes handelt und wie der letzte Schritt endete. ([Board](docs/01-spezifikation/board.md))
+- **Übergaben in fester Form.** Jede Rolle beendet ihre Arbeit mit Spalte, Feldern und einem Kommentar mit festem Aufbau. Die nächste Rolle prüft zuerst ihre Voraussetzungen; stimmt etwas nicht, ändert sie nichts. ([Übergaben](docs/01-spezifikation/board.md#übergaben))
+- **Supervisor-Loop.** Der Supervisor holt den aktuellen Stand, bereinigt das Board und nennt genau einen nächsten Schritt aus Rolle und Ticket. Integrieren geht vor Neuem. ([Ablauf](docs/01-spezifikation/ablauf.md))
+- **Unabhängiges Review.** Wer umsetzt, prüft nicht. Der Reviewer prüft nur lesend, führt die Prüfbefehle selbst aus, und sein Urteil gilt für genau einen Commit. Nach drei Runden mit Befunden entscheidet der Mensch.
+- **Merge nach Risikoklasse.** R0 bis R2 integriert der Merger nach bestandenem Review selbst, R3 erst nach Freigabe durch den Menschen. ([Risikoklassen](docs/01-spezifikation/rollen.md#risikoklassen))
+- **Rückfragen statt Annahmen.** Was nur der Mensch klären kann, wird erst in der Sitzung gefragt, sonst als Unteraufgabe `Entscheidung:`, `Freigabe:` oder `Zuarbeit:` im Ticket. Keine Antwort ist keine Zustimmung. ([Rückfragen](docs/01-spezifikation/board.md#rückfragen-an-den-menschen))
+- **Milestones.** Sind alle Tasks eines Milestones fertig, fordert der Supervisor die Abnahme an und schließt ihn nach der Freigabe.
+- **Worktrees.** Jedes Ticket hat einen eigenen Worktree mit eigenem Branch; im Hauptverzeichnis wird nichts geändert. Nach dem Merge entfernt der Supervisor Worktree und Branch.
+- **Dokumentation im Repository.** Roadmap und Konzepte liegen unter `docs/` des Projekts und entstehen als Doku-PR, der wie Code durch Review und Merge läuft.
+- **Ein Konto.** Alle Rollen schreiben unter dem Konto ins Ticketsystem, mit dem die Verbindung angemeldet ist. Welche Rolle geschrieben hat, steht in der ersten Zeile des Kommentars.
+- **Austauschbar.** Nur der Skill `ticket` kennt das Ticketsystem. Die Rollen hängen nicht daran, wer ihre Sitzungen startet.
 
 ## Aufbau
 
 | Pfad | Inhalt |
 | --- | --- |
-| `claude-plugin/` | Das Plugin `ccmas`: sieben Agents, neun Skills ([Inhalt](claude-plugin/README.md)) |
-| `orchestrator/` | Zwei Regeldateien, die das Plugin mit Orchestrator verbinden, und ihre Einrichtung ([Anleitung](orchestrator/README.md)) |
+| `claude-plugin/` | Das Plugin `ccmas`: sieben Agents, neun Skills ([Rollen, Start, Skills](claude-plugin/README.md)) |
+| `docs/01-spezifikation/` | Das Konzept, aufgeteilt in sieben Dateien ([Übersicht](docs/01-spezifikation/README.md)) |
+| `docs/02-orchestrator/` | CCMAS mit Orchestrator als Runner: [Konzept](docs/02-orchestrator/README.md) und [Einrichtung](docs/02-orchestrator/einrichtung.md) |
+| `orchestrator/` | Die zwei Regeldateien, die das Plugin mit Orchestrator verbinden |
 | `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel` |
-| `README.md` | Diese Datei |
 
-Konzept und Spezifikation liegen nicht hier, sondern im Obsidian-Vault.
+Spezifikation und Plugin liegen im selben Repository. Wer das Verhalten ändert, ändert beide im selben PR.
 
 ## Voraussetzungen
 
@@ -102,31 +139,36 @@ claude "/ccmas:init <Name oder Link des Boards>"
 
 Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees an, aktiviert das Plugin für das Projekt, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
 
+### Was im Projekt liegt
+
+`/ccmas:init` legt im Hauptverzeichnis des Projekts an, überschreibt nichts und committet nichts:
+
+| Datei                   | Inhalt                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE.md`             | Die Projektregeln: Referenzen (Ticketsystem, Board, Repository, Integrationsbranch, CI ja oder nein, Mensch für Rückfragen; Spalten und Felder mit ihren Kennungen), Prüfbefehle, Arbeitsweise, Grenzen |
+| `docs/README.md`        | Hülle für die Dokumentation                                                                                                                                                                             |
+| `.gitignore`            | Die Zeile `.claude/worktrees/`                                                                                                                                                                          |
+| `.claude/settings.json` | `worktree.baseRef` auf `"head"`, damit Worktrees vom Integrationsbranch abzweigen, CCMAS Plugin aktivierung                                                                                             |
+
+- Voraussetzung sind ein Git-Repository mit dem Integrationsbranch `develop` und ein Board mit den Spalten und Feldern aus [Projektboard](docs/01-spezifikation/board.md#projektboard). `init` legt weder Repository noch Branch noch Board an.
+- Die Kennungen liest `init` aus dem Board. Was es nicht lesen konnte, bleibt `TODO`. Ein Lauf, der eine leere Referenz braucht, bricht ab und rät nicht.
+- Der Mensch prüft die Dateien und committet sie einmal, damit Worktrees sie sehen.
+
 ## Rollen starten
 
-Direkt mit Claude Code. `R` steht für `--permission-mode bypassPermissions`: Die Sitzung fragt dann vor keinem Schritt nach.
+Jede Rolle ist ein Aufruf von Claude Code mit Agent und Skill, zum Beispiel:
 
-| Rolle | Start |
-| --- | --- |
-| Project Planner | `claude R --worktree roadmap --agent ccmas:project-planner "/ccmas:project-planning <Beschreibung oder Datei>"` |
-| Feature Planner | `claude R --worktree <Milestone> --agent ccmas:feature-planner "/ccmas:feature-planning <Milestone oder Beschreibung>"` |
-| Supervisor | `claude R --agent ccmas:supervisor "/ccmas:supervisor"` |
-| Planner | `claude R --agent ccmas:planner "/ccmas:task-planning <Ticket oder Beschreibung>"` |
-| Worker | `claude R --worktree <Ticket> --agent ccmas:worker "/ccmas:feature-parallel <Ticket>"` |
-| Reviewer | `claude R --worktree <Ticket> --agent ccmas:reviewer "/ccmas:code-review <Ticket>"` |
-| Merger | `claude R --worktree <Ticket> --agent ccmas:merger "/ccmas:merge <Ticket>"` |
+```bash
+claude --permission-mode bypassPermissions --agent ccmas:supervisor "/ccmas:supervisor"
+```
 
-- `--worktree <Ticket>` legt einen Worktree unter `.claude/worktrees/<Ticket>` mit dem Branch `worktree-<Ticket>` an. Gibt es ihn schon, wird er wieder geöffnet. So arbeiten Worker, Reviewer und Merger im selben Worktree.
-- Der Worktree zweigt vom Stand des Hauptverzeichnisses ab, wenn `worktree.baseRef` auf `"head"` steht. Das setzt `/ccmas:init`. Das Hauptverzeichnis muss dafür auf dem Integrationsbranch stehen.
-- Der Supervisor nennt nach jeder Runde den nächsten Schritt als Rolle und Ticket.
-- Roadmap und Konzept entstehen als Doku-PR mit eigenem Ticket. Reviewer und Merger starten dafür im Worktree des Planners: `--worktree roadmap` oder `--worktree <Milestone>`. Der Name steht im Übergabe-Kommentar des Tickets.
-- Worktree und Branch eines Tickets entfernt der Supervisor in der Runde nach dem Merge. Fragt Claude Code beim Beenden einer Sitzung, ob der Worktree bleiben soll, bleibt er bis dahin stehen.
+Der Supervisor nennt nach jeder Runde den nächsten Schritt als Rolle und Ticket. Alle Startbefehle stehen in der [README des Plugins](claude-plugin/README.md#start-einer-rolle).
 
-## Mit Orchestrator oder Herdr
+## Mit einem Runner
 
-Beide Werkzeuge starten Claude Code selbst. Damit ihre Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`).
+Ein Runner startet Claude Code selbst. Damit seine Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`); `/ccmas:init` aktiviert es im Projekt.
 
-- **Orchestrator:** Zwei Regeldateien unter `orchestrator/` sagen den Sitzungen, wie sie mit dem Plugin arbeiten. Sie werden in den Projekteinstellungen von Orchestrator eingetragen; Einrichtung und Start stehen in der [Anleitung](orchestrator/README.md).
+- **Orchestrator:** [Konzept](docs/02-orchestrator/README.md) und [Einrichtung](docs/02-orchestrator/einrichtung.md). Die Regeldateien unter `orchestrator/` kennen die Rollen Project Planner und Feature Planner noch nicht.
 - **Herdr:** Noch nicht ausgearbeitet.
 
 ## Noch nicht geprüft
@@ -137,8 +179,10 @@ Beide Werkzeuge starten Claude Code selbst. Damit ihre Sitzungen das Plugin lade
 - Lesen und Schreiben im Ticketsystem aus den Skills.
 - Das Zusammenspiel mit Orchestrator (Regeldateien unter `orchestrator/`) und mit Herdr.
 
+Weitere offene Punkte stehen in der [Spezifikation](docs/01-spezifikation/offene-punkte.md).
+
 ## Pflege
 
-- Dieses Repository ist die einzige Stelle, an der das Plugin gepflegt wird.
-- Bei jeder inhaltlichen Änderung die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöhen.
+- Dieses Repository ist die einzige Stelle, an der Plugin und Spezifikation gepflegt werden. Die Version der Dokumente ergibt sich aus Git.
+- Bei jeder inhaltlichen Änderung am Plugin die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöhen.
 - Vor einem Commit: `claude plugin validate claude-plugin` und `claude plugin validate .`.
