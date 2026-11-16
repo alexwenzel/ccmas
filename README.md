@@ -2,7 +2,7 @@
 
 CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code und andere Tools. Die Sitzungen führt Claude Code selbst oder ein Runner wie Orchestrator.
 
-**Stand:** Plugin 0.3.0. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. Die Fassung 0.3.0 ist noch nicht mit `claude plugin validate` geprüft und in keiner echten Sitzung mit Board erprobt.
+**Stand:** Plugin 0.3.0, Änderungen im [CHANGELOG](CHANGELOG.md). Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. Die Fassung 0.3.0 ist noch nicht mit `claude plugin validate` geprüft und in keiner echten Sitzung mit Board erprobt.
 
 ## So arbeitet CCMAS
 
@@ -79,6 +79,8 @@ Das Plugin heißt `ccmas`, die Quelle `alexwenzel`. In den Befehlen steht deshal
 ```bash
 claude plugin marketplace add /Users/alex/Projekte/alexwenzel/ccmas
 ```
+
+Aus GitHub, als veröffentlichter Stand von `main`: `claude plugin marketplace add alexwenzel/ccmas`. Den Entwicklungsstand oder eine bestimmte Version zeigt [RELEASE.md](RELEASE.md#kanäle).
 
 Bei einem lokalen Pfad liest Claude Code das Plugin direkt aus diesem Ordner. Eine Änderung an den Dateien wirkt in der nächsten Sitzung, ohne neue Installation.
 
@@ -188,11 +190,12 @@ Ein Runner startet Claude Code selbst. Damit seine Sitzungen das Plugin laden, m
 - Ob der Skill `init` seine Vorlagen im Ordner des Plugins findet.
 - Lesen und Schreiben im Ticketsystem aus den Skills.
 - Das Zusammenspiel mit Orchestrator (Regeldateien unter `orchestrator/`) und mit Herdr.
+- Der Ablauf in [RELEASE.md](RELEASE.md): der Skill `/release` und die CI unter `.github/workflows/pruefen.yml`, darunter ob `claude plugin validate` in der CI ohne Anmeldung läuft.
 
 Weitere offene Punkte stehen in der [Spezifikation](docs/01-spezifikation/offene-punkte.md).
 
 ## Pflege
 
 - Dieses Repository ist die einzige Stelle, an der Plugin und Spezifikation gepflegt werden. Die Version der Dokumente ergibt sich aus Git.
-- Bei jeder inhaltlichen Änderung am Plugin die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöhen.
-- Vor einem Commit: `claude plugin validate claude-plugin` und `claude plugin validate .`.
+- Jede inhaltliche Änderung am Plugin oder an der Spezifikation steht im [CHANGELOG](CHANGELOG.md) unter „Unveröffentlicht“. Die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöht nur ein Release ([Release und Versionierung](RELEASE.md)).
+- Vor einem Commit: `claude plugin validate claude-plugin`, `claude plugin validate .` und `python3 -I scripts/links-pruefen.py`. Dieselben Prüfungen laufen in der CI.

@@ -13,6 +13,9 @@ Dieses Repository enthält CCMAS (Claude Code Multi Agent Setup): die Spezifikat
 | `claude-plugin/skills/init/*.vorlage.md` | Vorlagen, die `/ccmas:init` in ein Zielprojekt kopiert |
 | `orchestrator/` | Regeldateien für Orchestrator |
 | `.claude-plugin/marketplace.json` | Quelle `alexwenzel` für die Installation |
+| `RELEASE.md`, `CHANGELOG.md` | Ablauf der Veröffentlichung und was sich geändert hat |
+| `.claude/skills/release/` | Skill `/release` nur für dieses Repository |
+| `scripts/`, `.github/workflows/` | Prüfungen für lokal und CI |
 
 Vor einer Änderung die betroffenen Teile der Spezifikation lesen, beginnend bei `docs/01-spezifikation/README.md`.
 
@@ -22,7 +25,7 @@ Vor einer Änderung die betroffenen Teile der Spezifikation lesen, beginnend bei
 - **Jede Aussage steht an einer Stelle.** Rollen, Startbefehle und Skills stehen in `claude-plugin/README.md`, das Konzept in `docs/`. Andere Stellen verlinken, statt zu wiederholen.
 - **Nur der Skill `ticket` kennt das Ticketsystem.** Kein anderer Skill nennt Asana oder dessen Werkzeuge.
 - **Orchestrator steht nur in `docs/02-orchestrator/` und `orchestrator/`.** Die Spezifikation beschreibt den Ablauf mit Claude Code allein.
-- **Version:** Bei jeder inhaltlichen Änderung am Plugin die `version` in `claude-plugin/.claude-plugin/plugin.json` erhöhen. Dokumente tragen keine eigene Version und kein YAML-Frontmatter; ihre Version ist Git.
+- **Version:** Die `version` in `claude-plugin/.claude-plugin/plugin.json` ändert nur ein Release-Branch, nie ein Feature-PR ([RELEASE.md](RELEASE.md)). Wer Plugin oder Spezifikation inhaltlich ändert, trägt stattdessen eine Zeile in `CHANGELOG.md` unter „Unveröffentlicht“ ein. Dokumente tragen keine eigene Version und kein YAML-Frontmatter; ihre Version ist Git.
 - **Nichts als geprüft darstellen, was nicht geprüft ist.** Was nur nach der Dokumentation von Claude Code geschrieben und nicht ausprobiert wurde, steht in der README unter „Noch nicht geprüft“.
 
 ## Agents und Skills schreiben
@@ -42,8 +45,9 @@ Vor einer Änderung die betroffenen Teile der Spezifikation lesen, beginnend bei
 
 ## Git
 
-- `develop` ist der Integrationsbranch, `main` der Standardbranch für Releases.
+- `develop` ist der Integrationsbranch, `main` der veröffentlichte Stand und der Standardbranch auf GitHub.
 - Gearbeitet wird auf einem Branch von `develop`. Kein `--force`, kein Push auf `main`.
+- Auf `main` kommt nur ein Release (`release/X.Y.Z`) oder ein Hotfix (`hotfix/X.Y.Z`), jeweils per PR. Tags heißen `ccmas--vX.Y.Z`. Der Ablauf steht in [RELEASE.md](RELEASE.md), ausgeführt wird er mit `/release`.
 - Commit-Nachrichten auf Deutsch, die erste Zeile sagt, was sich ändert.
 
 ## Prüfen vor einem Commit
@@ -51,6 +55,7 @@ Vor einer Änderung die betroffenen Teile der Spezifikation lesen, beginnend bei
 ```bash
 claude plugin validate claude-plugin
 claude plugin validate .
+python3 -I scripts/links-pruefen.py
 ```
 
-Dazu: Jeder relative Link in den Markdown-Dateien zeigt auf eine vorhandene Datei und Überschrift. Wer eine Überschrift umbenennt oder eine Datei verschiebt, zieht die Links nach.
+Das Skript prüft, dass jeder relative Link in den Markdown-Dateien auf eine vorhandene Datei und Überschrift zeigt. Wer eine Überschrift umbenennt oder eine Datei verschiebt, zieht die Links nach. Dieselben Prüfungen laufen in der CI.

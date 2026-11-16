@@ -1,0 +1,38 @@
+name: Prüfen
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Claude Code installieren
+        run: npm install --global @anthropic-ai/claude-code
+
+      - name: Plugin und Marketplace validieren
+        run: |
+          claude plugin validate claude-plugin
+          claude plugin validate .
+
+      - name: Links in den Markdown-Dateien prüfen
+        run: python3 -I scripts/links-pruefen.py
+
+      - name: Version und CHANGELOG prüfen (nur PR nach main)
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: python3 -I scripts/release-pruefen.py
