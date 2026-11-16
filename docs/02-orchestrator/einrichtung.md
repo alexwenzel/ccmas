@@ -1,4 +1,4 @@
-# CCMAS mit Orchestrator
+# Orchestrator einrichten
 
 Zwei Regeldateien verbinden das Plugin `ccmas` mit Orchestrator:
 
@@ -13,7 +13,7 @@ Orchestrator hängt den Inhalt beim Start einer Sitzung an die Anweisungen der R
 
 ## Voraussetzungen
 
-1. Das Plugin ist global aktiv: `claude plugin install ccmas@alexwenzel --scope user` (siehe [README des Projekts](../README.md)).
+1. Das Plugin ist global aktiv: `claude plugin install ccmas@alexwenzel --scope user` (siehe [README des Projekts](../../README.md)).
 2. Das Projekt ist eingerichtet: `/ccmas:init` hat die `CLAUDE.md` mit den Referenzen auf das Board angelegt, und sie ist committet.
 3. Die beiden Regeldateien liegen im Repository des Projekts und sind auf dem Integrationsbranch committet. Für ein anderes Projekt als dieses werden sie dorthin kopiert; der Pfad gilt immer relativ zum Repository des Projekts.
 

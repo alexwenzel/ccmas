@@ -2,8 +2,8 @@
 
 Hier liegt die Projekt- und Featuredokumentation. Sie wird im selben Branch und im selben PR geändert wie der Code, den sie beschreibt.
 
-Vorschlag für den Aufbau, sobald Inhalte entstehen:
-
-- `uebersicht.md`: Was das Projekt ist und wie man es baut und startet
-- `anforderungen.md`: Was es können soll
-- `entscheidungen.md`: Getroffene Entscheidungen mit Begründung
+| Pfad | Inhalt | Wer schreibt |
+| --- | --- | --- |
+| `roadmap.md` | Ziel, Nicht-Ziele, Grundentscheidungen und die Milestones in Reihenfolge | Project Planner |
+| `milestones/<kurzname>.md` | Konzept eines Milestones: gewünschtes Verhalten, Tech-Setup, High-Level-Konzept, Entscheidungen, Tasks | Feature Planner |
+| alles Weitere | Was der Code tut und wie man ihn baut, startet und benutzt | Worker, im PR des Tasks |

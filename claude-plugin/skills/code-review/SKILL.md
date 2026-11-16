@@ -10,7 +10,7 @@ Eingabe: die Ticket-ID aus dem Auftrag ($ARGUMENTS).
 
 ## Voraussetzung
 
-Das Ticket liegt in To Review, das Feld PR ist gesetzt, „Am Zug“ ist Reviewer. Sonst ändere nichts und melde den Ausgang „Problem“ mit dem vorgefundenen Stand.
+Das Ticket liegt in To Review, das Feld PR ist gesetzt, „Am Zug“ ist Reviewer. Du stehst in dem Worktree, dessen Branch der Branch des PR ist (`gh pr view <PR> --json headRefName`). Bei einem Doku-PR eines Planners steht der Name des Worktrees im Übergabe-Kommentar. Sonst ändere nichts und melde den Ausgang „Problem“ mit dem vorgefundenen Stand.
 
 ## Schritte
 
@@ -18,13 +18,15 @@ Das Ticket liegt in To Review, das Feld PR ist gesetzt, „Am Zug“ ist Reviewe
 2. **Stand abgleichen.** Der Worktree muss genau den Stand des PR zeigen: keine nicht committeten Änderungen, und der lokale Commit ist der Commit, auf dem der PR steht. Hole dazu den Branch vom Repository. Weicht der Worktree ab, ändere nichts und melde den Ausgang „Problem“ mit beiden Commits.
 3. **Selbst prüfen.** Führe die Prüfbefehle aus der `CLAUDE.md` auf dem Stand des PR aus. Gemeldete Ergebnisse zählen nicht.
 4. **Kriterium für Kriterium.** Für jedes Akzeptanzkriterium: erfüllt oder nicht, mit Beleg (Datei und Zeile, Testname oder Ausgabe eines Befehls).
-5. **Vier weitere Fragen.**
+5. **Sechs weitere Fragen.**
+   - Gibt es zu jedem Szenario des Tickets einen Test, der es abprüft?
    - Prüfen die Tests das Verhalten, oder spiegeln sie nur die Umsetzung?
+   - Hält sich der Diff an die technischen Vorgaben des Tickets (Bibliotheken, Versionen, Schnittstellen)?
    - Enthält der Diff etwas, das nicht zum Ticket gehört?
-   - Stimmt `docs/` mit dem überein, was der Code jetzt tut?
+   - Stimmt `docs/` mit dem überein, was der Code jetzt tut? Bei einem reinen Doku-PR (Roadmap, Konzept) prüfst du die Kriterien am Text und gegen das Board.
    - Passt die Risikoklasse zum tatsächlichen Diff? Die Tabelle steht in `ccmas:task-planning`. Trifft eine höhere Klasse zu, stufe hoch.
 6. **Urteil.**
-   - **FREIGEGEBEN:** Alle Kriterien erfüllt, Prüfbefehle bestehen, keine der vier Fragen ergibt einen Mangel.
+   - **FREIGEGEBEN:** Alle Kriterien erfüllt, Prüfbefehle bestehen, keine der sechs Fragen ergibt einen Mangel.
    - **BEFUNDE:** sonst. Jeder Befund nennt die Stelle, was falsch ist und woran die Behebung erkennbar wäre. Keine Geschmacksfragen.
 7. **Ins Ticket schreiben.** Review-Runde um eins erhöhen. Dann der Übergabe-Kommentar nach `ccmas:ticket`, im Feld Ergebnis:
 
