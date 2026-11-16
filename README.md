@@ -11,22 +11,24 @@ Die Planung eines Projekts:
 ```mermaid
 flowchart TD
     P[Projektbeschreibung] --> PP[Project Planner]
-    PP -->|erstellt| M[Milestones / Roadmap]
-    M --> FP[Feature Planner]
-    FP -->|erstellt| T[Tasks]
+    PP -->|erstellt| M[Roadmap mit Milestones<br/>von klein nach groß geordnet]
+    M -->|je Milestone| FP[Feature Planner]
+    FP -->|erstellt| K[Konzept<br/>Tech-Setup und gewünschtes Verhalten]
+    FP -->|erstellt| T[Tasks<br/>mit Szenarien und Akzeptanzkriterien]
 ```
 
 Das Abarbeiten eines Tasks:
 
 ```mermaid
 flowchart TD
-    T[Task] --> S[Supervisor]
-    S --> PL[Planner]
-    PL --> W[Worker]
-    W --> RV[Reviewer]
+    T[Tasks im Board] --> S[Supervisor<br/>nennt den nächsten Schritt]
+    S --> PL[Planner<br/>Plan für den vorhandenen Code]
+    PL --> W[Worker<br/>Tests zuerst, dann Code und PR]
+    W --> RV[Reviewer<br/>prüft den PR unabhängig]
     RV -->|Befunde| W
-    RV -->|freigegeben| MG[Merger]
-    MG --> S
+    RV -->|freigegeben| MG[Merger<br/>integriert nach Risikoklasse]
+    MG --> D[Task in Done]
+    D -->|nächste Runde| S
 ```
 
 Die vollständige Beschreibung steht in der [Spezifikation](docs/01-spezifikation/README.md). In Kurzform:
