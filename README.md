@@ -2,7 +2,7 @@
 
 CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code und andere Tools. Die Sitzungen führt Claude Code selbst oder ein Runner wie Orchestrator.
 
-**Stand:** Plugin 0.3.0, Änderungen im [CHANGELOG](CHANGELOG.md). Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. Die Fassung 0.3.0 ist noch nicht mit `claude plugin validate` geprüft und in keiner echten Sitzung mit Board erprobt.
+**Stand:** Plugin 0.4.0, Änderungen im [CHANGELOG](CHANGELOG.md). Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. Die Fassung 0.4.0 besteht `claude plugin validate`, ist aber in keiner echten Sitzung mit Board erprobt.
 
 ## So arbeitet CCMAS
 

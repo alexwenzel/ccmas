@@ -4,6 +4,8 @@ Alle Änderungen an Plugin und Spezifikation. Das Format folgt [Keep a Changelog
 
 ## [Unveröffentlicht]
 
+## [0.4.0] – 2026-11-16
+
 ### Hinzugefügt
 
 - Release- und Versionierungsablauf: [RELEASE.md](RELEASE.md), Skill `/release` im Repository, Prüfung per GitHub Actions (`.github/workflows/pruefen.yml`), `scripts/links-pruefen.py`.
@@ -36,6 +38,7 @@ Nicht als Release veröffentlicht, ohne Tag.
 
 - Das Plugin `ccmas` mit Agents und Skills für Supervisor, Planner, Worker, Reviewer und Merger sowie `ticket` und `init`.
 
-[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/main...develop
+[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.4.0...develop
+[0.4.0]: https://github.com/alexwenzel/ccmas/commits/ccmas--v0.4.0
 [0.3.0]: https://github.com/alexwenzel/ccmas/commits/develop
 [0.2.0]: https://github.com/alexwenzel/ccmas/commits/develop
