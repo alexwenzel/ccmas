@@ -190,7 +190,7 @@ Ein Runner startet Claude Code selbst. Damit seine Sitzungen das Plugin laden, m
 - Ob der Skill `init` seine Vorlagen im Ordner des Plugins findet.
 - Lesen und Schreiben im Ticketsystem aus den Skills.
 - Das Zusammenspiel mit Orchestrator (Regeldateien unter `orchestrator/`) und mit Herdr.
-- Der Ablauf in [RELEASE.md](RELEASE.md): der Skill `/release` und die CI unter `.github/workflows/pruefen.yml`, darunter ob `claude plugin validate` in der CI ohne Anmeldung läuft.
+- Der Ablauf in [RELEASE.md](RELEASE.md) von Anfang bis Ende: der Skill `/release` ist noch nie gelaufen. Die CI unter `.github/workflows/pruefen.yml` lief auf dem PR grün, auch `claude plugin validate` ohne Anmeldung; die Prüfung bei PRs nach `main` ist noch nicht gelaufen.
 
 Weitere offene Punkte stehen in der [Spezifikation](docs/01-spezifikation/offene-punkte.md).
 
