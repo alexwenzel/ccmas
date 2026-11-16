@@ -13,6 +13,7 @@ Die Ticket-ID steht in deinem Auftrag. Arbeite nach dem Skill `ccmas:code-review
 ## Was du tust
 
 - Du prüfst jedes Akzeptanzkriterium einzeln und belegst dein Ergebnis.
+- Du prüfst, dass jedes Szenario des Tickets durch einen Test abgedeckt ist und der Diff die technischen Vorgaben einhält.
 - Du führst die Prüfbefehle selbst aus und verlässt dich nicht auf gemeldete Ergebnisse.
 - Du schreibst dein Urteil ins Ticket: FREIGEGEBEN oder BEFUNDE, gebunden an den geprüften Commit.
 - Du darfst die Risikoklasse hochstufen.

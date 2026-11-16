@@ -1,14 +1,14 @@
 # CCMAS
 
-CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projektboard Ticket für Ticket abarbeiten: Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code. Die Sitzungen führt Claude Code selbst oder ein Werkzeug wie Orchestrator oder Herdr.
+CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code. Die Sitzungen führt Claude Code selbst oder ein Werkzeug wie Orchestrator oder Herdr.
 
-**Stand:** Plugin 0.2.0. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. In einer echten Sitzung mit Board ist das Plugin noch nicht erprobt.
+**Stand:** Plugin 0.3.0. Die Fassung 0.3.0 ist nach der Spezifikation 2.4.0 geschrieben und noch nicht mit `claude plugin validate` geprüft. Manifest, Installation und alle Befehle im Abschnitt „Plugin aktivieren und deaktivieren“ sind mit Claude Code 2.1.325 geprüft. In einer echten Sitzung mit Board ist das Plugin noch nicht erprobt.
 
 ## Aufbau
 
 | Pfad | Inhalt |
 | --- | --- |
-| `claude-plugin/` | Das Plugin `ccmas`: fünf Agents, sieben Skills ([Inhalt](claude-plugin/README.md)) |
+| `claude-plugin/` | Das Plugin `ccmas`: sieben Agents, neun Skills ([Inhalt](claude-plugin/README.md)) |
 | `orchestrator/` | Zwei Regeldateien, die das Plugin mit Orchestrator verbinden, und ihre Einrichtung ([Anleitung](orchestrator/README.md)) |
 | `.claude-plugin/marketplace.json` | Macht dieses Repository zur Quelle, aus der Claude Code das Plugin installiert. Die Quelle heißt `alexwenzel` |
 | `README.md` | Diese Datei |
@@ -20,7 +20,8 @@ Konzept und Spezifikation liegen nicht hier, sondern im Obsidian-Vault.
 - Claude Code, angemeldet.
 - Die Kommandozeile `gh`, angemeldet.
 - In Claude Code eine Verbindung zum Ticketsystem (Asana).
-- Im Zielprojekt: ein Git-Repository mit dem Integrationsbranch `develop` und ein Board mit den Spalten Backlog, To Plan, To Do, In Progress, To Review, Done.
+- Im Zielprojekt: ein Git-Repository mit dem Integrationsbranch `develop` und ein Board mit den Spalten Backlog, To Plan, To Do, In Progress, To Review, Done und den Feldern aus der Spezifikation.
+- Alle Rollen schreiben unter dem Konto ins Ticketsystem, mit dem die Verbindung angemeldet ist.
 
 ## Plugin aktivieren und deaktivieren
 
@@ -99,7 +100,7 @@ Im Hauptverzeichnis des Zielprojekts, auf dem Integrationsbranch:
 claude "/ccmas:init <Name oder Link des Boards>"
 ```
 
-Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees an, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
+Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees an, aktiviert das Plugin für das Projekt, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
 
 ## Rollen starten
 
@@ -107,6 +108,8 @@ Direkt mit Claude Code. `R` steht für `--permission-mode bypassPermissions`: Di
 
 | Rolle | Start |
 | --- | --- |
+| Project Planner | `claude R --worktree roadmap --agent ccmas:project-planner "/ccmas:project-planning <Beschreibung oder Datei>"` |
+| Feature Planner | `claude R --worktree <Milestone> --agent ccmas:feature-planner "/ccmas:feature-planning <Milestone oder Beschreibung>"` |
 | Supervisor | `claude R --agent ccmas:supervisor "/ccmas:supervisor"` |
 | Planner | `claude R --agent ccmas:planner "/ccmas:task-planning <Ticket oder Beschreibung>"` |
 | Worker | `claude R --worktree <Ticket> --agent ccmas:worker "/ccmas:feature-parallel <Ticket>"` |
@@ -116,6 +119,8 @@ Direkt mit Claude Code. `R` steht für `--permission-mode bypassPermissions`: Di
 - `--worktree <Ticket>` legt einen Worktree unter `.claude/worktrees/<Ticket>` mit dem Branch `worktree-<Ticket>` an. Gibt es ihn schon, wird er wieder geöffnet. So arbeiten Worker, Reviewer und Merger im selben Worktree.
 - Der Worktree zweigt vom Stand des Hauptverzeichnisses ab, wenn `worktree.baseRef` auf `"head"` steht. Das setzt `/ccmas:init`. Das Hauptverzeichnis muss dafür auf dem Integrationsbranch stehen.
 - Der Supervisor nennt nach jeder Runde den nächsten Schritt als Rolle und Ticket.
+- Roadmap und Konzept entstehen als Doku-PR mit eigenem Ticket. Reviewer und Merger starten dafür im Worktree des Planners: `--worktree roadmap` oder `--worktree <Milestone>`. Der Name steht im Übergabe-Kommentar des Tickets.
+- Worktree und Branch eines Tickets entfernt der Supervisor in der Runde nach dem Merge. Fragt Claude Code beim Beenden einer Sitzung, ob der Worktree bleiben soll, bleibt er bis dahin stehen.
 
 ## Mit Orchestrator oder Herdr
 

@@ -1,8 +1,8 @@
 {
   "name": "ccmas",
   "displayName": "CCMAS",
-  "version": "0.2.0",
-  "description": "Rollen und Abläufe, um ein Projektboard Ticket für Ticket abzuarbeiten: Supervisor, Planner, Worker, Reviewer und Merger mit ihren Skills.",
+  "version": "0.3.0",
+  "description": "Rollen und Abläufe, um ein Projekt zu planen und sein Board Ticket für Ticket abzuarbeiten: Project Planner, Feature Planner, Supervisor, Planner, Worker, Reviewer und Merger mit ihren Skills.",
   "author": {
     "name": "Alexander Wenzel"
   },

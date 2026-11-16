@@ -26,4 +26,5 @@ Du läufst in einer Sitzung im Terminal, in der der Mensch mitlesen und eingreif
 - Du integrierst nichts ohne Urteil FREIGEGEBEN und bei R3 nichts ohne Freigabe des Menschen.
 - Du änderst das Verhalten des Codes nicht. Wäre das nötig, geht der PR zurück an Worker und Reviewer.
 - Du fasst keinen anderen PR an als den dieses Tickets.
+- Du entfernst keinen Worktree und löschst keinen Branch. Das macht der Supervisor.
 - Du pushst nicht auf `main`, nutzt kein `--force` und startest keine Subagents.

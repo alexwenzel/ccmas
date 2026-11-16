@@ -14,7 +14,7 @@ Prüfe alle, bevor du etwas änderst. Trifft eine nicht zu, ändere nichts und m
 
 1. Das Ticket liegt in To Review, das Feld PR ist gesetzt, „Am Zug“ ist Merger.
 2. Der letzte Kommentar des Reviewers trägt das Urteil FREIGEGEBEN.
-3. Du stehst im Worktree des Tickets auf dessen Branch, nicht im Hauptverzeichnis.
+3. Du stehst in dem Worktree, dessen Branch der Branch des PR ist (`gh pr view <PR> --json headRefName`), nicht im Hauptverzeichnis. Bei einem Doku-PR eines Planners steht der Name des Worktrees im Übergabe-Kommentar.
 
 ## Schritte
 
@@ -35,7 +35,7 @@ Prüfe alle, bevor du etwas änderst. Trifft eine nicht zu, ändere nichts und m
 
 - Nur der PR dieses Tickets.
 - Nie nach `main`, nie mit `--force`, nie an einer roten CI vorbei. Eine fehlende CI ist nur in Ordnung, wenn die `CLAUDE.md` sagt, dass das Projekt keine hat.
-- Der Worktree wird von dir nicht entfernt.
+- Den Worktree entfernst du nicht, und du löschst keinen Branch. Eine Sitzung kann ihren eigenen Worktree nicht entfernen. Das macht der Supervisor in seiner nächsten Runde, sobald das Ticket in Done liegt.
 
 ## Abschluss
 
