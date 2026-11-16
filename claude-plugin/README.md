@@ -4,9 +4,12 @@ Das Verhalten von CCMAS als Plugin für Claude Code: sieben Rollen als Agents, n
 
 Installieren aus diesem Repository:
 
-```text
-/plugin install ccmas --marketplace alexwenzel/ccmas
+```bash
+claude plugin marketplace add alexwenzel/ccmas
+claude plugin install ccmas@alexwenzel
 ```
+
+Das ist der veröffentlichte Stand von `main`. Entwicklungsstand und bestimmte Versionen: [Kanäle](../RELEASE.md#kanäle).
 
 ## Rollen
 
@@ -95,4 +98,4 @@ Alle Namen tragen das Präfix des Plugins: der Skill heißt `/ccmas:ticket`, der
 
 ## Pflege
 
-Bei jeder inhaltlichen Änderung die `version` in `.claude-plugin/plugin.json` erhöhen. Eine installierte Fassung bleibt sonst auf dem alten Stand. Ändert sich das Verhalten, wird die [Spezifikation](../docs/01-spezifikation/README.md) im selben PR angepasst.
+Die `version` in `.claude-plugin/plugin.json` erhöht nur ein Release; Feature-PRs tragen ihre Änderung im [CHANGELOG](../CHANGELOG.md) ein ([Release und Versionierung](../RELEASE.md)). Eine installierte Fassung bleibt bis zum nächsten Release auf dem alten Stand. Ändert sich das Verhalten, wird die [Spezifikation](../docs/01-spezifikation/README.md) im selben PR angepasst.
