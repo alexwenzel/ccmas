@@ -86,7 +86,7 @@ Supervisor und Worker nennen für alles, was vom Runner abhängt, ein Verb und d
 | `agents/reviewer.md` | Modell und gesperrte Schreibwerkzeuge für den Subagent des Skills `reviewer` |
 
 - Gepflegt wird das Plugin nur in diesem Repository.
-- Aktiviert wird es global (`--scope user`), für ein Verzeichnis (`--scope local`) oder für alle im Repository (`--scope project`). Ein Runner, der Claude Code selbst startet, braucht es global oder im Projekt. Die Befehle stehen in der README des Repositorys.
+- Aktiviert wird es nur global (`--scope user`), auch für einen Runner. Die Befehle und der Grund stehen in der [README des Repositorys](../README.md#global).
 
 Alle Namen tragen das Präfix des Plugins: Der Skill heißt `/ccmas:ticket`, der Agent `ccmas:reviewer`.
 
