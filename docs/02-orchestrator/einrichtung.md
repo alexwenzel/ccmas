@@ -12,7 +12,7 @@ Orchestrator hängt den Inhalt beim Start einer Sitzung an ihren System-Prompt a
 ## Voraussetzungen
 
 1. Orchestrator ist installiert, `ao doctor` zeigt keine Zeile mit `FAIL`, und `ao agent ls --refresh` führt `claude-code` als installiert und angemeldet. Die Kommandozeile `gh` ist angemeldet.
-2. Das Projekt ist eingerichtet: `/ccmas:init` hat die `CLAUDE.md` mit den Referenzen auf das Board angelegt und das Plugin in `.claude/settings.json` aktiviert, und beides ist auf dem Integrationsbranch committet ([Ein Projekt einrichten](../../README.md#ein-projekt-einrichten)).
+2. Das Projekt ist eingerichtet: `/ccmas:init` hat die `CLAUDE.md` mit den Referenzen auf das Board angelegt, sie ist auf dem Integrationsbranch committet, und das Plugin ist global aktiviert ([Ein Projekt einrichten](../../README.md#ein-projekt-einrichten)).
 3. Die beiden Regeldateien liegen im Repository des Projekts und sind auf dem Integrationsbranch committet. Für ein anderes Projekt als dieses werden sie dorthin kopiert; der Pfad gilt relativ zum Repository des Projekts.
 4. Der Integrationsbranch verlangt keine Reviews bei GitHub. Die Freigabe des Reviewers von Orchestrator zählt dort nicht als Review.
 

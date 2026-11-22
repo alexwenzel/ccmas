@@ -1,6 +1,6 @@
 ---
 name: init
-description: Ein Projekt für CCMAS einrichten. Legt die Projektregeln (CLAUDE.md), docs/ und die Einstellungen für Worktrees und Verbote an, aktiviert das Plugin für das Projekt und trägt die Referenzen auf Board, Spalten und Felder ein. Überschreibt nichts.
+description: Ein Projekt für CCMAS einrichten. Legt die Projektregeln (CLAUDE.md), docs/ und die Einstellungen für Worktrees und Verbote an, prüft, dass das Plugin global aktiv ist, und trägt die Referenzen auf Board, Spalten und Felder ein. Überschreibt nichts.
 disable-model-invocation: true
 argument-hint: "[Name oder Link des Boards]"
 ---
@@ -39,7 +39,7 @@ Du arbeitest im Hauptverzeichnis des Projekts, im Gespräch mit dem Menschen. Du
    ```
 
    Die Verbote gelten in jeder Sitzung des Projekts, auch wenn sie ohne Rückfragen läuft. Sie stützen die Grenzen der Rollen und ersetzen keinen Branch-Schutz.
-6. **Plugin für das Projekt aktivieren.** Steht `ccmas@alexwenzel` noch nicht unter `enabledPlugins` in `.claude/settings.json`, führe `claude plugin install ccmas@alexwenzel --scope project` aus. Der Befehl trägt das Plugin dort ein; alles andere in der Datei bleibt. So laden auch Sitzungen in Worktrees und Sitzungen, die ein Runner startet, das Plugin. Scheitert der Befehl, nenne ihn unter „Offen“.
+6. **Plugin global.** Das Plugin wird nur global aktiviert, nicht im Projekt. Prüfe mit `claude plugin list`, ob `ccmas@alexwenzel` mit Scope `user` aktiv ist. Ist es das nicht, nenne `claude plugin install ccmas@alexwenzel --scope user` unter „Offen“. Steht `ccmas@alexwenzel` unter `enabledPlugins` in `.claude/settings.json`, lass die Datei unverändert und nenne unter „Offen“ `claude plugin uninstall ccmas@alexwenzel --scope project`.
 7. **Labels am Repository.** Die Freigabe eines PR steht an zwei Labels: `freigabe: nötig` und `freigabe: erteilt`. Prüfe mit `gh label list`, ob es sie gibt. Fehlt eines, lege es nach dem Ja des Menschen an (`gh label create "<Name>"`).
 8. **Referenzen eintragen.** Fülle die Tabellen unter „Referenzen“ in der `CLAUDE.md`:
    - Projekt, Spalten und Felder mit ihren Kennungen liest du über die Verbindung zum Ticketsystem aus dem genannten Board. Bei Auswahlfeldern trägst du jeden Wert mit seiner Kennung ein.

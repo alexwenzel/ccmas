@@ -46,8 +46,9 @@ Starten, Fortsetzen, Laufendes erkennen, Urteil lesen, Mergen und Aufräumen geh
 | --- | --- |
 | Plugin, Skills | `ticket`, `project-planning`, `feature-planning`, `supervisor`, `worker`, `reviewer`, `init` |
 | Plugin, Agent | `reviewer`: Modell und gesperrte Schreibwerkzeuge für den Subagent des gleichnamigen Skills |
+| Global, `~/.claude/settings.json` | Plugin aktiviert (`--scope user`); im Projekt wird es nicht aktiviert |
 | Projekt, `CLAUDE.md` | Referenzen (Board, fünf Spalten, fünf Felder, Repository, Integrationsbranch, Mensch), Prüfbefehle, Arbeitsweise, Freigaben, der Maßstab für das Review in Kurzform, Grenzen |
-| Projekt, `.claude/settings.json` | `worktree.baseRef` auf `"head"`, Plugin aktiviert, Verbote für `--force` und für Push auf `main` und den Integrationsbranch |
+| Projekt, `.claude/settings.json` | `worktree.baseRef` auf `"head"`, Verbote für `--force` und für Push auf `main` und den Integrationsbranch |
 | Projekt, `.worktreeinclude` | Von Git ignorierte Dateien, die jeder Worktree braucht |
 | Projekt, `docs/` | Roadmap, Konzepte der Milestones, Dokumentation des Codes |
 | Repository auf GitHub | Die Labels `freigabe: nötig` und `freigabe: erteilt` |

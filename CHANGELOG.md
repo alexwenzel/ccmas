@@ -4,6 +4,10 @@ Alle Änderungen an Plugin und Spezifikation. Das Format folgt [Keep a Changelog
 
 ## [Unveröffentlicht]
 
+### Geändert
+
+- Das Plugin wird nur global aktiviert (`--scope user`). `init` trägt es nicht mehr in `.claude/settings.json` ein, sondern prüft die globale Aktivierung. Grund: Mit der Aktivierung im Projekt führte Claude Code jeden Worktree eines Runners als eigene Installation. In einem bestehenden Projekt im Hauptverzeichnis `claude plugin uninstall ccmas@alexwenzel --scope project` ausführen und die geänderte `.claude/settings.json` committen.
+
 ## [0.5.1] – 2026-11-22
 
 ### Geändert

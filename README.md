@@ -93,15 +93,9 @@ Aus GitHub, als veröffentlichter Stand von `main`: `claude plugin marketplace a
 
 Bei einem lokalen Pfad liest Claude Code das Plugin direkt aus diesem Ordner. Eine Änderung an den Dateien wirkt in der nächsten Sitzung, ohne neue Installation.
 
-### Wo es gilt
-
-| Geltung                                 | Schalter          | Gespeichert in                                         |
-| --------------------------------------- | ----------------- | ------------------------------------------------------ |
-| Global: in jedem Verzeichnis            | `--scope user`    | `~/.claude/settings.json`                              |
-| Ein Verzeichnis, nur für dich           | `--scope local`   | `.claude/settings.local.json` im Verzeichnis           |
-| Ein Verzeichnis, für alle im Repository | `--scope project` | `.claude/settings.json` im Verzeichnis, wird committet |
-
 ### Global
+
+CCMAS wird nur global aktiviert. Dann lädt jede Sitzung das Plugin, auch in den Worktrees eines Runners.
 
 ```bash
 claude plugin install   ccmas@alexwenzel --scope user   # aktivieren
@@ -110,27 +104,7 @@ claude plugin enable    ccmas@alexwenzel --scope user   # wieder aktivieren
 claude plugin uninstall ccmas@alexwenzel --scope user   # entfernen
 ```
 
-### Nur in einem Verzeichnis
-
-Die Befehle im Verzeichnis des Projekts ausführen:
-
-```bash
-cd /pfad/zum/projekt
-claude plugin install   ccmas@alexwenzel --scope local   # aktivieren
-claude plugin disable   ccmas@alexwenzel --scope local   # deaktivieren
-claude plugin enable    ccmas@alexwenzel --scope local   # wieder aktivieren
-claude plugin uninstall ccmas@alexwenzel --scope local   # entfernen
-```
-
-In allen anderen Verzeichnissen bleibt das Plugin aus. Mit `--scope project` statt `--scope local` gilt die Einstellung für alle, die im Repository arbeiten; jeder muss die Quelle dann einmal selbst bekannt machen.
-
-### Global an, in einem Verzeichnis aus
-
-```bash
-cd /pfad/zum/projekt
-claude plugin disable ccmas@alexwenzel --scope local   # hier aus, überall sonst an
-claude plugin enable  ccmas@alexwenzel --scope local   # hier wieder an
-```
+Eine Aktivierung für ein Verzeichnis (`--scope local`) oder ein Repository (`--scope project`) ist nicht vorgesehen. Steht das Plugin in der `.claude/settings.json` eines Projekts, führt Claude Code jeden Worktree als eigene Installation, und `claude plugin list` zeigt das Plugin einmal je Worktree, auch nachdem der Worktree gelöscht ist.
 
 ### Nur für eine Sitzung, ohne Installation
 
@@ -158,7 +132,7 @@ Im Hauptverzeichnis des Zielprojekts, auf dem Integrationsbranch:
 claude "/ccmas:init <Name oder Link des Boards>"
 ```
 
-Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees und Verbote an, aktiviert das Plugin für das Projekt, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
+Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees und Verbote an, prüft, dass das Plugin global aktiv ist, trägt die Kennungen von Board, Spalten und Feldern ein und überschreibt nichts. Danach die Dateien prüfen und committen.
 
 ### Was im Projekt liegt
 
@@ -169,7 +143,7 @@ Der Skill legt `CLAUDE.md`, `docs/` und die Einstellungen für Worktrees und Ver
 | `CLAUDE.md` | Die Projektregeln: Referenzen (Ticketsystem, Board, Repository, Integrationsbranch, CI ja oder nein, Mensch für Rückfragen; Spalten und Felder mit ihren Kennungen), Prüfbefehle, Arbeitsweise, Freigaben, der Maßstab für das Review, Grenzen |
 | `docs/README.md` | Hülle für die Dokumentation |
 | `.gitignore` | Die Zeile `.claude/worktrees/` |
-| `.claude/settings.json` | `worktree.baseRef` auf `"head"`, damit Worktrees vom Integrationsbranch abzweigen; das aktivierte Plugin; Verbote für `--force` und für Push auf `main` und den Integrationsbranch |
+| `.claude/settings.json` | `worktree.baseRef` auf `"head"`, damit Worktrees vom Integrationsbranch abzweigen; Verbote für `--force` und für Push auf `main` und den Integrationsbranch |
 | `.worktreeinclude` | Von Git ignorierte Dateien, die jeder Worktree braucht, etwa `.env`. Nur wenn der Mensch welche nennt |
 
 Dazu am Repository auf GitHub die Labels `freigabe: nötig` und `freigabe: erteilt`, nach dem Ja des Menschen.
@@ -200,7 +174,7 @@ Der Supervisor mergt, was geprüft ist, und nennt nach jeder Runde die Befehle f
 
 ### Andere Runner
 
-Ein Runner startet Claude Code selbst, gibt jedem Ticket einen Worktree und stellt Ereignisse zu. Damit seine Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`); `/ccmas:init` aktiviert es im Projekt. Was ein Runner erfüllen muss, steht unter [Runner](docs/01-spezifikation/runner.md). Herdr ist noch nicht ausgearbeitet.
+Ein Runner startet Claude Code selbst, gibt jedem Ticket einen Worktree und stellt Ereignisse zu. Damit seine Sitzungen das Plugin laden, muss es global aktiviert sein ([Global](#global)). Was ein Runner erfüllen muss, steht unter [Runner](docs/01-spezifikation/runner.md). Herdr ist noch nicht ausgearbeitet.
 
 ## Umstieg von 0.4.0
 
