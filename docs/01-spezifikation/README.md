@@ -13,4 +13,4 @@ Das Plugin unter [`claude-plugin/`](../../claude-plugin/README.md) setzt diese S
 
 Die Spezifikation beschreibt Grundsätze, Rollen, Board und Runner. Die Abläufe der Rollen stehen in den Skills des Plugins; sie sind die Norm, und die Spezifikation erzählt ihre Schritte nicht nach.
 
-Sie beschreibt den Ablauf mit Claude Code allein. Andere Runner haben eigene Dokumente, etwa [Orchestrator](../02-orchestrator/README.md).
+Sie beschreibt den Ablauf mit Claude Code allein. Der vorgesehene Runner ist Orchestrator; seine Zuordnung steht in einem eigenen Dokument: [CCMAS mit Orchestrator](../02-orchestrator/README.md).

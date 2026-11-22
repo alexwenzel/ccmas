@@ -4,6 +4,10 @@ Alle Änderungen an Plugin und Spezifikation. Das Format folgt [Keep a Changelog
 
 ## [Unveröffentlicht]
 
+### Geändert
+
+- Beschreibung des Plugins und READMEs stellen CCMAS als Claude Code Multi Agent Setup mit Orchestrator dar: Projekte planen, Features planen, das Board von Orchestrator abarbeiten lassen. Am Verhalten ändert sich nichts; das Plugin läuft weiter auch mit Claude Code allein.
+
 ## [0.5.0] – 2026-11-22
 
 Vereinfachung des Konzepts. Diese Fassung bricht mit 0.4.0; was in einem bestehenden Projekt zu tun ist, steht in der [README](README.md#umstieg-von-040).

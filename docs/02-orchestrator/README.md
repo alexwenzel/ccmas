@@ -1,6 +1,6 @@
 # CCMAS mit Orchestrator
 
-Orchestrator (CLI `ao`) ist ein [Runner](../01-spezifikation/runner.md) für CCMAS. Er hält den Ablauf am Laufen: Sitzungen, Worktrees, Ereignisse aus dem PR, Reviewer-Läufe, Benachrichtigungen. Rollen, Board, Planung und Freigaben kommen unverändert aus dem Plugin ([Spezifikation](../01-spezifikation/README.md)).
+Orchestrator (CLI `ao`, [orchestrator.inc](https://orchestrator.inc)) ist der vorgesehene [Runner](../01-spezifikation/runner.md) für CCMAS. Er hält den Ablauf am Laufen: Sitzungen, Worktrees, Ereignisse aus dem PR, Reviewer-Läufe, Benachrichtigungen. Rollen, Board, Planung und Freigaben kommen unverändert aus dem Plugin ([Spezifikation](../01-spezifikation/README.md)).
 
 Zwei Regeldateien unter [`orchestrator/`](../../orchestrator/) bringen die Zuordnung in die Sitzungen. Wie sie eingetragen werden, steht in [einrichtung.md](einrichtung.md).
 

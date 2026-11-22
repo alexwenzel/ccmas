@@ -1,6 +1,6 @@
 # Plugin `ccmas`
 
-Das Verhalten von CCMAS als Plugin für Claude Code: sieben Skills und ein Agent. Das Konzept dahinter steht in der [Spezifikation](../docs/01-spezifikation/README.md), Aktivieren und Deaktivieren in der [README des Projekts](../README.md#plugin-aktivieren-und-deaktivieren).
+Das Verhalten von CCMAS, dem Claude Code Multi Agent Setup mit Orchestrator, als Plugin für Claude Code: sieben Skills und ein Agent. Das Konzept dahinter steht in der [Spezifikation](../docs/01-spezifikation/README.md), Aktivieren und Deaktivieren in der [README des Projekts](../README.md#plugin-aktivieren-und-deaktivieren).
 
 Installieren aus diesem Repository:
 
@@ -28,7 +28,7 @@ Eine Rolle ist eine Sitzung, deren erster Auftrag einen Skill aufruft. Alle Roll
 
 ## Start einer Rolle
 
-Mit Claude Code allein startet der Mensch jede Rolle selbst. `R` steht für `--permission-mode bypassPermissions`: Die Sitzung fragt vor keinem Schritt nach. Die Verbote aus `.claude/settings.json` des Projekts gelten trotzdem.
+Mit Orchestrator startet der Mensch nur die Planung und den Supervisor; die Worker startet der Supervisor, den Reviewer stellt Orchestrator ([Benutzen](../docs/02-orchestrator/einrichtung.md#benutzen)). Die Tabelle zeigt den Start mit Claude Code allein, bei dem der Mensch jede Rolle selbst startet. `R` steht für `--permission-mode bypassPermissions`: Die Sitzung fragt vor keinem Schritt nach. Die Verbote aus `.claude/settings.json` des Projekts gelten trotzdem.
 
 | Rolle | Start |
 | --- | --- |
@@ -43,7 +43,7 @@ Mit Claude Code allein startet der Mensch jede Rolle selbst. `R` steht für `--p
 - Der Supervisor nennt nach jeder Runde unter „Zu starten“ die Befehle für die nächsten Tickets.
 - Den Reviewer ruft der Worker selbst auf. Von Hand wird er nur gestartet, um ein Review zu wiederholen.
 
-Mit einem Runner gelten dieselben Aufrufe; er startet die Sitzungen selbst ([Runner](../docs/01-spezifikation/runner.md)).
+Mit Orchestrator gelten dieselben Aufrufe; was er dabei übernimmt, steht unter [Runner](../docs/01-spezifikation/runner.md) und [CCMAS mit Orchestrator](../docs/02-orchestrator/README.md).
 
 ## Skills
 
