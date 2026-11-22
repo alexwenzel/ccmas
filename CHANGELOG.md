@@ -4,6 +4,8 @@ Alle Änderungen an Plugin und Spezifikation. Das Format folgt [Keep a Changelog
 
 ## [Unveröffentlicht]
 
+## [0.5.0] – 2026-11-22
+
 Vereinfachung des Konzepts. Diese Fassung bricht mit 0.4.0; was in einem bestehenden Projekt zu tun ist, steht in der [README](README.md#umstieg-von-040).
 
 ### Hinzugefügt
@@ -66,7 +68,8 @@ Nicht als Release veröffentlicht, ohne Tag.
 
 - Das Plugin `ccmas` mit Agents und Skills für Supervisor, Planner, Worker, Reviewer und Merger sowie `ticket` und `init`.
 
-[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.4.0...develop
+[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.5.0...develop
+[0.5.0]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.4.0...ccmas--v0.5.0
 [0.4.0]: https://github.com/alexwenzel/ccmas/commits/ccmas--v0.4.0
 [0.3.0]: https://github.com/alexwenzel/ccmas/commits/develop
 [0.2.0]: https://github.com/alexwenzel/ccmas/commits/develop
