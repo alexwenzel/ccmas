@@ -4,6 +4,12 @@ Alle Änderungen an Plugin und Spezifikation. Das Format folgt [Keep a Changelog
 
 ## [Unveröffentlicht]
 
+## [0.5.1] – 2026-11-22
+
+### Geändert
+
+- Beschreibung des Plugins und READMEs stellen CCMAS als Claude Code Multi Agent Setup mit Orchestrator dar: Projekte planen, Features planen, das Board von Orchestrator abarbeiten lassen. Am Verhalten ändert sich nichts; das Plugin läuft weiter auch mit Claude Code allein.
+
 ## [0.5.0] – 2026-11-22
 
 Vereinfachung des Konzepts. Diese Fassung bricht mit 0.4.0; was in einem bestehenden Projekt zu tun ist, steht in der [README](README.md#umstieg-von-040).
@@ -68,7 +74,8 @@ Nicht als Release veröffentlicht, ohne Tag.
 
 - Das Plugin `ccmas` mit Agents und Skills für Supervisor, Planner, Worker, Reviewer und Merger sowie `ticket` und `init`.
 
-[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.5.0...develop
+[Unveröffentlicht]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.5.1...develop
+[0.5.1]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.5.0...ccmas--v0.5.1
 [0.5.0]: https://github.com/alexwenzel/ccmas/compare/ccmas--v0.4.0...ccmas--v0.5.0
 [0.4.0]: https://github.com/alexwenzel/ccmas/commits/ccmas--v0.4.0
 [0.3.0]: https://github.com/alexwenzel/ccmas/commits/develop

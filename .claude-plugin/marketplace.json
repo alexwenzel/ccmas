@@ -8,7 +8,7 @@
     {
       "name": "ccmas",
       "source": "./claude-plugin",
-      "description": "Rollen und Abläufe, um ein Projekt zu planen und sein Board Ticket für Ticket abzuarbeiten: Planner, Supervisor, Worker und Reviewer mit ihren Skills. Läuft mit Claude Code allein oder mit einem Runner."
+      "description": "Claude Code Multi Agent Setup mit Orchestrator (orchestrator.inc): Projekte planen, Features planen und das Board von Agents mit festen Rollen abarbeiten lassen, bis zum geprüften und gemergten PR. Läuft auch mit Claude Code allein."
     }
   ]
 }
