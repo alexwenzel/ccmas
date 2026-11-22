@@ -8,7 +8,7 @@ Dieses Repository enthält CCMAS (Claude Code Multi Agent Setup): die Spezifikat
 | --- | --- |
 | `docs/01-spezifikation/` | Das Konzept. Maßgeblich dafür, was das Plugin tun soll |
 | `docs/02-orchestrator/` | CCMAS mit Orchestrator als Runner |
-| `claude-plugin/agents/` | Je Rolle eine Agent-Definition |
+| `claude-plugin/agents/` | Agent-Definitionen für Subagents der Skills, derzeit `reviewer` |
 | `claude-plugin/skills/<name>/SKILL.md` | Je Ablauf ein Skill |
 | `claude-plugin/skills/init/*.vorlage.md` | Vorlagen, die `/ccmas:init` in ein Zielprojekt kopiert |
 | `orchestrator/` | Regeldateien für Orchestrator |

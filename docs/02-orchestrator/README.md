@@ -1,270 +1,101 @@
 # CCMAS mit Orchestrator
 
-Wie Orchestrator (kurz AO) als Läufer für CCMAS dient: Das Verhalten kommt aus dem Plugin `ccmas`, Orchestrator führt die Sitzungen ([Läufer](../01-spezifikation/konzept.md#bausteine)).
+Orchestrator (CLI `ao`) ist ein [Runner](../01-spezifikation/runner.md) für CCMAS. Er hält den Ablauf am Laufen: Sitzungen, Worktrees, Ereignisse aus dem PR, Reviewer-Läufe, Benachrichtigungen. Rollen, Board, Planung und Freigaben kommen unverändert aus dem Plugin ([Spezifikation](../01-spezifikation/README.md)).
 
-**Stand:** Ausgearbeitet am 14.11.2026 allein aus der Dokumentation von Orchestrator ([Quellen](#quellen)), am 15.11.2026 auf das Plugin umgestellt. Installiert und ausprobiert ist nichts. Befehle und Schlüssel sind der Dokumentation entnommen; vor dem Einsatz mit `ao <befehl> --help` gegen die installierte Fassung prüfen. Was die Dokumentation offen lässt, steht unter [Offene Punkte](#offene-punkte).
+Zwei Regeldateien unter [`orchestrator/`](../../orchestrator/) bringen die Zuordnung in die Sitzungen. Wie sie eingetragen werden, steht in [einrichtung.md](einrichtung.md).
 
-## Kurzfassung
+**Stand:** Die Zuordnung stammt aus der Dokumentation von Orchestrator und aus einer Prüfung am 2026-11-22 mit Orchestrator 0.15.3 ([Geprüft](#geprüft)). Die Regeldateien in dieser Fassung sind noch in keinem Lauf erprobt ([Noch offen](#noch-offen)).
 
-- Orchestrator übernimmt, was ein Läufer leisten soll: Sitzungen starten, je Sitzung ein Worktree mit Branch, Sitzung im Terminal oder im Chat bedienen, PR, CI und Reviews beobachten, mehrere Sitzungen nebeneinander.
-- Das Verhalten bleibt im Plugin `ccmas` ([Das Plugin](../../claude-plugin/README.md)). Orchestrator startet Claude Code im Worktree; dazu kommen zwei Regeldateien je Projekt, eine für Worker, eine für den Orchestrator.
-- Orchestrator kennt drei Rollen, CCMAS fünf. Supervisor und Merger fallen in der Orchestrator-Sitzung zusammen, Planner und Worker sind Worker-Sitzungen mit verschiedenem Auftrag, der Reviewer ist ein eigener Reviewer-Lauf.
-- Zwei Dinge leistet Orchestrator nicht: Es kennt Asana nicht, und es integriert nie von selbst. Das Ticket pflegen weiter die Skills über die Asana-Verbindung von Claude Code, und den Merge löst eine Sitzung oder der Mensch ausdrücklich aus.
-- Zu tun bleibt: das Plugin global aktivieren, das Projekt einrichten und zwei Regeldateien schreiben.
+## Zuordnung
 
-## Die Konzepte, die das möglich machen
-
-| Konzept | Was es ist | Wofür in CCMAS |
-| --- | --- | --- |
-| Daemon, Desktop-App, `ao` | Ein lokaler Dienst hält Projekte, Sitzungen und PR-Stand in einer Datenbank unter `~/.ao`. Die Desktop-App ist die Oberfläche, `ao` ein Client desselben Dienstes | Der Läufer |
-| Projekt | Ein registriertes lokales Repository mit eigenen Einstellungen | Das Zielprojekt |
-| Sitzung | Die Arbeitseinheit: ein Agent an einer Aufgabe, mit dauerhafter Kennung, eigenem Verlauf und eigenem Arbeitsverzeichnis | Ein Rollenlauf |
-| Worktree je Sitzung | Jede Sitzung in einem Git-Projekt bekommt einen eigenen Worktree und Branch. Sitzungen teilen sich weder Dateien noch Terminal noch Verlauf | Der Worktree des Tickets |
-| Harness | Das Agenten-Programm, hier Claude Code. Orchestrator nutzt das installierte Programm und dessen Anmeldung | Claude Code mit dem Abo-Login |
-| Rollen | Worker setzt um und besitzt PRs. Orchestrator überblickt ein Projekt und delegiert. Reviewer prüft den PR eines Workers | [Rollen abbilden](#rollen-abbilden) |
-| Chat und Terminal | Zwei Arten, eine Sitzung zu bedienen. Im Terminal läuft die gewohnte Oberfläche von Claude Code. Eine Sitzung lässt sich umschalten | Der Mensch kann in jeder Sitzung mitarbeiten |
-| Projektregeln | Dauerhafte Anweisungen je Rolle, als Text oder als Datei im Repository. Sie werden beim Start der Sitzung an die Anweisungen der Rolle angehängt | Regeln für Worker und Orchestrator, zusätzlich zum Plugin |
-| PR-Beobachtung | Orchestrator verfolgt PRs der Sitzungen: Prüfungen, Review-Stand, offene Kommentare, Integrierbarkeit | Prüft Übergaben am PR nach |
-| Eingebaute Reaktionen | Rote Prüfungen, verlangte Änderungen, offene Kommentare und Konflikte gehen von selbst an die Sitzung, der der PR gehört. Unverändertes wird nicht doppelt gesendet | Deckt einen Teil der [Merge-Phase](../01-spezifikation/ablauf.md#merge-phase) ab |
-| Reviewer-Lauf | Ein eigener Agent prüft den PR eines Workers. Nötige Änderungen gehen als Kommentare an den Worker zurück | Der Reviewer |
-| Meldungen der Worker | Ein Worker meldet seinem Orchestrator den Stand: Zwischenstand, braucht Eingabe, steckt fest, fertig | Entspricht dem Feld „Ausgang“ |
-| Benachrichtigungen | Dauerhafte Liste: Sitzung wartet auf Eingabe, PR bereit zum Merge, PR gemergt, PR geschlossen | „Wartet auf dich“ |
-| Cues | Gespeicherte Aufträge oder Shell-Befehle je Projekt, von Hand ausgelöst | Die Rollenaufträge als Knopf |
-| Automationen | Geplante Aufträge nach Zeitplan, mit Projekt, Auftrag, Agent und Rolle | Eine Supervisor-Runde nach Uhr |
-
-## Was Orchestrator übernimmt
-
-| Aufgabe | Mit Orchestrator | Lücke |
-| --- | --- | --- |
-| Rolle starten | `ao spawn` oder „New task“ in der App | keine |
-| Worktree und Branch je Ticket | Legt jede Sitzung selbst an; Branch mit `--branch` wählbar | Ort und Name bestimmt Orchestrator ([Was nicht passt](#was-nicht-passt)) |
-| Sitzung bedienen | Terminal-Ansicht der Sitzung in der App | keine |
-| Projekt einrichten | Kein Gegenstück | Das macht `/ccmas:init` aus dem Plugin |
-| Läufe verfolgen | Sitzungsübersicht, `ao session ls`, Zustände aus Aktivität und PR-Stand | keine |
-| Ergebnis nachprüfen | PR-Beobachtung liefert Prüfungen, Review und Integrierbarkeit | Die Spalte im Board prüft niemand |
-| Supervisor-Loop | Orchestrator-Sitzung, die Worker startet und überwacht | Läuft als eine lange Sitzung, nicht als frische Runden |
-| Parallelität | Mehrere Sitzungen nebeneinander | Eine Obergrenze nennt die Dokumentation nicht |
-| Meldung am Ende eines Schritts | `ao report` mit festen Zuständen | Kein frei wählbares Format je Rolle |
-| Szenario-Tests | Kein Gegenstück | bleibt offen |
-
-## Rollen abbilden
-
-| CCMAS-Rolle | In Orchestrator | Start | Verhalten kommt aus |
-| --- | --- | --- | --- |
-| Supervisor | Orchestrator-Sitzung | `ao spawn --kind orchestrator` oder in der App | Regeldatei des Orchestrators, Skill `ccmas:supervisor` |
-| Planner | Worker-Sitzung mit Planner-Auftrag | `ao spawn --kind worker` mit dem Auftrag als Text | Skill `ccmas:task-planning` |
-| Worker | Worker-Sitzung | `ao spawn --kind worker --branch ticket/<Ticket>` | Regeldatei der Worker, Skill `ccmas:feature-parallel` |
-| Reviewer | Reviewer-Lauf am PR des Workers | `ao review trigger`, oder der Worker fordert ihn selbst an | Reviewer-Einstellung des Projekts |
-| Merger | Kein eigener Agent. Fertigmachen übernehmen die eingebauten Reaktionen im Worker, den Merge löst die Orchestrator-Sitzung oder der Mensch aus | `ao pr merge` | Regeldatei des Orchestrators, Skill `ccmas:merge` |
-
-- **Modell je Rolle:** Ein Projekt hat je einen Agenten mit Modell für Worker und für den Orchestrator. Der Planner soll ein stärkeres Modell bekommen als der Worker; das geht je Start mit `--model`. Für den Reviewer nimmt `ao review trigger` ein eigenes Modell an.
-- **Rechte:** Die Einstellung `permissions` mit dem Wert `bypass-permissions` entspricht den maximalen Rechten aus [Rechte](../01-spezifikation/claude-code.md). Reviewer erben die Rechte der Worker nicht.
-- **Kein Agent beim Start:** Dass sich beim Start einer Sitzung ein Agent des Plugins wählen lässt, steht nicht in der Dokumentation. Die Rolle steckt deshalb im ersten Auftrag, der den Skill aufruft, und in den Regeldateien.
-
-## Wo das Verhalten liegt
-
-Die Aufteilung aus [Wie Claude Verhalten lernt](../01-spezifikation/claude-code.md#wie-claude-verhalten-lernt) bleibt. Es kommt eine Ebene dazu.
-
-| Ebene                        | Inhalt                                                                                  | Ort                                                                                                                  |
-| ---------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Fähigkeiten und Rollen       | Die Skills und Agents                                                                   | Plugin `ccmas`, global oder im Projekt aktiviert                                                                     |
-| Projektregeln für alle       | Referenzen auf Board und Felder, Prüfbefehle, Grenzen                                   | `CLAUDE.md` im Repository, angelegt von `/ccmas:init`                                                                |
-| Regeln je Orchestrator-Rolle | Was ein Worker immer beachtet; wie der Orchestrator überwacht, delegiert und integriert | Zwei Dateien im Repository, in den Projekteinstellungen als `agentRulesFile` und `orchestratorRulesFile` eingetragen |
-| Auftrag                      | Welcher Skill mit welchem Ticket                                                        | Der erste Auftrag beim Start, als Text oder als Cue                                                                  |
-
-- **Das Plugin muss an sein.** Orchestrator startet Claude Code selbst. Damit die Sitzungen das Plugin laden, wird es global aktiviert oder im Projekt ([Das Plugin](../../claude-plugin/README.md)).
-- **Projektregeln und Regeldateien müssen in Git liegen.** Eine Sitzung arbeitet im Worktree und sieht nur, was committet ist.
-- **Regeldateien werden beim Start gelesen.** Eine Änderung wirkt erst in neuen Sitzungen. Der Pfad ist relativ zum Repository und darf es nicht verlassen.
-- **Die Agents des Plugins sind die Quelle der Regeldateien.** Supervisor und Merger für den Orchestrator, Worker für die Worker. Planner und Reviewer stehen in ihrem Auftrag beziehungsweise in ihrem Skill.
-
-## Ablauf eines Tickets
-
-```mermaid
-flowchart TD
-    M[Mensch] -->|startet die Runde, oder eine Automation| S[Orchestrator-Sitzung<br/>mit den Supervisor-Regeln]
-    S -->|ao spawn mit Planner-Auftrag| P[Worker-Sitzung als Planner]
-    P -->|Ticket in To Do, ao report --done| S
-    S -->|ao spawn --branch ticket/ID| W[Worker-Sitzung<br/>eigener Worktree und Branch]
-    W -->|PR erstellt, ao review trigger| R[Reviewer-Lauf]
-    R -->|Befunde als Kommentare| W
-    R -->|freigegeben| S
-    G[GitHub: CI, Kommentare, Konflikte] -->|eingebaute Regeln| W
-    S -->|R0 bis R2: ao pr merge| D[develop<br/>Ticket nach Done]
-    S -->|R3: Rückfrage| M
-    M -->|Freigabe| S
-```
-
-1. **Supervisor.** Die Orchestrator-Sitzung liest das Board nach `ccmas:supervisor` und bestimmt das nächste Ticket. Anders als im [Minimum](../01-spezifikation/claude-code.md) kann sie den nächsten Schritt selbst starten, statt nur den Befehl zu nennen.
-2. **Planner.** Eine Worker-Sitzung mit dem Auftrag, das Ticket auszuplanen. Sie schreibt Plan, Akzeptanzkriterien und Risikoklasse ins Ticket, verschiebt es nach To Do und meldet sich mit `ao report --done` ab. Ihren Worktree braucht sie nicht.
-3. **Worker.** Eine Worker-Sitzung auf dem Branch `ticket/<Ticket>`. Sie setzt um, pusht und erstellt den PR. Der PR gehört damit dieser Sitzung.
-4. **Reviewer.** Ist `workersRequestReview` eingeschaltet, fordert der Worker den Reviewer selbst an, sobald der PR steht, und erneut nach jeder Korrektur. Nötige Änderungen kommen als Kommentare zurück in die Worker-Sitzung. Eine Freigabe erzeugt keinen Kommentar; den Stand zeigt `ao review ls`.
-5. **Fertig machen.** Schlägt eine Prüfung fehl oder entsteht ein Konflikt, bekommt die Worker-Sitzung das von selbst gemeldet und behebt es. Diesen Teil des Mergers braucht es nicht mehr.
-6. **Merge.** Sind Prüfungen grün und der Reviewer hat freigegeben, entsteht die Benachrichtigung „bereit zum Merge“. Integriert wird nie von selbst. Bei R0 bis R2 löst die Orchestrator-Sitzung `ao pr merge` aus, bei R3 erst nach deiner Freigabe. Der Befehl verlangt den Commit, auf dem der PR stehen muss; das ist der „geprüfte Commit“ aus dem Urteil.
-7. **Abschluss.** Die Sitzung, die integriert hat, verschiebt das Ticket nach Done.
-
-## Einrichtung
-
-### 1 Installieren und prüfen
-
-- Die Desktop-App installieren (macOS, auch über Homebrew). Sie bringt den Dienst und `ao` mit.
-- Voraussetzungen: Git, die Kommandozeile `gh` angemeldet, Claude Code installiert und angemeldet.
-- Prüfen:
-
-```bash
-ao doctor
-ao agent ls --refresh
-```
-
-### 2 Projekt registrieren
-
-```bash
-ao project add --path /Users/alex/Projekte/alexwenzel/ccmas --id ccmas \
-  --worker-agent claude-code --orchestrator-agent claude-code
-ao project get ccmas
-```
-
-`ao start` öffnet nur die App und registriert nichts.
-
-### 3 Plugin aktivieren und Projekt einrichten
-
-- Das Plugin global aktivieren. Die Befehle stehen in der `README.md` des Code-Repositorys:
-
-```bash
-claude plugin marketplace add /Users/alex/Projekte/alexwenzel/ccmas
-claude plugin install ccmas@alexwenzel --scope user
-```
-
-- Im Zielprojekt `/ccmas:init` ausführen. Es legt `CLAUDE.md` und `docs/` an und trägt die Referenzen ein.
-- Die zwei Regeldateien liegen im Code-Repository von CCMAS unter `orchestrator/`: `agent-rules.md` für Worker-Sitzungen, `orchestrator-rules.md` für die Orchestrator-Sitzung. Für ein anderes Projekt werden sie in dessen Repository kopiert.
-- Alles committen.
-
-### 4 Projekt einstellen
-
-In der App unter Project Settings, je Rolle:
-
-| Einstellung | Wert |
+| Verb | Orchestrator |
 | --- | --- |
-| Basis-Branch (`defaultBranch`) | `develop` |
-| Worker: Agent, Modell, Rechte | Claude Code, das schwächere Modell, `bypass-permissions` |
-| Orchestrator: Agent, Modell, Rechte | Claude Code, das starke Modell, `bypass-permissions` |
-| Regeln der Worker (`agentRulesFile`) | Pfad der Worker-Regeldatei |
-| Regeln des Orchestrators (`orchestratorRulesFile`) | Pfad der Orchestrator-Regeldatei |
-| Reviewer (`reviewers`) | Claude Code |
-| Worker fordern Review an (`workersRequestReview`) | ein |
-| Standard-Oberfläche (Settings → General) | Terminal UI, wenn du die gewohnte Claude-Oberfläche willst |
+| Starten | Supervisor: der Projekt-Orchestrator. Orchestrator lässt je Projekt genau einen zu; `ao spawn --project <Projekt> --kind orchestrator --name supervisor` startet ihn oder liefert den laufenden zurück. Er bekommt `/ccmas:supervisor [Milestone]` als Nachricht. Worker: `ao spawn --kind worker --name "<Ticket>" --branch ticket/<Ticket> --prompt "/ccmas:worker <Ticket>"`. Hält eine laufende Sitzung den Branch, scheitert ein zweiter Start |
+| Fortsetzen | Nachricht an die Sitzung: `ao send --session <Sitzung> --message "…"`. Beendete Sitzung: `ao session restore <Sitzung>`; sie behält Worktree, Branch und Verlauf. Ein neuer Start mit demselben Branch übernimmt nur den Branch |
+| Laufendes erkennen | `ao session ls --json`: je Sitzung Aktivität, Status, PR, Prüfungen und offene Kommentare. Das Urteil des Reviewers steht dort nicht. Eine Sitzung heißt wie ihr Ticket |
+| Review holen | Der Reviewer-Lauf von Orchestrator, vom Worker angefordert: nach dem PR `ao review trigger --pr <URL>`, nach jedem Push `ao review trigger`. Ein Lauf gilt für einen Commit; derselbe Commit wird nicht zweimal geprüft. Befunde kommen als Nachricht beim Worker an, die Freigabe nicht: Er wartet, bis `ao review ls --json` für seinen Commit einen abgeschlossenen Lauf zeigt |
+| Urteil lesen | `ao review ls <Sitzung> --json`: `latestRun.verdict` und `targetSha`. Der Supervisor mergt nur, wenn das Urteil `approved` lautet und `targetSha` der Commit des PR ist |
+| Ereignisse | Eingebaut: Review-Kommentare und Konflikte gehen als Nachricht an die Sitzung, der der PR gehört; ein Konflikt kam in der Prüfung nach 46 Sekunden an. Für rote Checks gilt das laut Dokumentation ebenso. Der Supervisor bekommt diese Ereignisse nicht, und nach dem Beenden der Sitzung bekommt sie niemand |
+| Melden | Erst das Ticket pflegen, dann `ao report` mit `--note "<Ticket>: …"`. Rückfrage: `--needs-input`, sofort zugestellt. Freigegeben und grün: `--done --pr-created <URL>`, zugestellt fünf Minuten nach dem Absenden. Nichts geht mehr: `--stuck`. Alles andere kommt erst mit der nächsten Meldung oder nach bis zu einer Stunde an |
+| Mergen | `ao pr merge <Nummer> --url <URL> --expected-head-sha <Commit>`. Der Befehl prüft eigene Bedingungen, die er nicht nennt: An einem Repository ohne CI verweigerte er (`PR_PRECONDITIONS_UNMET`), in einem Projekt mit CI lief er. Verweigert er, obwohl die Merge-Bedingungen der Spezifikation erfüllt sind: `gh pr merge <Nummer> --squash --match-head-commit <Commit>` |
+| Aufräumen | Der Supervisor beendet die Sitzung des gemergten Tickets mit `ao session kill <Sitzung>`; dabei läuft `preRemove`, und der Worktree verschwindet. In der Prüfung baute Orchestrator nach dem Merge nicht von selbst ab. Der Branch bleibt lokal und auf `origin` stehen und wird wie ohne Runner gelöscht. Scheitert `preRemove`, bleibt der Worktree: Ursache beheben, dann `ao session cleanup` |
+| Runde auslösen | Jede zugestellte Meldung. Der Projekt-Orchestrator läuft dauerhaft |
 
-Über die Kommandozeile geht dasselbe mit `ao project set-config`. Vorsicht bei `--config-json`: Es ersetzt die gesamte Projekteinstellung, und ein Tippfehler in einem Schlüssel löscht still, was dort stand. Vorher mit `ao project get ccmas --json` ansehen und lieber die einzelnen Schalter aus `ao project set-config --help` nehmen.
+## Was sich gegenüber Claude Code allein ändert
 
-### 5 Rollen starten
+- **Ein Supervisor je Projekt.** Orchestrator lässt nur einen Projekt-Orchestrator zu, und alle Meldungen gehen an ihn. Läuft er nicht, bleiben sie liegen und kommen nach dem Fortsetzen an. Der Supervisor nimmt das ganze Board oder die Milestones nacheinander.
+- **Der Worker bleibt bis zum Merge bestehen.** `--done` beendet die Sitzung nicht. Nach dem Beenden erreichen Befunde und Konflikte niemanden mehr.
+- **Zwei Meldungen je Ticket.** Der Supervisor erfährt von einer Rückfrage und vom freigegebenen, grünen PR. Was dazwischen am PR geschieht, regeln Worker, Reviewer und Orchestrator ohne ihn. Die zweite Meldung braucht fünf Minuten.
+- **Review.** Der Skill `reviewer` wird nicht gebraucht. Der Reviewer von Orchestrator schreibt ein Review mit Zusammenfassung und je Pflicht-Befund einen Kommentar an der Zeile. Er lädt die `CLAUDE.md` des Projekts und richtet sich nach ihrem Abschnitt „Review“. Einen Prüfauftrag, der nur in der Beschreibung des PR steht, beachtet er nicht.
+- **Der Worker wartet auf sein Review.** Befunde werden ihm zugestellt, die Freigabe nicht, und auch der Supervisor erfährt sie nicht von selbst. Der Worker fragt deshalb `ao review ls` ab, bevor er meldet.
+- **Die Freigabe des Reviewers ist intern.** Bei GitHub steht sie als Review mit dem Status `COMMENTED`, nicht als Freigabe, und sie erfüllt keinen Branch-Schutz, der Reviews verlangt. Der Integrationsbranch setzt deshalb keine GitHub-Reviews voraus.
+- **Behobene Befunde schließen.** Nach dem Beheben markiert der Worker die Kommentare mit `ao pr resolve-comments <Nummer>` als erledigt.
+- **Konflikte per Merge.** Die Nachricht von Orchestrator verlangt einen Rebase, und in der Prüfung hat der Worker ihn ausgeführt. Für CCMAS gilt die Spezifikation: den Integrationsbranch per Merge einarbeiten, kein Rebase, kein `--force`. Die Regeldatei sagt das ausdrücklich.
+- **Dritte Runde.** Orchestrator zählt keine Runden. Der Worker zählt die Reviews am PR (`gh pr view <Nummer> --json reviews`) und legt nach Befunden in der dritten die Rückfrage an.
+- **Hauptverzeichnis.** Worktrees zweigen von `origin/<defaultBranch>` ab. Der Zustand des Hauptverzeichnisses spielt keine Rolle.
+- **Vorab-Check.** Vor dem ersten Start einer Runde prüft der Supervisor mit `ao doctor`, ob der Runner bereit ist. Scheitert ein Start am Setup, meldet er die Ursache und startet nichts weiter.
+- **Hängende Sitzung.** Erst `ao session interrupt <Sitzung>`; `ao session kill` nur, wenn sie nach etwa drei Minuten noch arbeitet.
+- **Geänderte Regeln.** Eine laufende Sitzung sieht geänderte Regeldateien nicht. Nach einer Änderung wird der Supervisor neu gestartet.
 
-```bash
-# Supervisor
-ao spawn --project ccmas --kind orchestrator --name "Supervisor" --mode tui
+## Was Orchestrator nicht übernimmt
 
-# Planner für ein Ticket oder eine Beschreibung
-ao spawn --project ccmas --kind worker --name "CC-12 Planner" --mode tui \
-  --model <starkes Modell> --prompt "/ccmas:task-planning CC-12"
+- **Das Ticketsystem.** Orchestrator liest nur Issues aus GitHub und GitLab und schreibt nie zurück. Das Board pflegen die Skills über `ticket`.
+- **Planung und Freigaben.** Beides steht im Plugin und in der `CLAUDE.md`.
+- **Den Merge.** Orchestrator meldet „bereit zum Merge“ und mergt nie von selbst. Den Befehl gibt der Supervisor.
 
-# Worker
-ao spawn --project ccmas --kind worker --name "CC-12" --mode tui \
-  --branch ticket/CC-12 --prompt "/ccmas:feature-parallel CC-12"
+## Zusätzlich nutzbar
 
-# Reviewer am PR des Workers
-ao review trigger <Sitzung des Workers> --agent claude-code --model <starkes Modell>
-ao review ls <Sitzung des Workers>
+Nicht Teil des Grundablaufs; je Projekt zu entscheiden. Ausprobiert ist davon nur die Automation.
 
-# Merge
-ao pr merge <PR-Nummer> --url <PR-URL> --expected-head-sha <geprüfter Commit>
-```
+- **Runde ohne Meldung.** Eine Antwort im Ticketsystem weckt den Supervisor nicht. Der Mensch schreibt ihm, oder er startet an der Sitzung ein Cue „Runde“ mit dem Auftrag `/ccmas:supervisor`. Ohne den Menschen: eine Automation, die nach Zeitplan beantwortete Rückfragen sucht und sie mit `ao report --needs-input` meldet. Jeder Lauf startet eine Worker-Sitzung mit eigenem Worktree, die danach bestehen bleibt und beendet werden muss.
+- **Sichtprüfung im Abnahmetest.** `ao preview start` startet die Anwendung aus `.ao/launch.json`, `ao browser` bedient sie und macht Screenshots.
+- **Protokoll als Datei.** `ao artifact add <Datei>` macht das Protokoll des Abnahmetests zu einem Ergebnis der Sitzung.
+- **Zweite Meinung.** `ao review trigger <Sitzung> --agent <anderer Agent> --rerun` stellt einen zweiten Reviewer auf denselben Commit, etwa als Bedingung, wenn der Supervisor eine Freigabe selbst erteilt.
+- **Verlauf eines Workers lesen.** `ao session history <Sitzung>`. Nachrichten, die Orchestrator selbst zustellt, fehlen dort.
+- **Limit eines Kontos.** `ao account switch <Sitzung> <Konto>` setzt die Sitzung auf einem anderen Konto fort.
 
-Dieselben Aufträge lassen sich als Cues speichern und in der App auslösen:
+## Geprüft
 
-```bash
-ao cue create --project ccmas --name "Planner" --prompt "/ccmas:task-planning <Ticket>"
-```
+Am 2026-11-22 mit Orchestrator 0.15.3 und Claude Code 2.1.323 an einem Wegwerf-Repository ohne CI ausprobiert:
 
-### 6 Betrieb
+| Verhalten | Ergebnis |
+| --- | --- |
+| Zweiter Start mit demselben Branch | Scheitert, solange eine Sitzung den Branch hält (`BRANCH_CHECKED_OUT_ELSEWHERE`). Nach `ao session kill` ist der Branch frei |
+| `ao session restore` | Bringt Worktree, Branch und Verlauf zurück |
+| Skill-Aufruf als erster Auftrag und als Nachricht an den Projekt-Orchestrator | Der Skill läuft, im Terminal UI und im Chat |
+| Regeldateien | Beide stehen im System-Prompt ihrer Sitzung. Der Schalter für die Regeln des Orchestrators heißt `--orchestrator-rules-file`. Eine laufende Sitzung sieht Änderungen erst nach einem Neustart |
+| Meldungen | `--needs-input` sofort; `--done` immer nach fünf Minuten, auch ohne andere Worker; eine Meldung ohne Art nicht binnen zehn Minuten. Meldungen an einen angehaltenen Orchestrator kommen nach dem Fortsetzen an |
+| Zweiter Orchestrator im Projekt | Gibt es nicht; `ao spawn --kind orchestrator` liefert die laufende Sitzung zurück |
+| Automation | Jeder Lauf startet eine Worker-Sitzung mit eigenem Worktree, ihre Meldung kommt an, und die Sitzung bleibt danach bestehen |
+| Reviewer-Lauf | Folgt der `CLAUDE.md`, nicht der Beschreibung des PR. Befunde als Review und Kommentar an der Zeile, dem Worker zugestellt; die Freigabe wird niemandem zugestellt. `ao review ls` zeigt Urteil und geprüften Commit. Zweiter Trigger ohne neuen Commit: `REVIEW_HEAD_ALREADY_REVIEWED` |
+| `ao pr merge` | Falscher Commit: `PR_HEAD_CHANGED`. Richtiger Commit: `PR_PRECONDITIONS_UNMET`, obwohl GitHub den PR für mergebar hielt |
+| Abbau nach dem Merge | Nicht von selbst binnen sechs Minuten. `ao session kill` führt `preRemove` aus und entfernt den Worktree; die Branches bleiben. Scheitert `preRemove`, bleibt der Worktree, und `ao session cleanup` räumt ihn später auf |
+| Umgebung der Setup-Schritte | Minimaler PATH ohne die Werkzeuge aus nvm. Gesetzt sind `AO_WORKTREE_PATH` und `AO_SOURCE_TREE_PATH`. `.worktreeinclude` wertet Orchestrator nicht aus |
+| Konflikt am PR | Der Worker bekommt nach 46 Sekunden eine Nachricht, die einen Rebase verlangt. Nach `ao session kill` kommt nichts mehr an |
 
-```bash
-ao session ls --project ccmas
-ao send --session <Sitzung> --message "…"
-ao session cleanup --dry-run
-```
+## Noch offen
 
-- Was auf dich wartet, steht in der Benachrichtigungsliste der App.
-- Eine Automation kann die Supervisor-Runde nach Zeitplan starten. Sie läuft im lokalen Dienst: Der Rechner muss wach sein und die App laufen.
+Zu entscheiden:
 
-## Regeldateien
+- **Meldung des fertigen PR.** `--done` passt zur Bedeutung und braucht fünf Minuten; so steht es in der Regeldatei. `--needs-input` käme sofort an, weist den Worker aber als wartend auf Eingabe aus.
 
-Die beiden Regeldateien sind geschrieben und liegen im Code-Repository unter `orchestrator/`, zusammen mit einer Anleitung zur Einrichtung. Erprobt sind sie noch nicht.
+Noch nicht ausprobiert:
 
-| Datei | Feld | Inhalt |
-| --- | --- | --- |
-| `orchestrator/agent-rules.md` | `agentRulesFile` | Die Rolle ergibt sich aus dem ersten Auftrag (Planner oder Worker). Ticket nur über den Skill pflegen, im Worktree von Orchestrator bleiben, PR mit `gh`, Review anfordern, nie selbst integrieren, nach jedem Schritt mit `ao report` melden |
-| `orchestrator/orchestrator-rules.md` | `orchestratorRulesFile` | Supervisor und Integrieren in einer Sitzung: Board lesen, Schritte mit `ao spawn` starten, das Urteil des Reviewer-Laufs ins Ticket eintragen, R0 bis R2 mit `ao pr merge` integrieren, bei R3 auf die Freigabe warten |
-
-Zwei Festlegungen stecken darin:
-
-- **Review über Orchestrator.** Die Prüfung macht der Reviewer-Lauf von Orchestrator, nicht der Skill `ccmas:code-review`. Eine eigene Reviewer-Sitzung bekäme einen eigenen Worktree und stünde nicht auf dem Stand des PR. Das Urteil trägt die Orchestrator-Sitzung ins Ticket ein und zählt die Runden.
-- **Kein eigener Merger.** Konflikte und fehlgeschlagene Prüfungen meldet Orchestrator an den Worker. Den Merge löst die Orchestrator-Sitzung aus, mit dem geprüften Commit als Bedingung.
-
-Am Plugin selbst war dafür nichts zu ändern.
-
-## Was nicht passt
-
-- **Asana ist kein Tracker.** Orchestrator liest Issues nur aus GitHub und GitLab und schreibt nie zurück. Das Board bleibt Sache der Skills über die Asana-Verbindung von Claude Code. Orchestrator sieht deshalb weder Spalte noch Felder; „Am Zug“ und „Ausgang“ kennt nur das Ticket.
-- **Der Supervisor wird eine lange Sitzung.** Die Orchestrator-Sitzung überwacht dauerhaft. Das widerspricht dem Grundsatz kurzer, frischer Sitzungen und kostet Kontext. Ausweg: die Orchestrator-Sitzung je Runde neu starten oder die Runde als Automation laufen lassen.
-- **Kein Merge ohne Auslöser.** Eine Einstellung für selbsttätiges Integrieren gibt es nicht. Für R0 bis R2 muss die Orchestrator-Sitzung den Befehl geben.
-- **Das Urteil des Reviewers landet nicht im Ticket.** Der Reviewer-Lauf hält sein Urteil in Orchestrator fest. Die Felder Review-Runde und das Urteil im Ticket muss eine andere Sitzung nachtragen. Eine Grenze von drei Runden kennt Orchestrator nicht.
-- **Eine Freigabe in Orchestrator ist keine Freigabe auf GitHub.** Verlangt der Branch-Schutz eine Freigabe, reicht der Reviewer-Lauf nicht.
-- **Worktrees liegen woanders.** Unter `~/.ao/data/worktrees`, nicht im Projekt. Ohne `--branch` heißt der Branch `ao/<Sitzung>/root`.
-- **Der Planner bekommt einen Worktree, den er nicht braucht.** Jede Worker-Sitzung in einem Git-Projekt legt einen an.
-- **Nutzungsdaten.** Die App sendet in der Auslieferung Nutzungsdaten an einen Analysedienst, darunter den GitHub-Benutzernamen. Abschaltbar unter Settings → General → Privacy.
-
-## Bewertung
-
-| | Claude Code direkt | Orchestrator |
-| --- | --- | --- |
-| Einrichtung | Plugin aktivieren, Projekt einrichten | Zusätzlich installieren, Projekt registrieren, Regeldateien schreiben |
-| Fünf Rollen mit eigenem Agent | Ja | Drei Rollen; Planner und Merger sind Aufträge, keine Rollen |
-| Parallelität, Überblick, Rückmeldung aus CI | Von Hand, in mehreren Terminals | Vorhanden |
-| Frische Sitzung je Schritt | Ja | Für Worker ja, für den Supervisor nur mit Umweg |
-| Ticketsystem im Ablauf | Über die Skills | Über die Skills; Orchestrator selbst sieht das Board nicht |
-| Bedienung | Terminal | Desktop-App, Kommandozeile zusätzlich |
-| Abhängigkeit | Nur Claude Code | Eine weitere App, die sich ändert; Open Source unter Apache-2.0 |
-
-Orchestrator ersetzt den Läufer, nicht das Konzept. Rollen, Board, Risikoklassen und Übergaben aus [Spezifikation](../01-spezifikation/README.md) bleiben, und sie stehen weiter im Plugin. Der Gewinn liegt bei mehreren Tickets gleichzeitig und bei der Rückmeldung aus PR und CI; für ein einzelnes Ticket reicht Claude Code direkt.
-
-## Offene Punkte
-
-Die Dokumentation beantwortet diese Fragen nicht. Sie sind beim ersten Versuch zu klären:
-
-1. **Lädt eine Sitzung Plugin und Projektregeln?** Im Terminal läuft Claude Code im Worktree; dann sollte es das aktivierte Plugin und die `CLAUDE.md` wie gewohnt laden. Für die Chat-Ansicht und für Reviewer-Läufe ist das nicht belegt.
-2. **Skill-Aufruf im ersten Auftrag:** Ob `--prompt "/ccmas:… <Ticket>"` den Skill aufruft, ist ungeprüft.
-3. **Wie startet der Orchestrator Worker?** Die Dokumentation sagt, dass er es kann, und nennt `ao spawn`, `ao send`, `ao review trigger` und die Meldungen der Worker. Den genauen Weg der Meldungen in die Orchestrator-Sitzung beschreibt sie nicht.
-4. **Reviewer mit eigenen Regeln:** Ob ein Reviewer-Lauf die Prüfschritte aus `ccmas:code-review` übernimmt oder nach eigenem Muster prüft.
-5. **Merge-Art:** Ob `ao pr merge` einen Squash-Merge macht, steht nicht in der Dokumentation.
-6. **Asana in der Sitzung:** Ob die Asana-Verbindung in von Orchestrator gestarteten Sitzungen verfügbar ist. Für Läufe ohne Oberfläche ist das Lesen nachgewiesen ([Nachgewiesen](../01-spezifikation/offene-punkte.md)).
+- Die Regeldateien in dieser Fassung in einem Lauf.
+- Ob der Reviewer von Orchestrator die Akzeptanzkriterien aus der Beschreibung des PR prüft, wenn die `CLAUDE.md` ihn dazu anweist.
+- Ob der Worker verlässlich auf das Ende seines Reviews wartet.
+- Welche Bedingung `ao pr merge` verlangt, und ob der Befehl anders als `gh pr merge` den Abbau der Sitzung auslöst.
+- Ob rote Checks den Worker als Nachricht erreichen.
+- Der Schritt in `postCreate`, der `.worktreeinclude` auswertet ([Einrichtung](einrichtung.md#setup-und-abbau-je-worktree)).
+- Aus der Dokumentation übernommen: `--stuck`, `ao session interrupt`, der zweite Reviewer, Vorschau und Browser, Artefakte, der Kontowechsel.
 
 ## Quellen
 
-- [Guides, Übersicht](https://docs.orchestrator.inc/guides/)
 - [Per-role agents](https://docs.orchestrator.inc/guides/per-role-agents/)
-- [Parallel work](https://docs.orchestrator.inc/guides/parallel-issues/)
 - [Review loop](https://docs.orchestrator.inc/guides/review-loop/)
-- [CI recovery](https://docs.orchestrator.inc/guides/ci-recovery/)
 - [Handle CI and review feedback](https://docs.orchestrator.inc/guides/reactions/)
-- [Forking sessions](https://docs.orchestrator.inc/guides/session-forks/)
-- [Import existing sessions](https://docs.orchestrator.inc/guides/import-sessions/)
-- [Multi-project](https://docs.orchestrator.inc/guides/multi-project/)
-- [Cloud sessions](https://docs.orchestrator.inc/guides/cloud/)
-- [Move from Conductor](https://docs.orchestrator.inc/guides/migrate-from-conductor/)
+- [Automation reference](https://docs.orchestrator.inc/configuration/lifecycle-automation/)
+- [Projects](https://docs.orchestrator.inc/configuration/projects/)
 - [CLI reference](https://docs.orchestrator.inc/cli/)
-- [Configuration](https://docs.orchestrator.inc/configuration/), [Projects](https://docs.orchestrator.inc/configuration/projects/), [Automation reference](https://docs.orchestrator.inc/configuration/lifecycle-automation/)
 - [Architecture](https://docs.orchestrator.inc/architecture/)
-- [Agents](https://docs.orchestrator.inc/plugins/agents/), [Claude Code](https://docs.orchestrator.inc/plugins/agents/claude-code/), [Trackers](https://docs.orchestrator.inc/plugins/trackers/)
-- [Installation](https://docs.orchestrator.inc/installation/), [FAQ](https://docs.orchestrator.inc/faq/)
-
-## Einrichtung im Repository
-
-Die beiden Regeldateien liegen unter [`orchestrator/`](../../orchestrator/). Wie sie eingetragen werden, steht in [einrichtung.md](einrichtung.md).
+- Die Befehlsbeschreibungen des Skills `using-ao`, den Orchestrator in sein Datenverzeichnis legt, und `ao <Befehl> --help`
