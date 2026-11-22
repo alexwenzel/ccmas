@@ -1,7 +1,7 @@
 {
   "name": "ccmas",
   "displayName": "CCMAS",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Rollen und Abläufe, um ein Projekt zu planen und sein Board Ticket für Ticket abzuarbeiten: Planner, Supervisor, Worker und Reviewer mit ihren Skills. Läuft mit Claude Code allein oder mit einem Runner.",
   "author": {
     "name": "Alexander Wenzel"
