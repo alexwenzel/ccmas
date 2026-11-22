@@ -1,12 +1,20 @@
 # CCMAS - claude code multi agent setup
 
-CCMAS (Claude Code Multi Agent Setup) lässt KI-Agents mit festen Rollen ein Projekt planen und sein Board Ticket für Ticket abarbeiten: Planner, Supervisor, Worker und Reviewer. Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code. Die Sitzungen führt Claude Code selbst oder ein Runner wie Orchestrator.
+CCMAS ist ein Claude Code Multi Agent Setup mit Orchestrator ([orchestrator.inc](https://orchestrator.inc)). Es deckt drei Schritte ab: ein Projekt planen, Features planen und die Aufgaben im Board von Orchestrator abarbeiten lassen.
+
+Dieses Repository enthält das Verhalten dafür als Plugin für Claude Code, mit den Rollen Planner, Supervisor, Worker und Reviewer. Orchestrator führt die Sitzungen. Ohne ihn läuft dasselbe Plugin mit Claude Code allein; dann startet der Mensch jede Sitzung selbst.
 
 **Stand:** Änderungen im [CHANGELOG](CHANGELOG.md). Das Plugin besteht `claude plugin validate`. Das Verhalten von Claude Code und Orchestrator, auf dem es aufbaut, ist ausprobiert ([Claude Code](docs/01-spezifikation/runner.md#geprüft), [Orchestrator](docs/02-orchestrator/README.md#geprüft)). Die Skills dieser Fassung sind in keiner echten Sitzung mit Board erprobt ([Noch nicht geprüft](#noch-nicht-geprüft)).
 
 ## So arbeitet CCMAS
 
-Das Plugin beschreibt, was eine Rolle tut. Der Runner bestimmt, wann und wo sie läuft, und stellt ihr Ereignisse zu. Mit Claude Code allein ist der Mensch der Runner.
+| Schritt | Womit | Ergebnis |
+| --- | --- | --- |
+| Projekt planen | `/ccmas:project-planning`, im Gespräch mit dem Menschen | Roadmap unter `docs/`, Milestones im Board |
+| Features planen | `/ccmas:feature-planning`, im Gespräch mit dem Menschen | Konzept unter `docs/`, ausgeplante Tasks im Board |
+| Board abarbeiten lassen | Orchestrator mit `/ccmas:supervisor` | Je Task ein geprüfter und gemergter PR |
+
+Das Plugin beschreibt, was eine Rolle tut. Orchestrator bestimmt als Runner, wann und wo sie läuft, und stellt ihr Ereignisse zu. Mit Claude Code allein ist der Mensch der Runner.
 
 Die Planung eines Projekts:
 
@@ -67,6 +75,7 @@ Spezifikation und Plugin liegen im selben Repository. Wer das Verhalten ändert,
 - Claude Code, angemeldet.
 - Die Kommandozeile `gh`, angemeldet.
 - In Claude Code eine Verbindung zum Ticketsystem (Asana).
+- Orchestrator, installiert und mit Claude Code als Agent ([Einrichtung](docs/02-orchestrator/einrichtung.md)). Ohne Orchestrator genügt Claude Code.
 - Im Zielprojekt: ein Git-Repository mit dem Integrationsbranch `develop` und ein Board mit den Spalten Backlog, To Do, In Progress, To Review, Done und den Feldern ID, Typ, Meilenstein, Label und PR ([Board](docs/01-spezifikation/board.md)).
 - Alle Rollen schreiben unter dem Konto ins Ticketsystem, mit dem die Verbindung angemeldet ist.
 
@@ -169,9 +178,19 @@ Dazu am Repository auf GitHub die Labels `freigabe: nötig` und `freigabe: ertei
 - Die Kennungen liest `init` aus dem Board. Was es nicht lesen konnte, bleibt `TODO`. Ein Lauf, der eine leere Referenz braucht, ändert nichts und rät nicht.
 - Der Mensch prüft die Dateien und committet sie einmal, damit Worktrees sie sehen.
 
-## Rollen starten
+## Das Board abarbeiten lassen
 
-Jede Rolle ist ein Aufruf von Claude Code mit einem Skill als erstem Auftrag, zum Beispiel:
+Orchestrator führt die Sitzungen: Er startet Supervisor und Worker, gibt jedem Ticket einen Worktree, stellt Befunde und Konflikte zu und stellt den Reviewer. Zwei Regeldateien unter `orchestrator/` verbinden ihn mit dem Plugin.
+
+1. Orchestrator einrichten und das Projekt dort anlegen: [Einrichtung](docs/02-orchestrator/einrichtung.md).
+2. Den Orchestrator des Projekts öffnen und ihm den Auftrag geben: `/ccmas:supervisor`, oder `/ccmas:supervisor <Milestone>` für einen Milestone.
+3. Der Supervisor startet die Worker, mergt, was geprüft ist, und nennt, was auf dich wartet. Jede Meldung eines Workers löst die nächste Runde aus.
+
+Was Orchestrator dabei übernimmt und was nicht, steht unter [CCMAS mit Orchestrator](docs/02-orchestrator/README.md).
+
+### Ohne Orchestrator
+
+Dasselbe Plugin läuft mit Claude Code allein. Dann startet der Mensch jede Sitzung selbst, mit einem Skill als erstem Auftrag:
 
 ```bash
 claude --permission-mode bypassPermissions --model opus "/ccmas:supervisor"
@@ -179,12 +198,9 @@ claude --permission-mode bypassPermissions --model opus "/ccmas:supervisor"
 
 Der Supervisor mergt, was geprüft ist, und nennt nach jeder Runde die Befehle für die nächsten Tickets. Alle Startbefehle stehen in der [README des Plugins](claude-plugin/README.md#start-einer-rolle).
 
-## Mit einem Runner
+### Andere Runner
 
-Ein Runner startet Claude Code selbst, gibt jedem Ticket einen Worktree und stellt Ereignisse zu. Damit seine Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`); `/ccmas:init` aktiviert es im Projekt.
-
-- **Orchestrator:** [Zuordnung](docs/02-orchestrator/README.md) und [Einrichtung](docs/02-orchestrator/einrichtung.md).
-- **Herdr:** Noch nicht ausgearbeitet.
+Ein Runner startet Claude Code selbst, gibt jedem Ticket einen Worktree und stellt Ereignisse zu. Damit seine Sitzungen das Plugin laden, muss es global aktiviert sein (`--scope user`) oder im Projekt (`--scope project`); `/ccmas:init` aktiviert es im Projekt. Was ein Runner erfüllen muss, steht unter [Runner](docs/01-spezifikation/runner.md). Herdr ist noch nicht ausgearbeitet.
 
 ## Umstieg von 0.4.0
 

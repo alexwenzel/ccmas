@@ -24,7 +24,7 @@ Vor einer Änderung die betroffenen Teile der Spezifikation lesen, beginnend bei
 - **Spezifikation und Plugin gehören zusammen.** Wer das Verhalten ändert, ändert beide im selben Commit. Die Spezifikation beschreibt, was gilt; das Plugin setzt es um. Widersprechen sie sich, ist das ein Fehler, der gemeldet und behoben wird.
 - **Jede Aussage steht an einer Stelle.** Rollen, Startbefehle und Skills stehen in `claude-plugin/README.md`, das Konzept in `docs/`. Andere Stellen verlinken, statt zu wiederholen.
 - **Nur der Skill `ticket` kennt das Ticketsystem.** Kein anderer Skill nennt Asana oder dessen Werkzeuge.
-- **Orchestrator steht nur in `docs/02-orchestrator/` und `orchestrator/`.** Die Spezifikation beschreibt den Ablauf mit Claude Code allein.
+- **Orchestrator ist der vorgesehene Runner.** Die READMEs und die Beschreibungen des Plugins nennen ihn so. Was Orchestrator tut und wie, steht nur in `docs/02-orchestrator/` und `orchestrator/`. Spezifikation und Skills bleiben neutral und beschreiben den Ablauf mit Claude Code allein; so läuft das Plugin auch ohne Orchestrator.
 - **Version:** Die `version` in `claude-plugin/.claude-plugin/plugin.json` ändert nur ein Release-Branch, nie ein Feature-PR ([RELEASE.md](RELEASE.md)). Wer Plugin oder Spezifikation inhaltlich ändert, trägt stattdessen eine Zeile in `CHANGELOG.md` unter „Unveröffentlicht“ ein. Dokumente tragen keine eigene Version und kein YAML-Frontmatter; ihre Version ist Git.
 - **Nichts als geprüft darstellen, was nicht geprüft ist.** Was nur nach der Dokumentation von Claude Code geschrieben und nicht ausprobiert wurde, steht in der README unter „Noch nicht geprüft“.
 
